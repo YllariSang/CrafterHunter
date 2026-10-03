@@ -6,8 +6,11 @@ Linux release officially supports Steam Proton/Wine.
 
 The current plugin registers the MHW process with the local CrafterHunter
 bridge, sends heartbeats, and publishes read-only camera telemetry through
-SharpPluginLoader's supported camera API. It does not hook rendering or modify
-gameplay.
+SharpPluginLoader's supported camera API. Version 0.2 also has an opt-in
+wireframe rendering probe using SharpPluginLoader's `OnRender` and 3D primitive
+API. It does not modify gameplay. See
+[the render-probe test](../../docs/render-probe-test.md) for setup and the
+real-game acceptance questions.
 
 Camera access is fail-closed: the endpoint waits for a valid bridge `HelloAck`
 and a ten-second startup grace period before touching MHW's native camera
