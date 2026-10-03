@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "crafterhunter",
+  "version": "${version}",
+  "name": "CrafterHunter",
+  "description": "Unofficial local interoperability endpoint for CrafterHunter.",
+  "authors": ["CrafterHunter contributors"],
+  "license": "All-Rights-Reserved",
+  "environment": "client",
+  "entrypoints": {
+    "client": [
+      "dev.crafterhunter.client.CrafterHunterClient"
+    ]
+  },
+  "mixins": [
+    {
+      "config": "crafterhunter.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=0.19.5",
+    "minecraft": "~26.2",
+    "java": ">=25"
+  }
+}
