@@ -2,7 +2,10 @@ package dev.crafterhunter.client.mixin;
 
 import dev.crafterhunter.client.CameraFeed;
 import dev.crafterhunter.client.CameraState;
+import dev.crafterhunter.client.CameraLink;
 import net.minecraft.client.Camera;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -18,6 +21,9 @@ public abstract class CameraMixin {
     @Shadow
     protected abstract void setRotation(float yawDegrees, float pitchDegrees);
 
+    @Shadow
+    public abstract Vec3 position();
+
     /**
      * Minecraft 26.1+ moved the vanilla camera transform from setup to
      * alignWithEntity. Applying at RETURN lets vanilla initialize all derived state
@@ -25,7 +31,15 @@ public abstract class CameraMixin {
      */
     @Inject(method = "alignWithEntity(F)V", at = @At("RETURN"))
     private void crafterhunter$applyMhwPose(float partialTicks, CallbackInfo callback) {
-        CameraFeed.latestFresh().ifPresent(this::crafterhunter$applyPose);
+        Minecraft minecraft = Minecraft.getInstance();
+        Vec3 vanilla = position();
+        CameraLink.Pose pose = CameraLink.instance().update(
+            CameraFeed.latestFresh().orElse(null), minecraft.level,
+            vanilla.x, vanilla.y, vanilla.z, System.nanoTime());
+        if (pose != null) {
+            setPosition(pose.x(), pose.y(), pose.z());
+            setRotation(pose.yaw(), pose.pitch());
+        }
     }
 
     @Inject(method = "calculateFov(F)F", at = @At("RETURN"), cancellable = true)
@@ -33,16 +47,9 @@ public abstract class CameraMixin {
         float partialTicks,
         CallbackInfoReturnable<Float> callback
     ) {
-        CameraFeed.latestFresh().ifPresent(
-            state -> callback.setReturnValue(state.verticalFovDegrees())
-        );
-    }
-
-    private void crafterhunter$applyPose(CameraState state) {
-        // The protocol defines one metre per unit; Minecraft uses one block per metre.
-        setPosition(state.x(), state.y(), state.z());
-        // Vanilla Fabric 26.2 exposes only yaw and pitch here. Calling this method
-        // also refreshes Camera's quaternion, direction vectors, and dirty flags.
-        setRotation(state.minecraftYawDegrees(), state.minecraftPitchDegrees());
+        CameraLink.Pose pose = CameraLink.instance().pose();
+        if (pose != null && CameraFeed.latestFresh().isPresent()) {
+            callback.setReturnValue(pose.fov());
+        }
     }
 }
