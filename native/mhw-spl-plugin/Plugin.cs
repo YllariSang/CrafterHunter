@@ -23,13 +23,17 @@ public sealed class Plugin : IPlugin
     private const float MhwUnitsPerMetre = 100.0f;
     private static readonly long CameraStartupDelayTicks = Stopwatch.Frequency * 10;
     private static readonly byte[] HelloPayload =
-        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.1.1");
+        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.2.0");
     private static readonly object DiagnosticLock = new();
 
     private readonly object _lifecycleLock = new();
     private CancellationTokenSource? _cancellation;
     private Task? _endpointTask;
     private byte[]? _latestCameraPayload;
+    private bool _renderProbeEnabled =
+        Environment.GetEnvironmentVariable("CRAFTERHUNTER_CUBE_PROBE") == "1";
+    private RenderCamera? _renderCamera;
+    private int _renderFailureLogged;
     private int _bridgeReady;
     private int _cameraAttemptLogged;
     private int _cameraSuccessLogged;
@@ -52,6 +56,7 @@ public sealed class Plugin : IPlugin
             }
 
             Volatile.Write(ref _bridgeReady, 0);
+            Volatile.Write(ref _renderCamera, null);
             Volatile.Write(
                 ref _cameraEnableTimestamp,
                 Stopwatch.GetTimestamp() + CameraStartupDelayTicks
@@ -62,6 +67,10 @@ public sealed class Plugin : IPlugin
         }
 
         WriteDiagnostic("Endpoint task started; camera reads remain disabled until bridge ACK + 10s grace.");
+        if (_renderProbeEnabled)
+        {
+            WriteDiagnostic("Opt-in cube rendering probe enabled.");
+        }
     }
 
     public void OnUnload()
@@ -91,6 +100,7 @@ public sealed class Plugin : IPlugin
         finally
         {
             Volatile.Write(ref _bridgeReady, 0);
+            Volatile.Write(ref _renderCamera, null);
             cancellation?.Dispose();
             WriteDiagnostic("Endpoint stopped.");
         }
@@ -121,11 +131,13 @@ public sealed class Plugin : IPlugin
 
         try
         {
-            if (!TryCaptureCameraPayload(out var payload))
+            if (!TryCaptureCameraPayload(out var payload, out var cameraPosition, out var cameraRotation))
             {
+                Volatile.Write(ref _renderCamera, null);
                 return;
             }
 
+            Volatile.Write(ref _renderCamera, new RenderCamera(cameraPosition, cameraRotation));
             Interlocked.Exchange(ref _latestCameraPayload, payload);
             if (Interlocked.Exchange(ref _cameraSuccessLogged, 1) == 0)
             {
@@ -138,13 +150,44 @@ public sealed class Plugin : IPlugin
             // terminate MHW. Disable further camera reads for this plugin lifetime;
             // the diagnostic log preserves the actual exception for the next run.
             Volatile.Write(ref _bridgeReady, 0);
+            Volatile.Write(ref _renderCamera, null);
             WriteDiagnostic($"Camera capture disabled after {exception.GetType().FullName}: {exception.Message}");
         }
     }
 
-    private static bool TryCaptureCameraPayload(out byte[] payload)
+    public void OnRender()
+    {
+        var camera = Volatile.Read(ref _renderCamera);
+        if (!_renderProbeEnabled || Volatile.Read(ref _bridgeReady) == 0 || camera is null)
+        {
+            return;
+        }
+
+        try
+        {
+            RenderProbe.Draw(camera.Position, camera.Rotation);
+        }
+        catch (Exception exception)
+        {
+            _renderProbeEnabled = false;
+            if (Interlocked.Exchange(ref _renderFailureLogged, 1) == 0)
+            {
+                WriteDiagnostic($"Rendering probe disabled after {exception.GetType().FullName}: {exception.Message}");
+            }
+        }
+    }
+
+    private sealed record RenderCamera(Vector3 Position, Quaternion Rotation);
+
+    private static bool TryCaptureCameraPayload(
+        out byte[] payload,
+        out Vector3 cameraPosition,
+        out Quaternion cameraRotation
+    )
     {
         payload = Array.Empty<byte>();
+        cameraPosition = default;
+        cameraRotation = default;
 
         // CameraSystem.MainViewport assumes sMhCamera is non-null and immediately
         // dereferences it. Check the singleton explicitly before using that helper.
@@ -196,6 +239,8 @@ public sealed class Plugin : IPlugin
             return false;
         }
 
+        cameraPosition = camera.Position;
+        cameraRotation = rotation;
         payload = new byte[CameraPayloadLength];
         for (var index = 0; index < values.Length; index++)
         {
@@ -343,7 +388,7 @@ public sealed class Plugin : IPlugin
                 return;
             }
 
-            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.1.1] {message}{Environment.NewLine}";
+            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.2.0] {message}{Environment.NewLine}";
             lock (DiagnosticLock)
             {
                 File.AppendAllText(Path.Combine(assemblyDirectory, "CrafterHunter.runtime.log"), line);
