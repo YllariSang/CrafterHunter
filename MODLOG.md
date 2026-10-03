@@ -43,3 +43,10 @@ Headless tests pass for two view directions, reversed depth, and a singular
 matrix; the plugin builds with no warnings. The user still needs to check its
 placement and whether MHW terrain hides it. No game was launched or installed
 by the agent during this change.
+
+Further 0.2.1 screenshots from Astera's smithy show only a few green cube
+edges. The installed DLL hash matches the published 0.2.1 artifact. Because
+the smithy is full of close geometry and the camera is aimed steeply down or
+up, these images cannot distinguish clipping/occlusion from a placement error.
+The next acceptance scene is a broad clearing with a level camera, followed
+by a controlled wall-occlusion shot.
