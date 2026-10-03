@@ -99,7 +99,7 @@ final class BridgeClient implements AutoCloseable {
         send(
             activeSocket,
             Protocol.KIND_HELLO,
-            "crafterhunter-fabric/0.1.0".getBytes(StandardCharsets.UTF_8)
+            "crafterhunter-fabric/0.2.0".getBytes(StandardCharsets.UTF_8)
         );
     }
 
