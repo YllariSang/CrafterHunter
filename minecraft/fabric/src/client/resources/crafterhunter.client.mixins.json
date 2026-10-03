@@ -3,7 +3,9 @@
   "package": "dev.crafterhunter.client.mixin",
   "compatibilityLevel": "JAVA_25",
   "client": [
-    "CameraMixin"
+    "CameraMixin",
+    "HudMixin",
+    "KeyboardMixin"
   ],
   "injectors": {
     "defaultRequire": 1

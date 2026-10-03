@@ -1,7 +1,6 @@
 package dev.crafterhunter.client.mixin;
 
 import dev.crafterhunter.client.CameraFeed;
-import dev.crafterhunter.client.CameraState;
 import dev.crafterhunter.client.CameraLink;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
