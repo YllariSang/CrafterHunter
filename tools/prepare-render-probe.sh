@@ -10,6 +10,7 @@ read -r -p 'MHW closed? Type yes: ' confirmation
 [[ "$confirmation" == yes ]] || exit 1
 
 if [[ -f "$installed_plugin" ]]; then
+    mkdir -p -- "$project_root/native/mhw-spl-plugin/build"
     backup_directory="$(mktemp -d "$project_root/native/mhw-spl-plugin/build/rollback.XXXXXX")"
     cp -- "$installed_plugin" "$backup_directory/CrafterHunter.MHW.dll"
     printf 'Previous plugin backed up to: %s\n' "$backup_directory"
