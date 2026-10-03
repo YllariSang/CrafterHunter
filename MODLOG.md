@@ -28,3 +28,18 @@ headless checks, not evidence of live game compatibility.
 Next acceptance: live camera test, then a depth-composited cube on Linux/DXVK.
 Ownership/offline test profile confirmation is pending. No gameplay mutation,
 save editing, or game launch was performed during recon.
+
+## 2026-10-04 — live camera and rendering probe
+
+User confirmed that Minecraft follows the MHW camera while both games run.
+Screenshots show the Fabric HUD reporting a live packet feed and bright green
+probe geometry in an MHW expedition. The first probe used an assumed camera
+forward axis; its edges appeared off-centre and sometimes over foreground
+objects. This is evidence that `OnRender` and primitive drawing work, but not
+proof of correct placement or depth occlusion.
+
+Version 0.2.1 derives the probe's centre ray from the viewport matrices.
+Headless tests pass for two view directions, reversed depth, and a singular
+matrix; the plugin builds with no warnings. The user still needs to check its
+placement and whether MHW terrain hides it. No game was launched or installed
+by the agent during this change.
