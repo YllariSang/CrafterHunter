@@ -50,3 +50,12 @@ the smithy is full of close geometry and the camera is aimed steeply down or
 up, these images cannot distinguish clipping/occlusion from a placement error.
 The next acceptance scene is a broad clearing with a level camera, followed
 by a controlled wall-occlusion shot.
+
+User corrected the interpretation of those screenshots: the green geometry
+stays in a player-relative direction, moves incorrectly with camera rotation,
+and appears over foreground objects. This is a placement/depth failure of the
+0.2.1 probe, not merely a crowded-scene artifact. Version 0.2.2 switches the
+render probe to the loader's world-space camera target and logs up to twelve
+camera/target/centre/projection samples to the loader log. It adds a magenta
+centre marker to distinguish pose from line rendering. Headless target-ray
+checks and the .NET plugin build passed; live placement is pending.
