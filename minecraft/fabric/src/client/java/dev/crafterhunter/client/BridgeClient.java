@@ -60,6 +60,7 @@ final class BridgeClient implements AutoCloseable {
             sendHello(activeSocket);
 
             long nextKeepAlive = System.nanoTime() + HEARTBEAT_INTERVAL.toNanos();
+            long nextBlockAsset = System.nanoTime();
             byte[] receiveBuffer = new byte[Protocol.HEADER_LENGTH + Protocol.MAX_PAYLOAD_LENGTH];
             while (running.get()) {
                 DatagramPacket datagram = new DatagramPacket(receiveBuffer, receiveBuffer.length);
@@ -76,6 +77,14 @@ final class BridgeClient implements AutoCloseable {
                 if (now >= nextKeepAlive) {
                     send(activeSocket, Protocol.KIND_HEARTBEAT, new byte[0]);
                     nextKeepAlive = now + HEARTBEAT_INTERVAL.toNanos();
+                }
+                if (now >= nextBlockAsset) {
+                    BlockAssetFeed.Asset asset = BlockAssetFeed.latest();
+                    if (asset != null) {
+                        send(activeSocket, Protocol.KIND_BLOCK_PIXELS, asset.pixelsPacket());
+                        send(activeSocket, Protocol.KIND_BLOCK_PNG, asset.pngPacket());
+                    }
+                    nextBlockAsset = now + Duration.ofSeconds(2).toNanos();
                 }
             }
         } finally {
@@ -99,7 +108,7 @@ final class BridgeClient implements AutoCloseable {
         send(
             activeSocket,
             Protocol.KIND_HELLO,
-            "crafterhunter-fabric/0.2.0".getBytes(StandardCharsets.UTF_8)
+            "crafterhunter-fabric/0.3.0".getBytes(StandardCharsets.UTF_8)
         );
     }
 

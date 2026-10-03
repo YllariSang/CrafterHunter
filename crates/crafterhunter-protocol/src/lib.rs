@@ -39,6 +39,8 @@ pub enum Kind {
     HelloAck = 2,
     Heartbeat = 3,
     CameraState = 10,
+    BlockPixels = 20,
+    BlockPng = 21,
 }
 
 impl TryFrom<u16> for Kind {
@@ -50,6 +52,8 @@ impl TryFrom<u16> for Kind {
             2 => Ok(Self::HelloAck),
             3 => Ok(Self::Heartbeat),
             10 => Ok(Self::CameraState),
+            20 => Ok(Self::BlockPixels),
+            21 => Ok(Self::BlockPng),
             _ => Err(ProtocolError::UnknownKind(value)),
         }
     }

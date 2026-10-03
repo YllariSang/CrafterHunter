@@ -2,6 +2,7 @@ package dev.crafterhunter.client.mixin;
 
 import dev.crafterhunter.client.CameraFeed;
 import dev.crafterhunter.client.CameraLink;
+import dev.crafterhunter.client.BlockAssetFeed;
 import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
@@ -17,6 +18,7 @@ public abstract class HudMixin {
     private void crafterhunter$status(GuiGraphicsExtractor graphics, DeltaTracker delta,
                                      CallbackInfo callback) {
         Minecraft minecraft = Minecraft.getInstance();
+        BlockAssetFeed.refresh(minecraft);
         if (minecraft.player == null || ((Hud) (Object) this).isHidden()) return;
         CameraFeed.Diagnostics status = CameraFeed.diagnostics();
         boolean enabled = CameraLink.instance().enabled();
