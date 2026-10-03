@@ -59,3 +59,13 @@ render probe to the loader's world-space camera target and logs up to twelve
 camera/target/centre/projection samples to the loader log. It adds a magenta
 centre marker to distinguish pose from line rendering. Headless target-ray
 checks and the .NET plugin build passed; live placement is pending.
+
+The user then shared expedition screenshots and a recording of 0.2.2 showing
+a magenta wire sphere near screen centre and isolated green lines. The probe
+log shows camera/target motion, but every recomputed centre projects to about
+(960, 540). This exposes the placement error: the draw location was recreated
+in front of the camera every sample. Version 0.2.3 anchors the cube once in
+world space during ordinary camera movement, re-anchors after a camera jump
+over 25 m, and removes the magenta diagnostic sphere. The screenshots still
+suggest that debug primitives do not provide the depth behaviour needed for
+Minecraft geometry; that remains an open milestone.
