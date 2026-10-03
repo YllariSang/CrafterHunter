@@ -23,10 +23,11 @@ public sealed class Plugin : IPlugin
     private const float MhwUnitsPerMetre = 100.0f;
     private static readonly long CameraStartupDelayTicks = Stopwatch.Frequency * 10;
     private static readonly byte[] HelloPayload =
-        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.2.2");
+        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.2.3");
     private static readonly object DiagnosticLock = new();
 
     private readonly object _lifecycleLock = new();
+    private readonly RenderProbePlacement _probePlacement = new();
     private CancellationTokenSource? _cancellation;
     private Task? _endpointTask;
     private byte[]? _latestCameraPayload;
@@ -59,6 +60,7 @@ public sealed class Plugin : IPlugin
 
             Volatile.Write(ref _bridgeReady, 0);
             Volatile.Write(ref _renderCamera, null);
+            _probePlacement.Reset();
             _probeDiagnosticsRemaining = 12;
             Volatile.Write(
                 ref _cameraEnableTimestamp,
@@ -146,9 +148,10 @@ public sealed class Plugin : IPlugin
 
             RenderCamera? renderCamera = null;
             if (_renderProbeEnabled &&
-                RenderProbe.TryGetTargetRay(renderPosition, renderTarget, out var forward))
+                _probePlacement.TryAnchor(renderPosition, renderTarget) &&
+                _probePlacement.Centre is { } anchor)
             {
-                renderCamera = new RenderCamera(renderPosition, forward);
+                renderCamera = new RenderCamera(anchor);
             }
             Volatile.Write(ref _renderCamera, renderCamera);
             if (renderCamera is not null && _probeDiagnosticsRemaining > 0 &&
@@ -156,7 +159,7 @@ public sealed class Plugin : IPlugin
             {
                 _nextRenderDiagnosticTimestamp = now + Stopwatch.Frequency * 5;
                 _probeDiagnosticsRemaining--;
-                TryLogRenderProbe(renderPosition, renderTarget, renderCamera.Forward);
+                TryLogRenderProbe(renderPosition, renderTarget, renderCamera.Anchor);
             }
             Interlocked.Exchange(ref _latestCameraPayload, payload);
             if (Interlocked.Exchange(ref _cameraSuccessLogged, 1) == 0)
@@ -185,7 +188,7 @@ public sealed class Plugin : IPlugin
 
         try
         {
-            RenderProbe.Draw(camera.Position, camera.Forward);
+            RenderProbe.Draw(camera.Anchor);
         }
         catch (Exception exception)
         {
@@ -197,15 +200,14 @@ public sealed class Plugin : IPlugin
         }
     }
 
-    private sealed record RenderCamera(Vector3 Position, Vector3 Forward);
+    private sealed record RenderCamera(Vector3 Anchor);
 
-    private static void TryLogRenderProbe(Vector3 position, Vector3 target, Vector3 forward)
+    private static void TryLogRenderProbe(Vector3 position, Vector3 target, Vector3 anchor)
     {
         try
         {
-            var centre = RenderProbe.Centre(position, forward);
-            var visible = CameraSystem.MainViewport.WorldToScreen(centre, out var screen);
-            Log.Info($"[CrafterHunter probe] camera={position} target={target} centre={centre} " +
+            var visible = CameraSystem.MainViewport.WorldToScreen(anchor, out var screen);
+            Log.Info($"[CrafterHunter probe] camera={position} target={target} anchor={anchor} " +
                      $"screenVisible={visible} screen={screen}");
         }
         catch
@@ -427,7 +429,7 @@ public sealed class Plugin : IPlugin
                 return;
             }
 
-            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.2.2] {message}{Environment.NewLine}";
+            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.2.3] {message}{Environment.NewLine}";
             lock (DiagnosticLock)
             {
                 File.AppendAllText(Path.Combine(assemblyDirectory, "CrafterHunter.runtime.log"), line);

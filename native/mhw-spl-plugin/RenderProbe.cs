@@ -4,7 +4,7 @@ using SharpPluginLoader.Core.Rendering;
 namespace CrafterHunter.MHW;
 
 // A bounded rendering oracle. One MHW metre is 100 game units; this cube is
-// 1 m wide and centred 3 m ahead of the most recent valid camera sample.
+// 1 m wide and anchored 3 m ahead of the first valid camera sample.
 internal static class RenderProbe
 {
     private static readonly (int A, int B)[] Edges =
@@ -33,12 +33,8 @@ internal static class RenderProbe
     internal static Vector3 Centre(Vector3 cameraPosition, Vector3 forward) =>
         cameraPosition + forward * 300.0f;
 
-    internal static void Draw(Vector3 cameraPosition, Vector3 forward)
+    internal static void Draw(Vector3 centre)
     {
-        var centre = Centre(cameraPosition, forward);
-        // The centre sphere separates camera-position failure from line-renderer
-        // failure when only a single cube edge survives the host's render pass.
-        Primitives.RenderSphere(centre, 20.0f, new Vector4(0.95f, 0.15f, 0.9f, 1.0f));
         Span<Vector3> corners = stackalloc Vector3[8];
         for (var corner = 0; corner < corners.Length; corner++)
         {
@@ -54,4 +50,32 @@ internal static class RenderProbe
             Primitives.RenderLine(corners[a], corners[b], Color);
         }
     }
+}
+
+// A camera-relative centre would stay glued to the screen. Capture the first
+// usable ray once, then retain its world-space location as the camera moves.
+internal sealed class RenderProbePlacement
+{
+    // The game can change scenes after the plugin's ten-second startup grace.
+    // Treat a camera jump beyond 25 m as a new placement scene; ordinary test
+    // movements keep the original world anchor.
+    private const float ReanchorDistanceSquared = 2500.0f * 2500.0f;
+    internal Vector3? Centre { get; private set; }
+
+    internal bool TryAnchor(Vector3 cameraPosition, Vector3 target)
+    {
+        if (Centre is { } centre &&
+            Vector3.DistanceSquared(cameraPosition, centre) <= ReanchorDistanceSquared)
+        {
+            return true;
+        }
+        if (!RenderProbe.TryGetTargetRay(cameraPosition, target, out var forward))
+        {
+            return false;
+        }
+        Centre = RenderProbe.Centre(cameraPosition, forward);
+        return true;
+    }
+
+    internal void Reset() => Centre = null;
 }

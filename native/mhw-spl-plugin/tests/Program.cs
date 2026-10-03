@@ -11,6 +11,33 @@ if (RenderProbe.TryGetTargetRay(eye, eye, out _) ||
 }
 Console.WriteLine("Render probe target-ray checks passed.");
 
+var placement = new RenderProbePlacement();
+if (placement.TryAnchor(eye, eye) || placement.Centre.HasValue)
+{
+    throw new Exception("Invalid target must not anchor the probe.");
+}
+if (!placement.TryAnchor(eye, eye - Vector3.UnitZ * 500))
+{
+    throw new Exception("Valid target failed to anchor the probe.");
+}
+var fixedCentre = placement.Centre;
+if (!placement.TryAnchor(eye + Vector3.UnitX * 1000, eye + Vector3.UnitX * 1500) ||
+    placement.Centre != fixedCentre)
+{
+    throw new Exception("Probe moved with the camera instead of staying in world space.");
+}
+if (!placement.TryAnchor(eye + Vector3.UnitX * 5000, eye + Vector3.UnitX * 5500) ||
+    placement.Centre != eye + Vector3.UnitX * 5300)
+{
+    throw new Exception("Probe did not reanchor after a large scene jump.");
+}
+placement.Reset();
+if (placement.Centre.HasValue)
+{
+    throw new Exception("Probe anchor survived reset.");
+}
+Console.WriteLine("Render probe world-anchor checks passed.");
+
 static void Verify(Vector3 eye, Vector3 target, Vector3 expectedForward)
 {
     if (!RenderProbe.TryGetTargetRay(eye, target, out var forward))
