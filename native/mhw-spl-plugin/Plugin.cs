@@ -23,7 +23,7 @@ public sealed class Plugin : IPlugin
     private const float MhwUnitsPerMetre = 100.0f;
     private static readonly long CameraStartupDelayTicks = Stopwatch.Frequency * 10;
     private static readonly byte[] HelloPayload =
-        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.2.0");
+        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.2.1");
     private static readonly object DiagnosticLock = new();
 
     private readonly object _lifecycleLock = new();
@@ -131,13 +131,16 @@ public sealed class Plugin : IPlugin
 
         try
         {
-            if (!TryCaptureCameraPayload(out var payload, out var cameraPosition, out var cameraRotation))
+            if (!TryCaptureCameraPayload(out var payload, out var view, out var projection))
             {
                 Volatile.Write(ref _renderCamera, null);
                 return;
             }
 
-            Volatile.Write(ref _renderCamera, new RenderCamera(cameraPosition, cameraRotation));
+            Volatile.Write(ref _renderCamera,
+                _renderProbeEnabled && RenderProbe.TryGetViewRay(view, projection, out var origin, out var forward)
+                    ? new RenderCamera(origin, forward)
+                    : null);
             Interlocked.Exchange(ref _latestCameraPayload, payload);
             if (Interlocked.Exchange(ref _cameraSuccessLogged, 1) == 0)
             {
@@ -165,7 +168,7 @@ public sealed class Plugin : IPlugin
 
         try
         {
-            RenderProbe.Draw(camera.Position, camera.Rotation);
+            RenderProbe.Draw(camera.Position, camera.Forward);
         }
         catch (Exception exception)
         {
@@ -177,17 +180,17 @@ public sealed class Plugin : IPlugin
         }
     }
 
-    private sealed record RenderCamera(Vector3 Position, Quaternion Rotation);
+    private sealed record RenderCamera(Vector3 Position, Vector3 Forward);
 
     private static bool TryCaptureCameraPayload(
         out byte[] payload,
-        out Vector3 cameraPosition,
-        out Quaternion cameraRotation
+        out Matrix4x4 view,
+        out Matrix4x4 projection
     )
     {
         payload = Array.Empty<byte>();
-        cameraPosition = default;
-        cameraRotation = default;
+        view = default;
+        projection = default;
 
         // CameraSystem.MainViewport assumes sMhCamera is non-null and immediately
         // dereferences it. Check the singleton explicitly before using that helper.
@@ -239,8 +242,8 @@ public sealed class Plugin : IPlugin
             return false;
         }
 
-        cameraPosition = camera.Position;
-        cameraRotation = rotation;
+        view = viewport.ViewMatrix;
+        projection = viewport.ProjectionMatrix;
         payload = new byte[CameraPayloadLength];
         for (var index = 0; index < values.Length; index++)
         {
@@ -388,7 +391,7 @@ public sealed class Plugin : IPlugin
                 return;
             }
 
-            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.2.0] {message}{Environment.NewLine}";
+            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.2.1] {message}{Environment.NewLine}";
             lock (DiagnosticLock)
             {
                 File.AppendAllText(Path.Combine(assemblyDirectory, "CrafterHunter.runtime.log"), line);

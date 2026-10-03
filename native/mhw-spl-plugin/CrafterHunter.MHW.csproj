@@ -6,7 +6,7 @@
     <LangVersion>12</LangVersion>
     <AssemblyName>CrafterHunter.MHW</AssemblyName>
     <RootNamespace>CrafterHunter.MHW</RootNamespace>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
@@ -14,6 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="tests/**/*.cs" />
     <PackageReference Include="SharpPluginLoader.Core" Version="1.0.0">
       <PrivateAssets>all</PrivateAssets>
       <ExcludeAssets>runtime</ExcludeAssets>
