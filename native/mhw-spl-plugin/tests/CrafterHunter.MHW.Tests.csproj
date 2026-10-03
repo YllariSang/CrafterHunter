@@ -8,6 +8,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../RenderProbe.cs" Link="RenderProbe.cs" />
+    <Compile Include="../MinecraftBlockAsset.cs" Link="MinecraftBlockAsset.cs" />
+    <Compile Include="../MinecraftBlockRenderer.cs" Link="MinecraftBlockRenderer.cs" />
     <PackageReference Include="SharpPluginLoader.Core" Version="1.0.0" />
   </ItemGroup>
 </Project>

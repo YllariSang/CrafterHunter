@@ -61,6 +61,7 @@ internal sealed class RenderProbePlacement
     // movements keep the original world anchor.
     private const float ReanchorDistanceSquared = 2500.0f * 2500.0f;
     internal Vector3? Centre { get; private set; }
+    internal Vector3 Right { get; private set; } = Vector3.UnitX;
 
     internal bool TryAnchor(Vector3 cameraPosition, Vector3 target)
     {
@@ -74,8 +75,15 @@ internal sealed class RenderProbePlacement
             return false;
         }
         Centre = RenderProbe.Centre(cameraPosition, forward);
+        var horizontalRight = Vector3.Cross(Vector3.UnitY, forward);
+        Right = horizontalRight.LengthSquared() < 1e-6f
+            ? Vector3.UnitX : Vector3.Normalize(horizontalRight);
         return true;
     }
 
-    internal void Reset() => Centre = null;
+    internal void Reset()
+    {
+        Centre = null;
+        Right = Vector3.UnitX;
+    }
 }

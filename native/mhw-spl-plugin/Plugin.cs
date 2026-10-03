@@ -17,24 +17,36 @@ public sealed class Plugin : IPlugin
     private const ushort HelloKind = 1;
     private const ushort HeartbeatKind = 3;
     private const ushort CameraStateKind = 10;
+    private const ushort BlockPixelsKind = 20;
+    private const ushort BlockPngKind = 21;
     private const int HeaderLength = 24;
     private const int MaximumPayloadLength = 1200;
     private const int CameraPayloadLength = 44;
     private const float MhwUnitsPerMetre = 100.0f;
     private static readonly long CameraStartupDelayTicks = Stopwatch.Frequency * 10;
     private static readonly byte[] HelloPayload =
-        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.2.3");
+        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.3.0");
     private static readonly object DiagnosticLock = new();
 
     private readonly object _lifecycleLock = new();
     private readonly RenderProbePlacement _probePlacement = new();
+    private readonly MinecraftBlockRenderer _blockRenderer = new();
     private CancellationTokenSource? _cancellation;
     private Task? _endpointTask;
     private byte[]? _latestCameraPayload;
+    private MinecraftBlockAsset? _blockAsset;
+    private byte[]? _pendingPixels;
+    private byte[]? _pendingPng;
+    private long _lastBlockAssetTimestamp;
     private bool _renderProbeEnabled =
         Environment.GetEnvironmentVariable("CRAFTERHUNTER_CUBE_PROBE") == "1";
+    private bool _blockCompareEnabled =
+        Environment.GetEnvironmentVariable("CRAFTERHUNTER_BLOCK_COMPARE") == "1";
     private RenderCamera? _renderCamera;
     private int _renderFailureLogged;
+    private bool _meshEnabled = true;
+    private bool _linesEnabled = true;
+    private bool _overlayEnabled = true;
     private int _bridgeReady;
     private int _cameraAttemptLogged;
     private int _cameraSuccessLogged;
@@ -60,6 +72,7 @@ public sealed class Plugin : IPlugin
 
             Volatile.Write(ref _bridgeReady, 0);
             Volatile.Write(ref _renderCamera, null);
+            Volatile.Write(ref _blockAsset, null);
             _probePlacement.Reset();
             _probeDiagnosticsRemaining = 12;
             Volatile.Write(
@@ -75,6 +88,10 @@ public sealed class Plugin : IPlugin
         if (_renderProbeEnabled)
         {
             WriteDiagnostic("Opt-in cube rendering probe enabled.");
+        }
+        if (_blockCompareEnabled)
+        {
+            WriteDiagnostic("Minecraft stone A/B/C comparison enabled; waiting for actual block asset.");
         }
     }
 
@@ -106,6 +123,7 @@ public sealed class Plugin : IPlugin
         {
             Volatile.Write(ref _bridgeReady, 0);
             Volatile.Write(ref _renderCamera, null);
+            Volatile.Write(ref _blockAsset, null);
             cancellation?.Dispose();
             WriteDiagnostic("Endpoint stopped.");
         }
@@ -137,7 +155,7 @@ public sealed class Plugin : IPlugin
         try
         {
             if (!TryCaptureCameraPayload(
-                    _renderProbeEnabled,
+                    _renderProbeEnabled || _blockCompareEnabled,
                     out var payload,
                     out var renderPosition,
                     out var renderTarget))
@@ -147,11 +165,11 @@ public sealed class Plugin : IPlugin
             }
 
             RenderCamera? renderCamera = null;
-            if (_renderProbeEnabled &&
+            if ((_renderProbeEnabled || _blockCompareEnabled) &&
                 _probePlacement.TryAnchor(renderPosition, renderTarget) &&
                 _probePlacement.Centre is { } anchor)
             {
-                renderCamera = new RenderCamera(anchor);
+                renderCamera = new RenderCamera(anchor, _probePlacement.Right);
             }
             Volatile.Write(ref _renderCamera, renderCamera);
             if (renderCamera is not null && _probeDiagnosticsRemaining > 0 &&
@@ -181,14 +199,43 @@ public sealed class Plugin : IPlugin
     public void OnRender()
     {
         var camera = Volatile.Read(ref _renderCamera);
-        if (!_renderProbeEnabled || Volatile.Read(ref _bridgeReady) == 0 || camera is null)
+        if ((!_renderProbeEnabled && !_blockCompareEnabled) ||
+            Volatile.Read(ref _bridgeReady) == 0 || camera is null)
         {
             return;
         }
 
         try
         {
-            RenderProbe.Draw(camera.Anchor);
+            if (_blockCompareEnabled)
+            {
+                var asset = Volatile.Read(ref _blockAsset);
+                if (asset is not null && BlockAssetFresh())
+                {
+                    if (_meshEnabled)
+                    {
+                        try { _blockRenderer.DrawMesh(asset, camera.Anchor, camera.Right); }
+                        catch (Exception exception)
+                        {
+                            _meshEnabled = false;
+                            WriteDiagnostic($"Block method A failed: {exception}");
+                        }
+                    }
+                    if (_linesEnabled)
+                    {
+                        try { _blockRenderer.DrawLines(asset, camera.Anchor, camera.Right); }
+                        catch (Exception exception)
+                        {
+                            _linesEnabled = false;
+                            WriteDiagnostic($"Block method B failed: {exception}");
+                        }
+                    }
+                }
+            }
+            else
+            {
+                RenderProbe.Draw(camera.Anchor);
+            }
         }
         catch (Exception exception)
         {
@@ -200,7 +247,30 @@ public sealed class Plugin : IPlugin
         }
     }
 
-    private sealed record RenderCamera(Vector3 Anchor);
+    public void OnImGuiFreeRender()
+    {
+        if (!_blockCompareEnabled || !_overlayEnabled || Volatile.Read(ref _bridgeReady) == 0 ||
+            Volatile.Read(ref _renderCamera) is not { } camera ||
+            Volatile.Read(ref _blockAsset) is not { } asset || !BlockAssetFresh())
+        {
+            return;
+        }
+        try
+        {
+            _blockRenderer.DrawOverlay(asset, camera.Anchor, camera.Right);
+        }
+        catch (Exception exception)
+        {
+            _overlayEnabled = false;
+            WriteDiagnostic($"Block method C failed: {exception}");
+        }
+    }
+
+    private bool BlockAssetFresh() =>
+        Stopwatch.GetTimestamp() - Volatile.Read(ref _lastBlockAssetTimestamp) <
+        Stopwatch.Frequency * 6;
+
+    private sealed record RenderCamera(Vector3 Anchor, Vector3 Right);
 
     private static void TryLogRenderProbe(Vector3 position, Vector3 target, Vector3 anchor)
     {
@@ -321,6 +391,11 @@ public sealed class Plugin : IPlugin
 
                 while (!cancellationToken.IsCancellationRequested)
                 {
+                    while (client.Available > 0)
+                    {
+                        var inbound = client.Receive(ref remoteEndpoint);
+                        HandleMinecraftAssetPacket(inbound);
+                    }
                     var cameraPayload = Interlocked.Exchange(ref _latestCameraPayload, null);
                     if (cameraPayload is not null)
                     {
@@ -370,6 +445,50 @@ public sealed class Plugin : IPlugin
                packet[11] == 0 &&
                BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(16, 4)) ==
                    (uint)(packet.Length - HeaderLength);
+    }
+
+    private void HandleMinecraftAssetPacket(ReadOnlySpan<byte> packet)
+    {
+        if (packet.Length < HeaderLength || packet.Length > HeaderLength + MaximumPayloadLength ||
+            !packet[..4].SequenceEqual("CHNT"u8) ||
+            BinaryPrimitives.ReadUInt16LittleEndian(packet.Slice(4, 2)) != ProtocolVersion ||
+            packet[8] != 3 || packet[9] != 0 || packet[10] != 0 || packet[11] != 0 ||
+            BinaryPrimitives.ReadUInt32LittleEndian(packet.Slice(16, 4)) !=
+                (uint)(packet.Length - HeaderLength))
+        {
+            return;
+        }
+
+        var kind = BinaryPrimitives.ReadUInt16LittleEndian(packet.Slice(6, 2));
+        var payload = packet[HeaderLength..];
+        if (kind == BlockPixelsKind &&
+            MinecraftBlockAsset.TryReadPixels(payload, out var pixels))
+        {
+            _pendingPixels = pixels;
+        }
+        else if (kind == BlockPngKind &&
+                 MinecraftBlockAsset.TryReadPng(payload, out var png))
+        {
+            _pendingPng = png;
+        }
+        else
+        {
+            return;
+        }
+
+        if (_pendingPixels is not { } rgba || _pendingPng is not { } image)
+        {
+            return;
+        }
+        var current = Volatile.Read(ref _blockAsset);
+        if (current is null || !current.Rgba.AsSpan().SequenceEqual(rgba) ||
+            !current.Png.AsSpan().SequenceEqual(image))
+        {
+            Volatile.Write(ref _blockAsset,
+                new MinecraftBlockAsset(MinecraftBlockAsset.ExpectedBlockId, rgba, image));
+            WriteDiagnostic("Received actual minecraft:stone pixels and PNG from Minecraft.");
+        }
+        Volatile.Write(ref _lastBlockAssetTimestamp, Stopwatch.GetTimestamp());
     }
 
     private static bool AllFinite(ReadOnlySpan<float> values)
@@ -429,7 +548,7 @@ public sealed class Plugin : IPlugin
                 return;
             }
 
-            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.2.3] {message}{Environment.NewLine}";
+            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.3.0] {message}{Environment.NewLine}";
             lock (DiagnosticLock)
             {
                 File.AppendAllText(Path.Combine(assemblyDirectory, "CrafterHunter.runtime.log"), line);
