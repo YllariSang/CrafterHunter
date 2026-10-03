@@ -2,31 +2,24 @@ using System.Numerics;
 using CrafterHunter.MHW;
 
 var eye = new Vector3(25, 10, 9);
-Verify(eye, -Vector3.UnitZ);
-Verify(eye, Vector3.UnitX);
-Verify(eye, Vector3.UnitX, reversedDepth: true);
-if (RenderProbe.TryGetViewRay(default, Matrix4x4.Identity, out _, out _))
+Verify(eye, eye - Vector3.UnitZ * 500, -Vector3.UnitZ);
+Verify(eye, eye + Vector3.UnitX * 200, Vector3.UnitX);
+if (RenderProbe.TryGetTargetRay(eye, eye, out _) ||
+    RenderProbe.TryGetTargetRay(eye, new Vector3(float.NaN, 0, 0), out _))
 {
-    throw new Exception("A singular view matrix must not produce a probe ray.");
+    throw new Exception("Invalid camera targets must not produce a probe ray.");
 }
-Console.WriteLine("Render probe view-ray checks passed.");
+Console.WriteLine("Render probe target-ray checks passed.");
 
-static void Verify(Vector3 eye, Vector3 expectedForward, bool reversedDepth = false)
+static void Verify(Vector3 eye, Vector3 target, Vector3 expectedForward)
 {
-    var view = Matrix4x4.CreateLookAt(eye, eye + expectedForward, Vector3.UnitY);
-    var projection = Matrix4x4.CreatePerspectiveFieldOfView(MathF.PI / 3, 16f / 9f, 10, 10000);
-    if (reversedDepth)
+    if (!RenderProbe.TryGetTargetRay(eye, target, out var forward))
     {
-        projection.M33 = 10f / (10000f - 10f);
-        projection.M43 = 10f * 10000f / (10000f - 10f);
+        throw new Exception("Could not normalize a valid camera target.");
     }
-    if (!RenderProbe.TryGetViewRay(view, projection, out var origin, out var forward))
+    if (Vector3.Dot(forward, expectedForward) < 0.999f ||
+        Vector3.Distance(RenderProbe.Centre(eye, forward), eye + expectedForward * 300) > 0.01f)
     {
-        throw new Exception("Could not unproject a valid perspective camera.");
-    }
-    if (Vector3.Distance(origin, eye) > 0.01f ||
-        Vector3.Dot(forward, expectedForward) < 0.999f)
-    {
-        throw new Exception($"Wrong view ray: origin={origin}, direction={forward}");
+        throw new Exception($"Wrong target ray: direction={forward}");
     }
 }

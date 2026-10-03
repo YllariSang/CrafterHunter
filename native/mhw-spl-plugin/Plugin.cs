@@ -23,7 +23,7 @@ public sealed class Plugin : IPlugin
     private const float MhwUnitsPerMetre = 100.0f;
     private static readonly long CameraStartupDelayTicks = Stopwatch.Frequency * 10;
     private static readonly byte[] HelloPayload =
-        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.2.1");
+        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.2.2");
     private static readonly object DiagnosticLock = new();
 
     private readonly object _lifecycleLock = new();
@@ -39,6 +39,8 @@ public sealed class Plugin : IPlugin
     private int _cameraSuccessLogged;
     private long _cameraEnableTimestamp;
     private long _nextCameraSampleTimestamp;
+    private long _nextRenderDiagnosticTimestamp;
+    private int _probeDiagnosticsRemaining = 12;
 
     public string Name => "CrafterHunter MHW Endpoint";
     public string Author => "CrafterHunter contributors";
@@ -57,6 +59,7 @@ public sealed class Plugin : IPlugin
 
             Volatile.Write(ref _bridgeReady, 0);
             Volatile.Write(ref _renderCamera, null);
+            _probeDiagnosticsRemaining = 12;
             Volatile.Write(
                 ref _cameraEnableTimestamp,
                 Stopwatch.GetTimestamp() + CameraStartupDelayTicks
@@ -131,16 +134,30 @@ public sealed class Plugin : IPlugin
 
         try
         {
-            if (!TryCaptureCameraPayload(out var payload, out var view, out var projection))
+            if (!TryCaptureCameraPayload(
+                    _renderProbeEnabled,
+                    out var payload,
+                    out var renderPosition,
+                    out var renderTarget))
             {
                 Volatile.Write(ref _renderCamera, null);
                 return;
             }
 
-            Volatile.Write(ref _renderCamera,
-                _renderProbeEnabled && RenderProbe.TryGetViewRay(view, projection, out var origin, out var forward)
-                    ? new RenderCamera(origin, forward)
-                    : null);
+            RenderCamera? renderCamera = null;
+            if (_renderProbeEnabled &&
+                RenderProbe.TryGetTargetRay(renderPosition, renderTarget, out var forward))
+            {
+                renderCamera = new RenderCamera(renderPosition, forward);
+            }
+            Volatile.Write(ref _renderCamera, renderCamera);
+            if (renderCamera is not null && _probeDiagnosticsRemaining > 0 &&
+                now >= _nextRenderDiagnosticTimestamp)
+            {
+                _nextRenderDiagnosticTimestamp = now + Stopwatch.Frequency * 5;
+                _probeDiagnosticsRemaining--;
+                TryLogRenderProbe(renderPosition, renderTarget, renderCamera.Forward);
+            }
             Interlocked.Exchange(ref _latestCameraPayload, payload);
             if (Interlocked.Exchange(ref _cameraSuccessLogged, 1) == 0)
             {
@@ -182,15 +199,31 @@ public sealed class Plugin : IPlugin
 
     private sealed record RenderCamera(Vector3 Position, Vector3 Forward);
 
+    private static void TryLogRenderProbe(Vector3 position, Vector3 target, Vector3 forward)
+    {
+        try
+        {
+            var centre = RenderProbe.Centre(position, forward);
+            var visible = CameraSystem.MainViewport.WorldToScreen(centre, out var screen);
+            Log.Info($"[CrafterHunter probe] camera={position} target={target} centre={centre} " +
+                     $"screenVisible={visible} screen={screen}");
+        }
+        catch
+        {
+            // Diagnostics never determine whether camera telemetry or rendering runs.
+        }
+    }
+
     private static bool TryCaptureCameraPayload(
+        bool captureRenderTarget,
         out byte[] payload,
-        out Matrix4x4 view,
-        out Matrix4x4 projection
+        out Vector3 renderPosition,
+        out Vector3 renderTarget
     )
     {
         payload = Array.Empty<byte>();
-        view = default;
-        projection = default;
+        renderPosition = default;
+        renderTarget = default;
 
         // CameraSystem.MainViewport assumes sMhCamera is non-null and immediately
         // dereferences it. Check the singleton explicitly before using that helper.
@@ -242,8 +275,11 @@ public sealed class Plugin : IPlugin
             return false;
         }
 
-        view = viewport.ViewMatrix;
-        projection = viewport.ProjectionMatrix;
+        if (captureRenderTarget)
+        {
+            renderPosition = camera.Position;
+            renderTarget = camera.GetTargetWorld();
+        }
         payload = new byte[CameraPayloadLength];
         for (var index = 0; index < values.Length; index++)
         {
@@ -391,7 +427,7 @@ public sealed class Plugin : IPlugin
                 return;
             }
 
-            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.2.1] {message}{Environment.NewLine}";
+            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.2.2] {message}{Environment.NewLine}";
             lock (DiagnosticLock)
             {
                 File.AppendAllText(Path.Combine(assemblyDirectory, "CrafterHunter.runtime.log"), line);

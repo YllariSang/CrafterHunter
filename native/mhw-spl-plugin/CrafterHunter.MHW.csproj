@@ -6,7 +6,7 @@
     <LangVersion>12</LangVersion>
     <AssemblyName>CrafterHunter.MHW</AssemblyName>
     <RootNamespace>CrafterHunter.MHW</RootNamespace>
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
