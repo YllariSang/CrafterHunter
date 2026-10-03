@@ -37,6 +37,20 @@ for future diagnostic packets.
 | 2 | HelloAck | UTF-8 bridge description |
 | 3 | Heartbeat | Empty |
 | 10 | CameraState | 44 bytes, described below |
+| 20 | BlockPixels | Vanilla block ID and 16×16 RGBA pixels |
+| 21 | BlockPng | Vanilla block ID and PNG bytes from the active resource manager |
+
+### Minecraft block asset (experimental v0.3)
+
+The Minecraft client currently exports `minecraft:stone` after entering a world.
+The ID is one unsigned byte of UTF-8 length followed by that many UTF-8 bytes.
+`BlockPixels` then has one byte each for width and height (`16`, `16`), followed
+by 1024 bytes of row-major RGBA8 pixels. `BlockPng` has the same ID prefix
+followed by the PNG from Minecraft's active resource manager. Each packet must
+fit the 1200-byte payload limit. The MHW endpoint requires both forms of the
+same ID before drawing and times the asset out after six seconds without a
+refresh. This is a comparison-only asset transfer, not block placement or
+world-state synchronization.
 
 ### CameraState
 

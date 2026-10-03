@@ -18,20 +18,26 @@ fail-closed version handling. See [docs/prior-art.md](docs/prior-art.md).
 
 ## Current milestone
 
-Milestone 1 establishes a testable transport and loader path:
+The transport and camera link work in user testing. The current v0.3 milestone
+compares three experimental ways to show an actual Minecraft stone block in
+MHW. Minecraft sends the block texture from its active resources at runtime;
+no Minecraft asset is bundled. See [the A/B/C test](docs/block-compare-test.md)
+for preparation and what to record. MHW scene-depth behavior is not yet proven.
+
+The repository includes:
 
 - `crafterhunter-bridge`: a local UDP router written in Rust.
 - `crafterhunter-probe`: a synthetic endpoint used to test both game roles.
-- `minecraft/fabric`: a source scaffold for the eventual Fabric client mod.
+- `minecraft/fabric`: the Fabric camera link and runtime block-asset sender.
 - `native/mhw-spl-plugin`: the supported MHW transport endpoint, loaded by
   SharpPluginLoader on Proton.
 - `native/mhw-plugin`: an experimental native DLL retained for future graphics
   work; it is not the current installation path.
 - `docs/protocol.md`: the versioned wire protocol shared by all components.
 
-No rendering injection or gameplay modification is implemented yet. The Proton
-loader checkpoint is proven on MHW build 421810; the current endpoint publishes
-read-only camera telemetry through SharpPluginLoader's supported API.
+Gameplay modification is not implemented yet. The Proton loader checkpoint is
+proven on MHW build 421810; the endpoint publishes read-only camera telemetry
+and runs opt-in rendering comparisons through SharpPluginLoader's supported API.
 
 ## Build the testable core
 
