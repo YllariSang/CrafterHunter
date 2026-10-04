@@ -87,3 +87,20 @@ as ImGui quads, eliminating the suspect GPU texture-handle path. It moves the
 three 70 cm blocks to a tighter row, 40 cm above the original anchor, and adds
 full-length pixel-colored edges to B so its line pass is legible. C remains
 depth-unaware by design; a host depth-buffer integration is still required.
+
+## 2026-10-04 — cursor overlap confirms overlay ordering
+
+The v0.3.1 recording shows C with the actual gray stone pixels and cube
+perspective, but it still covers the hunter and terrain. A's label is visible
+against open sky while its mesh is absent; B still contributes only tiny
+fragments. The user's observation that C covers the cursor is additional
+evidence of the foreground ImGui draw-list ordering, not evidence that the
+camera transform itself is wrong.
+
+Version 0.3.2 puts C's pixels on ImGui's background draw list, leaving labels
+foreground. This should place UI windows and ImGui's software cursor above the
+block, but **does not** put MHW world geometry above it. SharpPluginLoader's
+public 1.0 rendering API has no scene-depth texture accessor. The reference
+MHW crossover uses a Direct3D Present composite with the game's depth buffer;
+porting that behavior to Proton/DXVK requires a separate native graphics path
+and validation of the actual D3D version and depth resource before injection.

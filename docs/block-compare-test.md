@@ -29,6 +29,10 @@ above and below. Do not interpret a bright line or floating sphere as a
 successful block. If C still draws through the hunter or terrain, that is a
 known limitation of this overlay path, not evidence of depth integration.
 
+Version 0.3.2 draws C beneath ImGui UI and cursor instead of on the foreground
+draw list. This only changes overlay order; MHW scene depth is still absent.
+Do not treat the cursor fix as successful world occlusion.
+
 ## Prepare without launching either game
 
 Close both games, then in a normal terminal (outside this restricted build
