@@ -1,5 +1,85 @@
 # Depth-aware rendering path
 
+## Verified native stone milestone — 2026-10-04
+
+The sandbox blocker described below is resolved. Host access permitted actual
+offline MHW testing on revision 421810, DX11/Proton/DXVK, at 1920×1080.
+The new native path is opt-in and replaces A/B/C while selected. Initialization
+failure does **not** silently fall back to the old overlay.
+
+Evidence from the running game:
+
+- Read-back `12293246-depth0.bin` contains the terrain; depth1 was empty.
+  The full-resolution resource is R32_TYPELESS with shader-resource/depth
+  bindings and is cleared to 0 (reversed Z).
+- SPL's CPU viewport matrix uses forward Z. Treating it as reversed inverted
+  the initial ray. The final implementation avoids conversion and frame lag:
+  it binds the actual current draw's GPU camera constant buffer directly.
+- A one-frame draw trace found the scene **before** native HUD drawing on an
+  R11G11B10_FLOAT target. The observed UI signature is depth disabled,
+  SRC_ALPHA/INV_SRC_ALPHA, vertex stride32, VS b0=1072 bytes and b3=400 bytes.
+  The pixel shader additionally validates b3's pixel-to-clip scale. The shader
+  uses b0's view-projection and inverse view-projection at byte offsets 0/320.
+  These are observed constant-buffer layouts, not guessed retail pointers.
+- The block remains world-anchored while orbiting. Sword/helmet and foreground
+  vegetation occlude it. The Palico interaction prompt appears above the block;
+  the game cursor stays visible, and the opened map covers the scene normally.
+- The same renderer was exercised in the Research Base and Ancient Forest.
+  Dithered camera-fade geometry has the game's existing dithered depth silhouette;
+  this is not a solution for arbitrary transparent particles/glass.
+
+Local screenshots (ignored build artifacts, not redistributed game assets):
+`native/mhw-renderer/build/evidence/`, including `ch-native-preui2.png`,
+`ch-cursor-over-stone.png`, `ch-map-over-stone.png`, `ch-forest-block.png`,
+`ch-tree-hidden-active.png`, and `ch-tree-reappear-active.png`.
+
+The test used the **existing installed Minecraft stone PNG** replayed through
+the normal bridge/pixel receiver. No replacement texture or debug geometry
+comparison was generated. This proves the receiver/native rendering path;
+it is **not** evidence of a live Fabric client run in this session. The native
+renderer draws a stone cube from those texels; it does not yet transfer a
+Minecraft-rendered world framebuffer, collision, entities, or combat.
+
+### Build and install
+
+With MHW closed:
+
+```bash
+bash tools/build-mhw-spl.sh
+bash tools/build-mhw-renderer.sh
+bash tools/install-mhw-spl-plugin.sh install
+bash tools/install-mhw-renderer.sh
+```
+
+Start the existing bridge and both games normally. Enter their worlds, then:
+
+```bash
+python tools/control-mhw-renderer.py place
+```
+
+This explicitly anchors the stone three metres down the current MHW camera ray.
+It prevents title/loading cameras from automatically creating a bad placement.
+It is only a visual placement: no ground snapping or collision is claimed.
+Use `place` again after changing areas. Assets expire after six seconds without
+the Minecraft feed. DX12, unsupported executable hashes, unknown/stale depth,
+and missing UI signatures fail closed instead of drawing through everything.
+
+For development, `capture` reads back color/depth; `trace` captures one frame's
+candidate passes; these deliberately stall the GPU and are not normal gameplay
+operations. `reload` reloads a newly copied native DLL only, not managed changes.
+Retired native modules remain mapped until game exit for callback safety.
+The MinHook redistribution notice accompanies the native DLL.
+
+### Remaining scope
+
+This is experimental support for the pinned executable and tested DX11 settings,
+not a guarantee across every graphics option, cutscene, resolution, or game build.
+Next: live Fabric end-to-end verification, scene-transition placement lifecycle,
+then Minecraft-owned placement/removal state. Full color/depth passthrough and
+gameplay authority remain later work.
+
+## Earlier architecture and audit (historical)
+
 The v0.3 stone transfer and projection work, but its ImGui path is a screen
 overlay. `GetBackgroundDrawList` places it beneath ImGui windows and cursor;
 it does **not** compare against MHW's scene depth. The v0.3.1 recording shows
