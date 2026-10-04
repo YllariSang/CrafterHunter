@@ -25,7 +25,7 @@ public sealed class Plugin : IPlugin
     private const float MhwUnitsPerMetre = 100.0f;
     private static readonly long CameraStartupDelayTicks = Stopwatch.Frequency * 10;
     private static readonly byte[] HelloPayload =
-        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.3.0");
+        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.3.1");
     private static readonly object DiagnosticLock = new();
 
     private readonly object _lifecycleLock = new();
@@ -548,7 +548,7 @@ public sealed class Plugin : IPlugin
                 return;
             }
 
-            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.3.0] {message}{Environment.NewLine}";
+            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.3.1] {message}{Environment.NewLine}";
             lock (DiagnosticLock)
             {
                 File.AppendAllText(Path.Combine(assemblyDirectory, "CrafterHunter.runtime.log"), line);

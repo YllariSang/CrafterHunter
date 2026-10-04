@@ -10,19 +10,13 @@ namespace CrafterHunter.MHW;
 // have correct host-depth interaction until the in-game comparison confirms it.
 internal sealed class MinecraftBlockRenderer
 {
-    private const float HalfSize = 50.0f;
-    private const float Separation = 180.0f;
-    private static readonly Vector2 Uv0 = new(0, 0);
-    private static readonly Vector2 Uv1 = new(1, 0);
-    private static readonly Vector2 Uv2 = new(1, 1);
-    private static readonly Vector2 Uv3 = new(0, 1);
+    private const float HalfSize = 35.0f;
+    private const float Separation = 95.0f;
+    private const float VerticalLift = 40.0f;
     private readonly List<(MeshHandle Handle, Vector4 Color)> _meshes = [];
     private MinecraftBlockAsset? _meshAsset;
-    private MinecraftBlockAsset? _textureAsset;
-    private TextureHandle _texture = TextureHandle.Invalid;
-
     internal static Vector3 Position(Vector3 anchor, Vector3 right, int method) =>
-        anchor + right * ((method - 1) * Separation);
+        anchor + Vector3.UnitY * VerticalLift + right * ((method - 1) * Separation);
 
     internal void DrawMesh(MinecraftBlockAsset asset, Vector3 anchor, Vector3 right)
     {
@@ -60,11 +54,39 @@ internal sealed class MinecraftBlockRenderer
                 }
             }
         }
+        // Full-length boundaries keep the 3D line method legible even when
+        // individual Minecraft texels are subpixel at the current distance.
+        var edgeColor = PixelColor(asset.Rgba, 8, 8);
+        for (var axis = 0; axis < 3; axis++)
+        {
+            for (var sideA = -1; sideA <= 1; sideA += 2)
+            {
+                for (var sideB = -1; sideB <= 1; sideB += 2)
+                {
+                    Vector3 a, b;
+                    if (axis == 0)
+                    {
+                        a = new(-HalfSize, sideA * HalfSize, sideB * HalfSize);
+                        b = new(HalfSize, sideA * HalfSize, sideB * HalfSize);
+                    }
+                    else if (axis == 1)
+                    {
+                        a = new(sideA * HalfSize, -HalfSize, sideB * HalfSize);
+                        b = new(sideA * HalfSize, HalfSize, sideB * HalfSize);
+                    }
+                    else
+                    {
+                        a = new(sideA * HalfSize, sideB * HalfSize, -HalfSize);
+                        b = new(sideA * HalfSize, sideB * HalfSize, HalfSize);
+                    }
+                    Primitives.RenderLine(linePosition + a, linePosition + b, edgeColor);
+                }
+            }
+        }
     }
 
     internal void DrawOverlay(MinecraftBlockAsset asset, Vector3 anchor, Vector3 right)
     {
-        EnsureTexture(asset);
         var draw = ImGui.GetForegroundDrawList();
         var activeCamera = CameraSystem.MainViewport.Camera;
         if (activeCamera is null) return;
@@ -73,17 +95,16 @@ internal sealed class MinecraftBlockRenderer
         {
             Position(anchor, right, 0), Position(anchor, right, 1), Position(anchor, right, 2)
         };
-        var labels = new[] { "A: 3D mesh", "B: 3D lines", "C: image quads" };
+        var labels = new[] { "A: 3D mesh", "B: 3D lines", "C: pixel quads (no depth)" };
         for (var method = 0; method < centres.Length; method++)
         {
             if (CameraSystem.MainViewport.WorldToScreen(
-                    centres[method] + new Vector3(0, 75, 0), out var labelPosition))
+                    centres[method] + new Vector3(0, 50, 0), out var labelPosition))
             {
                 draw.AddText(labelPosition, 0xFFFFFFFF, labels[method]);
             }
         }
 
-        if (_texture == TextureHandle.Invalid) return;
         var position = centres[2];
         // Painter order only resolves the block's own faces. This overlay has
         // no MHW scene depth, so its draw-through is an intentional control.
@@ -94,8 +115,21 @@ internal sealed class MinecraftBlockRenderer
         foreach (var face in faces)
         {
             if (!TryProjectFace(position, face, out var points)) continue;
-            draw.AddImageQuad(_texture, points[0], points[1], points[2], points[3],
-                Uv0, Uv1, Uv2, Uv3, 0xFFFFFFFF);
+            for (var y = 0; y < MinecraftBlockAsset.Size; y++)
+            {
+                for (var x = 0; x < MinecraftBlockAsset.Size; x++)
+                {
+                    var color = PixelColor32(asset.Rgba, x, y);
+                    if ((color & 0xFF000000) == 0) continue;
+                    var u0 = x / 16.0f;
+                    var u1 = (x + 1) / 16.0f;
+                    var v0 = y / 16.0f;
+                    var v1 = (y + 1) / 16.0f;
+                    draw.AddQuadFilled(
+                        Interpolate(points, u0, v0), Interpolate(points, u1, v0),
+                        Interpolate(points, u1, v1), Interpolate(points, u0, v1), color);
+                }
+            }
         }
     }
 
@@ -146,24 +180,15 @@ internal sealed class MinecraftBlockRenderer
         Log.Info($"[CrafterHunter block] A registered {_meshes.Count} color meshes from {asset.BlockId}");
     }
 
-    private void EnsureTexture(MinecraftBlockAsset asset)
+    private static Vector2 Interpolate(Vector2[] corners, float u, float v) =>
+        Vector2.Lerp(Vector2.Lerp(corners[0], corners[1], u),
+            Vector2.Lerp(corners[3], corners[2], u), v);
+
+    internal static uint PixelColor32(byte[] rgba, int x, int y)
     {
-        if (ReferenceEquals(_textureAsset, asset)) return;
-        _textureAsset = asset;
-        _texture = TextureHandle.Invalid;
-        var path = Path.Combine(Path.GetTempPath(),
-            $"crafterhunter-{Guid.NewGuid():N}.png");
-        try
-        {
-            File.WriteAllBytes(path, asset.Png);
-            _texture = Renderer.LoadTexture(path, out var width, out var height);
-            Log.Info($"[CrafterHunter block] C loaded {asset.BlockId} PNG: {width}x{height}");
-        }
-        finally
-        {
-            // Never leave a copied Minecraft texture on disk after GPU upload.
-            if (File.Exists(path)) File.Delete(path);
-        }
+        var offset = (y * MinecraftBlockAsset.Size + x) * 4;
+        return (uint)rgba[offset] | ((uint)rgba[offset + 1] << 8) |
+            ((uint)rgba[offset + 2] << 16) | ((uint)rgba[offset + 3] << 24);
     }
 
     private static bool TryProjectFace(Vector3 position, int face, out Vector2[] points)
@@ -197,12 +222,12 @@ internal sealed class MinecraftBlockRenderer
     // Minecraft's own stone pixels, rather than a painted proxy texture.
     private static Vector3 FacePoint(int face, float u, float v) => face switch
     {
-        0 => new(-HalfSize + u * 100, HalfSize - v * 100, HalfSize),
-        1 => new(HalfSize - u * 100, HalfSize - v * 100, -HalfSize),
-        2 => new(HalfSize, HalfSize - v * 100, HalfSize - u * 100),
-        3 => new(-HalfSize, HalfSize - v * 100, -HalfSize + u * 100),
-        4 => new(-HalfSize + u * 100, HalfSize, -HalfSize + v * 100),
-        _ => new(-HalfSize + u * 100, -HalfSize, HalfSize - v * 100)
+        0 => new(-HalfSize + u * 2 * HalfSize, HalfSize - v * 2 * HalfSize, HalfSize),
+        1 => new(HalfSize - u * 2 * HalfSize, HalfSize - v * 2 * HalfSize, -HalfSize),
+        2 => new(HalfSize, HalfSize - v * 2 * HalfSize, HalfSize - u * 2 * HalfSize),
+        3 => new(-HalfSize, HalfSize - v * 2 * HalfSize, -HalfSize + u * 2 * HalfSize),
+        4 => new(-HalfSize + u * 2 * HalfSize, HalfSize, -HalfSize + v * 2 * HalfSize),
+        _ => new(-HalfSize + u * 2 * HalfSize, -HalfSize, HalfSize - v * 2 * HalfSize)
     };
 
     private static Vector4 PixelColor(byte[] rgba, int x, int y)

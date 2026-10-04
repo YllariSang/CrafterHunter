@@ -65,11 +65,21 @@ if (!MinecraftBlockAsset.TryReadPng(pngPayload, out var png) ||
 {
     throw new Exception("Minecraft PNG packet did not round-trip.");
 }
-if (MinecraftBlockRenderer.Position(Vector3.Zero, Vector3.UnitX, 0).X != -180 ||
+if (MinecraftBlockRenderer.Position(Vector3.Zero, Vector3.UnitX, 0).X != -95 ||
     MinecraftBlockRenderer.Position(Vector3.Zero, Vector3.UnitX, 1).X != 0 ||
-    MinecraftBlockRenderer.Position(Vector3.Zero, Vector3.UnitX, 2).X != 180)
+    MinecraftBlockRenderer.Position(Vector3.Zero, Vector3.UnitX, 2).X != 95 ||
+    MinecraftBlockRenderer.Position(Vector3.Zero, Vector3.UnitX, 1).Y != 40)
 {
     throw new Exception("A/B/C render methods must have separate stable world positions.");
+}
+var colorPixels = new byte[16 * 16 * 4];
+colorPixels[0] = 0x12;
+colorPixels[1] = 0x34;
+colorPixels[2] = 0x56;
+colorPixels[3] = 0xFF;
+if (MinecraftBlockRenderer.PixelColor32(colorPixels, 0, 0) != 0xFF563412)
+{
+    throw new Exception("Minecraft RGBA pixels must pack to ImGui color without red tint.");
 }
 Console.WriteLine("Minecraft block packet and A/B/C placement checks passed.");
 
