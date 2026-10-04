@@ -30,7 +30,19 @@ for path in args.files:
         display = np.zeros((h, w), dtype=np.uint8)
         display[valid] = np.clip((np.log10(values) + 6) * 42.5, 0, 255).astype(np.uint8)
         image = Image.fromarray(display)
-    elif fmt in (28, 87):
+    elif fmt == 26:  # DXGI_FORMAT_R11G11B10_FLOAT: unsigned mini-floats.
+        packed = rows[:, :w * 4].copy().view("<u4").reshape(h, w)
+        channels = []
+        for shift, bits in ((0, 6), (11, 6), (22, 5)):
+            value = packed >> shift
+            mantissa = value & ((1 << bits) - 1)
+            exponent = (value >> bits) & 31
+            channel = np.where(exponent == 0, mantissa / (1 << bits) * 2.0 ** -14,
+                               (1 + mantissa / (1 << bits)) * 2.0 ** (exponent.astype(float) - 15))
+            channels.append(channel)
+        rgb = np.stack(channels, axis=-1)
+        image = Image.fromarray((np.clip(rgb, 0, 1) ** (1 / 2.2) * 255).astype(np.uint8))
+    elif fmt in (27, 28, 87):
         pixels = rows[:, :w * 4].copy().reshape(h, w, 4)
         if fmt == 87:
             pixels = pixels[:, :, [2, 1, 0, 3]]

@@ -2,7 +2,6 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Numerics;
-using System.Reflection;
 using System.Text;
 using SharpPluginLoader.Core;
 
@@ -91,7 +90,11 @@ public sealed class Plugin : IPlugin
         {
             WriteDiagnostic("Opt-in cube rendering probe enabled.");
         }
-        if (_blockCompareEnabled)
+        if (NativeRenderer.Requested)
+        {
+            WriteDiagnostic("Native depth renderer selected; A/B/C disabled. Place the stone after entering a world.");
+        }
+        else if (_blockCompareEnabled)
         {
             WriteDiagnostic("Minecraft stone A/B/C comparison enabled; waiting for actual block asset.");
         }
@@ -201,9 +204,10 @@ public sealed class Plugin : IPlugin
 
     public void OnRender()
     {
-        if (NativeRenderer.Enabled)
+        if (NativeRenderer.Requested)
         {
-            try { NativeRenderer.Frame(); }
+            try { NativeRenderer.Frame(BlockAssetFresh() ? Volatile.Read(ref _blockAsset) : null,
+                Volatile.Read(ref _renderCamera)?.Anchor); }
             catch (Exception exception) { WriteDiagnostic($"Native renderer frame failed: {exception}"); NativeRenderer.Stop(); }
             return;
         }
@@ -258,7 +262,7 @@ public sealed class Plugin : IPlugin
 
     public void OnImGuiFreeRender()
     {
-        if (NativeRenderer.Enabled) return;
+        if (NativeRenderer.Requested) return;
         if (!_blockCompareEnabled || !_overlayEnabled || Volatile.Read(ref _bridgeReady) == 0 ||
             Volatile.Read(ref _renderCamera) is not { } camera ||
             Volatile.Read(ref _blockAsset) is not { } asset || !BlockAssetFresh())
