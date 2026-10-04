@@ -6,6 +6,7 @@
 /minecraft/fabric/run/
 /native/mhw-plugin/build/
 /native/mhw-plugin/build-*/
+/native/mhw-renderer/build/
 /native/mhw-spl-plugin/build/
 /native/mhw-spl-plugin/bin/
 /native/mhw-spl-plugin/obj/

@@ -61,6 +61,8 @@ public sealed class Plugin : IPlugin
     public void OnLoad()
     {
         WriteDiagnostic("OnLoad entered.");
+        try { NativeRenderer.Initialize(); }
+        catch (Exception exception) { WriteDiagnostic($"Native renderer initialization failed: {exception}"); }
 
         lock (_lifecycleLock)
         {
@@ -98,6 +100,7 @@ public sealed class Plugin : IPlugin
     public void OnUnload()
     {
         WriteDiagnostic("OnUnload entered.");
+        NativeRenderer.Stop();
         Task? task;
         CancellationTokenSource? cancellation;
 
@@ -198,6 +201,12 @@ public sealed class Plugin : IPlugin
 
     public void OnRender()
     {
+        if (NativeRenderer.Enabled)
+        {
+            try { NativeRenderer.Frame(); }
+            catch (Exception exception) { WriteDiagnostic($"Native renderer frame failed: {exception}"); NativeRenderer.Stop(); }
+            return;
+        }
         var camera = Volatile.Read(ref _renderCamera);
         if ((!_renderProbeEnabled && !_blockCompareEnabled) ||
             Volatile.Read(ref _bridgeReady) == 0 || camera is null)
@@ -249,6 +258,7 @@ public sealed class Plugin : IPlugin
 
     public void OnImGuiFreeRender()
     {
+        if (NativeRenderer.Enabled) return;
         if (!_blockCompareEnabled || !_overlayEnabled || Volatile.Read(ref _bridgeReady) == 0 ||
             Volatile.Read(ref _renderCamera) is not { } camera ||
             Volatile.Read(ref _blockAsset) is not { } asset || !BlockAssetFresh())
@@ -542,11 +552,7 @@ public sealed class Plugin : IPlugin
     {
         try
         {
-            var assemblyDirectory = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            if (string.IsNullOrEmpty(assemblyDirectory))
-            {
-                return;
-            }
+            var assemblyDirectory = Path.GetFullPath("nativePC/plugins/CSharp/CrafterHunter");
 
             var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.3.2] {message}{Environment.NewLine}";
             lock (DiagnosticLock)

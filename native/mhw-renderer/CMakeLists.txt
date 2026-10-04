@@ -1,0 +1,13 @@
+cmake_minimum_required(VERSION 3.21)
+project(crafterhunter_renderer LANGUAGES C CXX)
+include(FetchContent)
+FetchContent_Declare(minhook GIT_REPOSITORY https://github.com/TsudaKageyu/minhook.git
+    GIT_TAG c3fcafdc10146beb5919319d0683e44e3c30d537)
+FetchContent_MakeAvailable(minhook)
+add_library(crafterhunter_renderer SHARED renderer.cpp)
+target_compile_features(crafterhunter_renderer PRIVATE cxx_std_20)
+target_compile_definitions(crafterhunter_renderer PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+target_compile_options(crafterhunter_renderer PRIVATE -Wall -Wextra)
+target_link_libraries(crafterhunter_renderer PRIVATE minhook d3d11 dxgi d3dcompiler)
+target_link_options(crafterhunter_renderer PRIVATE -static-libgcc -static-libstdc++ -static)
+set_target_properties(crafterhunter_renderer PROPERTIES PREFIX "" OUTPUT_NAME "CrafterHunter.Render")
