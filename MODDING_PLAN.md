@@ -94,6 +94,25 @@ commands, session/area epochs, and a disconnect watchdog. Unsupported features
 must disable themselves. Do not use raw health writes as a substitute for the
 host's combat and quest bookkeeping.
 
+### Save backups (2026-10-05)
+
+The pre-write backups exist and were verified against their sources by
+`sha256`. They live outside the repository, so they cannot be committed.
+
+| Data | Source | Backup |
+| --- | --- | --- |
+| MHW Steam `582010` save | `/home/yllaris/.local/share/Steam/userdata/914702006/582010/` (`remote/SAVEDATA1000`, `remote/PhotoData00.dat`, `remotecache.vdf`) | `/home/yllaris/.local/share/crafterhunter-backups/mhw-582010-20261005T0549/` |
+| Minecraft world `New World` | `/home/yllaris/.minecraft/saves/New World/` | `/home/yllaris/.local/share/crafterhunter-backups/minecraft-new-world-20261005T0549/` |
+
+Restore procedure: quit the owning game first, then copy the backup directory
+back over the source path with `cp -a <backup>/. <source>/`. The Minecraft
+world stores its regions under `dimensions/minecraft/overworld/{region,entities,poi}`.
+
+Both snapshots were taken while the games were running (MHW in Astera, the
+Minecraft world loaded), so they are live copies: `level.dat` is written
+periodically and `SAVEDATA1000` on MHW save events. Take a fresh pair once the
+games are idle if a fully flushed snapshot is needed.
+
 ## Sources
 
 - Existing local evidence: `docs/tested-builds.md`, `docs/camera-link-test.md`,
