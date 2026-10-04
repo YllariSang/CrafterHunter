@@ -18,11 +18,17 @@ fail-closed version handling. See [docs/prior-art.md](docs/prior-art.md).
 
 ## Current milestone
 
-The transport and camera link work in user testing. The current v0.3 milestone
-compares three experimental ways to show an actual Minecraft stone block in
-MHW. Minecraft sends the block texture from its active resources at runtime;
-no Minecraft asset is bundled. See [the A/B/C test](docs/block-compare-test.md)
-for preparation and what to record. MHW scene-depth behavior is not yet proven.
+The transport and camera link work in user testing. The native DX11 renderer
+now displays Minecraft stone with a fixed world position, scene-depth occlusion,
+and drawing before MHW's HUD and cursor. It has been tested on MHW build 421810
+under Proton/DXVK in the Research Base and Ancient Forest. Live Fabric block-asset
+transfer has also been confirmed. Minecraft supplies its texture at runtime;
+no Minecraft asset is bundled. See [the rendering verification and setup](docs/depth-renderer.md).
+
+This is an experimental rendering prototype. Multiple-block placement/removal,
+collision, Steve's model, inventory integration, and cross-game combat are still
+future work. The earlier [A/B/C comparison](docs/block-compare-test.md) remains
+documented as development history.
 
 The repository includes:
 
@@ -31,13 +37,15 @@ The repository includes:
 - `minecraft/fabric`: the Fabric camera link and runtime block-asset sender.
 - `native/mhw-spl-plugin`: the supported MHW transport endpoint, loaded by
   SharpPluginLoader on Proton.
+- `native/mhw-renderer`: the opt-in DX11 stone renderer using observed MHW
+  scene depth and the current GPU camera constants.
 - `native/mhw-plugin`: an experimental native DLL retained for future graphics
   work; it is not the current installation path.
 - `docs/protocol.md`: the versioned wire protocol shared by all components.
 
 Gameplay modification is not implemented yet. The Proton loader checkpoint is
 proven on MHW build 421810; the endpoint publishes read-only camera telemetry
-and runs opt-in rendering comparisons through SharpPluginLoader's supported API.
+and connects the runtime block-asset receiver to the opt-in native renderer.
 
 ## Build the testable core
 
@@ -155,6 +163,19 @@ launching Minecraft.
 
 See [docs/architecture.md](docs/architecture.md) and
 [docs/legal-boundaries.md](docs/legal-boundaries.md).
+
+## Credits
+
+- [SharpPluginLoader](https://github.com/Fexty12573/SharpPluginLoader) provides
+  the MHW loader and managed API.
+- [MinHook](https://github.com/TsudaKageyu/minhook) provides native hooks; its
+  redistribution notice is included by the renderer build/install scripts.
+- [Fabric](https://fabricmc.net/) and Gradle provide the Minecraft build tooling.
+- [minecraft-crossover-bridge](https://github.com/justbustin/minecraft-crossover-bridge)
+  informed the interoperability and depth-rendering approach; see
+  [prior art](docs/prior-art.md).
+- Development includes assistance from OpenAI Codex. The logo source was supplied
+  by the project's author.
 
 ## License
 
