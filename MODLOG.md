@@ -69,3 +69,21 @@ world space during ordinary camera movement, re-anchors after a camera jump
 over 25 m, and removes the magenta diagnostic sphere. The screenshots still
 suggest that debug primitives do not provide the depth behaviour needed for
 Minecraft geometry; that remains an open milestone.
+
+## 2026-10-04 — stone A/B/C first live result
+
+The user's 23-second expedition recording shows the v0.3 comparison labels.
+The visible red cube sits under **C**, the projected image-quad path, and draws
+through MHW foreground. **A** has no visible mesh and **B** shows only a few
+white points. The SPL log confirms Minecraft's stone asset arrived, four
+color meshes were registered for A, and the 16×16 PNG loaded for C. The stone
+PNG in Minecraft's local client cache is grayscale, so the red C result is
+not the intended block color. A/B are staged against dense nearby terrain;
+this footage alone does not prove whether they are occluded or the primitive
+draws fail. These are observations, not proof of a depth-correct render.
+
+Version 0.3.1 changes C to draw the actual transmitted RGBA pixels directly
+as ImGui quads, eliminating the suspect GPU texture-handle path. It moves the
+three 70 cm blocks to a tighter row, 40 cm above the original anchor, and adds
+full-length pixel-colored edges to B so its line pass is legible. C remains
+depth-unaware by design; a host depth-buffer integration is still required.

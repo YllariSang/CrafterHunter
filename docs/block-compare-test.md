@@ -12,16 +12,22 @@ The three labeled methods are:
 
 - **A — 3D mesh:** texel-colored face geometry registered with SharpPluginLoader.
 - **B — 3D lines:** Minecraft pixel colors drawn with SharpPluginLoader's line pass.
-- **C — image quads:** Minecraft PNG drawn as projected ImGui image quads. This
-  intentionally has no MHW scene depth and serves as a draw-through control.
+- **C — pixel quads:** Minecraft RGBA pixels drawn as projected ImGui quads.
+  This intentionally has no MHW scene depth and serves as a draw-through
+  control. The PNG is still transported for asset validation, but the v0.3.1
+  comparison does not rely on the PNG texture upload that rendered red in the
+  first recording.
 
 Each method can fail independently; check the CrafterHunter plugin diagnostic log
 for `Block method A/B/C failed` if one vanishes. Rendering and occlusion remain
 unverified until an in-game test. A good result holds position while moving the
 MHW camera, rotates in perspective, and is hidden by nearer MHW geometry. C is
-not expected to satisfy the last condition. Record the three methods near a
-wall or supply box from several angles, including above and below. Do not
-interpret a bright line or floating sphere as a successful block.
+not expected to satisfy the last condition. Version 0.3.1 moves the three
+blocks into a tighter, slightly raised row because the first recording placed
+A and B against nearby terrain. Record the row from several angles, including
+above and below. Do not interpret a bright line or floating sphere as a
+successful block. If C still draws through the hunter or terrain, that is a
+known limitation of this overlay path, not evidence of depth integration.
 
 ## Prepare without launching either game
 
