@@ -104,3 +104,37 @@ public 1.0 rendering API has no scene-depth texture accessor. The reference
 MHW crossover uses a Direct3D Present composite with the game's depth buffer;
 porting that behavior to Proton/DXVK requires a separate native graphics path
 and validation of the actual D3D version and depth resource before injection.
+
+## 2026-10-05 — explicit placement invalidation (0.3.3)
+
+Baseline first: MHW in-world with the stone composing under the HUD, and the
+Minecraft HUD reporting `MHW LINK: LIVE | 1 pkt/s | seq 8147 | age 269ms`,
+later `WAITING | seq – | age –1ms` while Minecraft was backgrounded. The bridge
+performs no rate limiting and the Minecraft log carried no errors, so the rate
+reads as background throttling rather than a protocol defect. Recorded as an
+open observation, not changed in this entry.
+
+`PlacementLifecycle` replaces the process-lifetime anchor. It drops the anchor
+on a single-frame camera jump over 25 m, or on over a second without a usable
+camera sample, and never re-anchors: after a scene change the stone stays absent
+until an explicit `place`. `control-mhw-renderer.py clear` drops the anchor on
+demand. Headless checks cover the jump, camera-timeout, non-finite sample, clear
+and reset paths (`Placement lifecycle checks passed`); Rust, Fabric and the
+existing .NET checks stayed green. Version bump to 0.3.3.
+
+Verified live in the running game with 0.3.3 hot-reloaded without an MHW
+restart: `place` → `clear` → `place` produced anchored / cleared by request /
+anchored log lines with the stone present, absent and present; camera rotation
+kept the anchor and re-projected the cube; and a player-driven transition to
+Astera logged `Native placement invalidated: camera jumped over 25 m in a
+single frame`, after which no anchor event followed for the rest of the
+observation — no automatic re-anchor — until a fresh `place` anchored at new
+Astera coordinates and the stone drew there.
+
+Injected input does not reach Proton in this session: uinput injection and
+Hyprland's `hl.dsp.send_key_state` both left the game unaffected, so the scene
+transition had to be player-driven.
+
+No SharpPluginLoader lifecycle callback is relied upon, so none was verified;
+placement invalidation uses camera telemetry alone. Depth-candidate selection in
+`renderer.cpp` is untouched.

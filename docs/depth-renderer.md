@@ -60,9 +60,11 @@ python tools/control-mhw-renderer.py place
 This explicitly anchors the stone three metres down the current MHW camera ray.
 It prevents title/loading cameras from automatically creating a bad placement.
 It is only a visual placement: no ground snapping or collision is claimed.
-Use `place` again after changing areas. Assets expire after six seconds without
-the Minecraft feed. DX12, unsupported executable hashes, unknown/stale depth,
-and missing UI signatures fail closed instead of drawing through everything.
+After a scene change the anchor is dropped automatically, never rebuilt
+(placement lifecycle below); run `place` again to restore the stone. Assets
+expire after six seconds without the Minecraft feed. DX12, unsupported
+executable hashes, unknown/stale depth, and missing UI signatures fail closed
+instead of drawing through everything.
 
 For development, `capture` reads back color/depth; `trace` captures one frame's
 candidate passes; these deliberately stall the GPU and are not normal gameplay
@@ -70,13 +72,55 @@ operations. `reload` reloads a newly copied native DLL only, not managed changes
 Retired native modules remain mapped until game exit for callback safety.
 The MinHook redistribution notice accompanies the native DLL.
 
+### Placement lifecycle (v0.3.3, 2026-10-05)
+
+Placement is explicit in both directions. `PlacementLifecycle` holds at most one
+anchor and drops it when the camera reports a scene transition:
+
+- a single-frame camera displacement over 25 m — a scene gate, fast travel or a
+  cutscene camera cut; ordinary walking never covers that between two rendered
+  frames, and camera rotation never displaces the camera at all; or
+- no usable camera sample for over one second, which covers loading and title
+  sequences where the anchor's world cannot be confirmed.
+
+Nothing re-anchors afterwards. After a transition the stone stays absent until
+the operator runs `place`, so a transition can never leave geometry anchored in
+the previous world. `control-mhw-renderer.py clear` drops the anchor on demand.
+
+Evidence from the running game (0.3.3 hot-reloaded into MHW 421810; screenshots
+are local ignored artifacts under `native/mhw-renderer/build/evidence/`):
+
+- `place` → `clear` → `place` in Ancient Forest logged `anchored`,
+  `cleared by request`, `anchored`; `10-place-A.png`, `11-clear-B.png` and
+  `12-place-C.png` show the stone present, absent, present.
+- Camera rotation after `place` kept the anchor: the cube re-projected from the
+  new angle with no invalidation logged.
+- A player-driven transition to Astera logged `Native placement invalidated:
+  camera jumped over 25 m in a single frame`. `31-after-transition.png` and
+  `32-after-wait.png` show no stone, and a further 14 s produced no anchor
+  event — no automatic re-anchor.
+- A fresh `place` in Astera anchored at `<-378.678, -462.901, -164.472>`,
+  a different world position from the pre-transition
+  `<-24922.912, 4006.544, 40705.695>`; `34-astera-cube.png` shows the stone
+  drawn there.
+
+Observation: the first shot taken right after that Astera `place` showed no
+stone although the anchor had already been logged, and it appeared with the
+same anchor two minutes later. Anchor state and drawing are independent — the
+Minecraft asset feed gates drawing separately (six-second expiry) — but this
+instance was not isolated, so it is recorded as an observation, not a diagnosis.
+
+No SharpPluginLoader lifecycle callback is used for placement: the invalidation
+is driven purely by camera telemetry, which is observable and testable without
+the game. The jump and camera-timeout paths are additionally covered by the
+headless checks (`Placement lifecycle checks passed`).
+
 ### Remaining scope
 
 This is experimental support for the pinned executable and tested DX11 settings,
 not a guarantee across every graphics option, cutscene, resolution, or game build.
-Next: live Fabric end-to-end verification, scene-transition placement lifecycle,
-then Minecraft-owned placement/removal state. Full color/depth passthrough and
-gameplay authority remain later work.
+Next: live Fabric end-to-end verification, then Minecraft-owned placement/removal
+state. Full color/depth passthrough and gameplay authority remain later work.
 
 ## Earlier architecture and audit (historical)
 
