@@ -87,7 +87,10 @@ internal sealed class MinecraftBlockRenderer
 
     internal void DrawOverlay(MinecraftBlockAsset asset, Vector3 anchor, Vector3 right)
     {
-        var draw = ImGui.GetForegroundDrawList();
+        // The block is still an overlay, but place it below ImGui windows and
+        // the software cursor. ForegroundDrawList obscured the mouse pointer.
+        var blockDraw = ImGui.GetBackgroundDrawList();
+        var labelDraw = ImGui.GetForegroundDrawList();
         var activeCamera = CameraSystem.MainViewport.Camera;
         if (activeCamera is null) return;
         var camera = activeCamera.Position;
@@ -101,7 +104,7 @@ internal sealed class MinecraftBlockRenderer
             if (CameraSystem.MainViewport.WorldToScreen(
                     centres[method] + new Vector3(0, 50, 0), out var labelPosition))
             {
-                draw.AddText(labelPosition, 0xFFFFFFFF, labels[method]);
+                labelDraw.AddText(labelPosition, 0xFFFFFFFF, labels[method]);
             }
         }
 
@@ -125,7 +128,7 @@ internal sealed class MinecraftBlockRenderer
                     var u1 = (x + 1) / 16.0f;
                     var v0 = y / 16.0f;
                     var v1 = (y + 1) / 16.0f;
-                    draw.AddQuadFilled(
+                    blockDraw.AddQuadFilled(
                         Interpolate(points, u0, v0), Interpolate(points, u1, v0),
                         Interpolate(points, u1, v1), Interpolate(points, u0, v1), color);
                 }
