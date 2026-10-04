@@ -138,3 +138,19 @@ transition had to be player-driven.
 No SharpPluginLoader lifecycle callback is relied upon, so none was verified;
 placement invalidation uses camera telemetry alone. Depth-candidate selection in
 `renderer.cpp` is untouched.
+
+## 2026-10-05 — depth-candidate investigation (no selection change)
+
+Measured the existing read-back sets instead of changing the selection rule.
+`depth[0]` held scene geometry in all four capture sets across two sessions
+(97.4–99.97 % coverage when terrain filled the frame, 54.2 % when sky filled
+46 % of it), `depth[1]` was entirely zero at capture time in every set, and
+`depth[2]` was never captured. The paired depth/colour PNGs put sky at the
+reversed-Z far value, match foliage and hunter silhouette positions, and show
+the stone absent from depth because the renderer reads depth and never writes it.
+
+Candidates are appended on first discovery and pruned only on resize: `depth[1]`
+appeared about two minutes after `depth[0]` in this session, so list index
+records discovery order rather than scene-depth priority. `renderer.cpp` is
+unchanged; any future rule must be validated in more areas and should prefer
+per-frame freshness over list index.

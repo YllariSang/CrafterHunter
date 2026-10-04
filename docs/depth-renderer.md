@@ -115,6 +115,35 @@ is driven purely by camera telemetry, which is observable and testable without
 the game. The jump and camera-timeout paths are additionally covered by the
 headless checks (`Placement lifecycle checks passed`).
 
+### Depth-candidate investigation (2026-10-05, read-only)
+
+`renderer.cpp` still selects `depths[0]`; the numbers below are evidence for
+that question later, not a change to it. Four read-back sets from two sessions,
+all 1920×1080 and format 39 (R32_TYPELESS, cleared to 0, reversed Z), measured
+with `tools/inspect-depth-capture.py`:
+
+| capture | `depth[0]` | `depth[1]` | `depth[2]` |
+| --- | --- | --- | --- |
+| `12293246` (previous session) | 97.4 % covered, 0.0026–0.018 | all zero | not present |
+| `13897364` (previous session) | 99.96 % covered, 0.0025–0.080 | all zero | not captured |
+| `13961495` (previous session) | 99.97 % covered, 0.0025–0.080 | all zero | not captured |
+| `6774190` (sky filling ~46 % of frame) | 54.2 % covered, 0.0045–0.136 | all zero | not present |
+
+`6774190-depth0.png` beside `6774190-color.png` is the visual form of the same
+frame: sky black because reversed-Z far clears to 0, foliage and hunter
+silhouette in the same positions as colour, and the stone absent from depth
+because the renderer reads depth and never writes it. The percentiles are
+consistent with a small near plane (0.005 ≈ 10 m of terrain, 0.14 ≈ 0.4 m).
+
+Two observations for whoever revisits selection:
+
+- Candidates are appended on first discovery and pruned only on resize. In the
+  0.3.3 session `depth[1]` appeared about two minutes *after* `depth[0]`, so
+  list index records discovery order, not scene-depth priority.
+- All captures come from one build, one resolution and few areas. Before
+  adopting any rule other than `depths[0]`, capture another area and at least
+  one cutscene, and prefer this-frame freshness over list index.
+
 ### Remaining scope
 
 This is experimental support for the pinned executable and tested DX11 settings,
