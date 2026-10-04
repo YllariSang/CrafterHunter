@@ -83,6 +83,86 @@ if (MinecraftBlockRenderer.PixelColor32(colorPixels, 0, 0) != 0xFF563412)
 }
 Console.WriteLine("Minecraft block packet and A/B/C placement checks passed.");
 
+var lifecycle = new PlacementLifecycle();
+long clock = 1_000;
+var origin = Vector3.Zero;
+var anchor = new Vector3(1000, 200, -400);
+if (lifecycle.Observe(origin, clock))
+{
+    throw new Exception("Observing a camera without an anchor must not report an invalidation.");
+}
+lifecycle.Place(anchor);
+if (lifecycle.Anchor != anchor)
+{
+    throw new Exception("Place must retain the requested anchor.");
+}
+clock += 16;
+if (lifecycle.Observe(new Vector3(500, 0, 0), clock) || lifecycle.Anchor != anchor)
+{
+    throw new Exception("Ordinary camera motion must not drop a placed anchor.");
+}
+clock += 16;
+if (!lifecycle.Observe(new Vector3(3500, 0, 0), clock) || lifecycle.Anchor is not null)
+{
+    throw new Exception("A single-frame camera jump must drop the anchor.");
+}
+if (lifecycle.InvalidatedBecause is null)
+{
+    throw new Exception("An invalidation must record why it happened.");
+}
+clock += 16;
+lifecycle.Observe(new Vector3(3600, 0, 0), clock);
+if (lifecycle.Anchor is not null)
+{
+    throw new Exception("The lifecycle must never re-anchor after a scene change.");
+}
+
+lifecycle.Reset();
+clock = 5_000;
+lifecycle.Observe(origin, clock);
+lifecycle.Place(anchor);
+if (lifecycle.Observe(null, clock + PlacementLifecycle.CameraTimeoutMilliseconds))
+{
+    throw new Exception("A camera gap inside the grace period must keep the anchor.");
+}
+if (!lifecycle.Observe(null, clock + PlacementLifecycle.CameraTimeoutMilliseconds + 1) ||
+    lifecycle.Anchor is not null)
+{
+    throw new Exception("A camera gap beyond the grace period must drop the anchor.");
+}
+
+lifecycle.Reset();
+lifecycle.Observe(origin, clock);
+lifecycle.Place(anchor);
+if (lifecycle.Observe(new Vector3(float.NaN, 0, 0), clock + 10))
+{
+    throw new Exception("A single non-finite sample inside the grace period must keep the anchor.");
+}
+if (!lifecycle.Observe(new Vector3(float.NaN, 0, 0),
+        clock + 10 + PlacementLifecycle.CameraTimeoutMilliseconds + 1) ||
+    lifecycle.Anchor is not null)
+{
+    throw new Exception("A non-finite camera must drop the anchor once the grace period expires.");
+}
+
+lifecycle.Reset();
+lifecycle.Observe(origin, clock);
+lifecycle.Place(anchor);
+if (!lifecycle.Clear() || lifecycle.Anchor is not null)
+{
+    throw new Exception("An explicit clear must drop the anchor.");
+}
+if (lifecycle.Clear())
+{
+    throw new Exception("Clearing twice must report that there was nothing to clear.");
+}
+lifecycle.Reset();
+if (lifecycle.Anchor is not null || lifecycle.InvalidatedBecause is not null)
+{
+    throw new Exception("Reset must return the lifecycle to its unloaded state.");
+}
+Console.WriteLine("Placement lifecycle checks passed.");
+
 static void Verify(Vector3 eye, Vector3 target, Vector3 expectedForward)
 {
     if (!RenderProbe.TryGetTargetRay(eye, target, out var forward))

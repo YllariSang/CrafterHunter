@@ -17,7 +17,7 @@ internal static class NativeRenderer
     private static bool _checked;
     private static string _folder = "";
     private static long _nextReloadCheck;
-    private static Vector3? _placement;
+    private static readonly PlacementLifecycle Placement = new();
     internal static bool Enabled { get; private set; }
     internal static bool Requested { get; private set; }
 
@@ -68,19 +68,50 @@ internal static class NativeRenderer
         var render = SingletonManager.GetSingleton("sMhRender");
         if (render is null || SingletonManager.GetSingleton("sMhCamera") is null) return;
         var vp = CameraSystem.MainViewport;
+        var now = Environment.TickCount64;
+        Vector3? cameraPosition = null;
+        var cameraTarget = Vector3.Zero;
+        if (vp.Camera is { } camera)
+        {
+            cameraPosition = camera.Position;
+            cameraTarget = camera.GetTargetWorld();
+        }
+
+        // A scene cut, cutscene or loading sequence drops the anchor; nothing
+        // is re-anchored here, so a transition can never leave the stone in
+        // the previous world. The next place request is the only way back.
+        if (Placement.Observe(cameraPosition, now))
+        {
+            Plugin.WriteDiagnostic($"Native placement invalidated: {Placement.InvalidatedBecause}.");
+        }
+
+        var clearRequest = Path.Combine(_folder, "render", "clear.request");
+        if (File.Exists(clearRequest))
+        {
+            File.Delete(clearRequest);
+            if (Placement.Clear())
+            {
+                Plugin.WriteDiagnostic("Native placement cleared by request.");
+            }
+        }
+
         // Explicitly arm in a loaded world; never anchor to title/loading cameras.
         var placementRequest = Path.Combine(_folder, "render", "place.request");
-        if (File.Exists(placementRequest) && vp.Camera is { } camera &&
-            RenderProbe.TryGetTargetRay(camera.Position, camera.GetTargetWorld(), out var forward))
+        if (File.Exists(placementRequest) && cameraPosition is { } position &&
+            RenderProbe.TryGetTargetRay(position, cameraTarget, out var forward))
         {
-            _placement = RenderProbe.Centre(camera.Position, forward);
+            Placement.Place(RenderProbe.Centre(position, forward));
             File.Delete(placementRequest);
+            Plugin.WriteDiagnostic($"Native placement anchored at {Placement.Anchor}.");
         }
-        centre = _placement;
+
+        // The native path owns its anchor. The centre argument belongs to the
+        // retired A/B/C probe path and is deliberately not used here.
+        var anchor = Placement.Anchor;
         var matrix = vp.ViewMatrix * vp.ProjectionMatrix;
-        if (asset is not null && centre is { } position && Matrix4x4.Invert(matrix, out var inverse))
+        if (asset is not null && anchor is { } placed && Matrix4x4.Invert(matrix, out var inverse))
         {
-            var bounds = new Vector4(position, 35);
+            var bounds = new Vector4(placed, 35);
             _block!(in inverse, in bounds, asset.Rgba, 1);
         }
         else
@@ -92,5 +123,10 @@ internal static class NativeRenderer
         _frame!(render.Instance, in matrix);
     }
 
-    internal static void Stop() { _stop?.Invoke(); Enabled = false; }
+    internal static void Stop()
+    {
+        _stop?.Invoke();
+        Enabled = false;
+        Placement.Reset();
+    }
 }

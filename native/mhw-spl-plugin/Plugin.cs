@@ -24,7 +24,7 @@ public sealed class Plugin : IPlugin
     private const float MhwUnitsPerMetre = 100.0f;
     private static readonly long CameraStartupDelayTicks = Stopwatch.Frequency * 10;
     private static readonly byte[] HelloPayload =
-        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.3.2");
+        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.3.3");
     private static readonly object DiagnosticLock = new();
 
     private readonly object _lifecycleLock = new();
@@ -552,13 +552,13 @@ public sealed class Plugin : IPlugin
         client.Send(packet, packet.Length);
     }
 
-    private static void WriteDiagnostic(string message)
+    internal static void WriteDiagnostic(string message)
     {
         try
         {
             var assemblyDirectory = Path.GetFullPath("nativePC/plugins/CSharp/CrafterHunter");
 
-            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.3.2] {message}{Environment.NewLine}";
+            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.3.3] {message}{Environment.NewLine}";
             lock (DiagnosticLock)
             {
                 File.AppendAllText(Path.Combine(assemblyDirectory, "CrafterHunter.runtime.log"), line);
