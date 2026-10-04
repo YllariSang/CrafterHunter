@@ -154,3 +154,35 @@ appeared about two minutes after `depth[0]` in this session, so list index
 records discovery order rather than scene-depth priority. `renderer.cpp` is
 unchanged; any future rule must be validated in more areas and should prefer
 per-frame freshness over list index.
+
+## 2026-10-05 — live camera link acceptance: outage, rate, F7
+
+Step 8 ran itself: the bridge process died at 05:02:07 after a clean
+03:06:07-05:02:07 stretch, and Minecraft logged
+`Bridge I/O failed; retrying: java.net.PortUnreachableException` at 60/min
+while the HUD read `WAITING | 0 pkt/s | seq – | age –1ms`. Restarting the
+bridge printed `registered Mhw` and `registered Minecraft` within seconds, a
+second `Connected to crafterhunter-bridge/v1` appeared in the Minecraft log,
+and the HUD returned to `LIVE` with neither game restarted. MHW noticed
+nothing: its socket never errored, so no second HelloAck went out and the
+ten-second camera grace was not re-applied. The bridge now runs detached from
+any terminal via
+`setsid nohup ./target/debug/crafterhunter-bridge > native/mhw-renderer/build/evidence/camera-link-acceptance/bridge.log 2>&1 &`.
+
+The open `1 pkt/s` observation resolves as background throttling. Across a
+68 s / 30-sample OCR series with MHW rendering, the HUD held
+`LIVE | 16-18 pkt/s | age 3-55 ms` on every sample with an increasing
+sequence; with MHW on an inactive workspace it fell back to `1 pkt/s` and
+flapped between `LIVE` and `WAITING` as age crossed 500 ms. The producer caps
+at 20 Hz, so the rate is MHW's frame rate: a window Hyprland is not rendering
+blocks on Present and the camera payloads stop with it. Read the HUD with both
+games on the active workspace.
+
+F7 toggles the link cleanly: the HUD reads `OFF` while packets keep arriving,
+and the second press returns to `LIVE`. Minecraft runs on XWayland, so `wtype`
+never reached it; Hyprland's `hl.dsp.send_shortcut{mods="", key=..., window=...}`
+did. That dispatcher targeted at the MHW window, `send_key_state`, and
+`ydotool key` still leave Proton unchanged, while `ydotool mousemove` does move
+the system cursor, so uinput reaches the compositor and only delivery into
+Proton fails. Rotation, translation, inverted axes and the F8 fresh anchor stay
+player-driven; steps 5, 6 and 9 of `docs/camera-link-test.md` remain open.
