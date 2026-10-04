@@ -76,16 +76,58 @@ without restarting either game (`02-recovery-hud-A.png`,
 it sent no second HelloAck and the ten-second camera grace was not re-applied;
 the native placement stayed anchored across the outage.
 
-**Steps 5 and 6, blocked, needs the player.** No injected input reaches the
-Proton window. `ydotool key` (with `ydotoold` running, exit 0), Hyprland
-`send_key_state` and `send_shortcut` targeted at the MHW window, and `wtype`
-all left the game unchanged, while `ydotool mousemove` does move the system
-cursor. uinput therefore reaches the compositor and the failure is specific to
-delivery into Proton. Rotation/translation response, inverted axes, and the F8
-fresh anchor still require a person driving MHW.
+**Steps 5 and 6, still blocked on a person driving MHW, now with a measured
+cause.** Injected pointer input reaches MHW's camera *sometimes* and never
+repeatably. With MHW focused and the cursor verified over its window,
+`ydotool mousemove` twice rotated the camera — measured exactly, because the
+anchor's projection walked from (483,406) to (1335,822) across one -600 px
+move — but after any focus switch to Minecraft the identical moves leave MHW
+pixel-identical (mean 0.00-0.14 over 3 s) while the game is still rendering
+(6,790 pixels change in 3 s elsewhere) and the link stays
+`LIVE | 12 pkt/s | age 1-4 ms`. A click in an empty area to re-grab the pointer
+does not restore mouse-look, and `ydotool key` with W held for a full second
+never moves the hunter, so translation and the F8 fresh anchor stay
+untestable. Keys to Minecraft also need focus: `send_shortcut` aimed at an
+unfocused Minecraft silently no-ops, which is why F7 had to be driven with that
+window focused. `wtype` still never reaches either game (XWayland).
 
-**Step 9, not run.** Leaving/rejoining a world, a dimension change, and the
-15-minute expedition still need in-world navigation.
+Two halves of the question were answered without a person:
+
+- **Minecraft does apply the link's pose.** Toggling F7 with Minecraft focused
+  flips the HUD to `OFF` and visibly changes its world view (mean 8.45 over
+  3,514 pixels), and back to `LIVE`. Still unverified is the *direction* of the
+  response: Minecraft's view is a featureless dark grass field, so a yaw change
+  cannot be read off the pixels, and MHW would not accept the input needed to
+  drive a controlled rotation while it was watched.
+- **The placement tracks rotation correctly.** After the -600 px rotation the
+  log still reads `anchored` — no invalidation since 04:46:10, which is the
+  specified behaviour because rotation must not displace the camera — and the
+  stone moved on screen exactly as the new projection predicts: a box at
+  (1335,822), clear of the pinned window, is 4200/4200 neutral texels with
+  `127,127,127` and `143,143,143` at the top of the histogram, while the old
+  (483,406) position now holds only dark scene.
+
+**Step 9, world leave and rejoin verified.** Done with injected input alone:
+Hyprland `send_shortcut{window=<window>}` opens Minecraft's pause menu and
+`ydotool` reaches it through uinput, so mouse moves plus `ydotool click 0xC0`
+selected *Save and Quit to Title*, *Singleplayer*, the world entry and *Play
+Selected World*. The world unloaded at 06:04:11 and reloaded at 06:10:40
+(`~/.minecraft/logs/latest.log`), and by 06:11:49 the HUD read
+`LIVE | 16-17 pkt/s` with the sequence advancing and age under 68 ms — the
+link came back without restarting either game or the bridge.
+
+`control-mhw-renderer.py capture` at 06:24 gives the placement half: the
+`enabled=1` branch was taken with `parameters.centre` still holding
+`<-378.6784, -462.9005, -164.4717>`, and the texels where that anchor projects
+(row-vector `v * viewProjection`, screen 483,406) are exactly `127,127,127`,
+`143,143,143`, `114,114,114` — the Minecraft stone palette, which the
+surrounding Astera frame never produces. The placement log shows no
+invalidation since `anchored` at 04:46:10, so the stone survived the bridge
+outage, the world unload and the reload
+(`11-stone-still-rendered-after-rejoin.png`).
+
+Still open from step 9: the dimension change and the fifteen-minute expedition,
+both of which need a person driving MHW.
 
 This milestone renders the status and camera in Minecraft. Steve replacement,
 Minecraft HUD inside MHW, and rendering Minecraft blocks in MHW are later work.

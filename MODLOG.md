@@ -186,3 +186,43 @@ did. That dispatcher targeted at the MHW window, `send_key_state`, and
 the system cursor, so uinput reaches the compositor and only delivery into
 Proton fails. Rotation, translation, inverted axes and the F8 fresh anchor stay
 player-driven; steps 5, 6 and 9 of `docs/camera-link-test.md` remain open.
+
+## 2026-10-05 — step 9 verified, and what a measured rotation proved
+
+Quit and rejoined the Minecraft world with injected input only. Hyprland's
+`send_shortcut{window=<window>}` drives Minecraft *when that window has focus*
+(silently no-ops otherwise, which cost several attempts), and `ydotool` reaches
+it through uinput, so mouse moves plus `ydotool click 0xC0` walked the pause
+menu and the world list. The world unloaded at 06:04:11 and reloaded at
+06:10:40; a minute later the HUD read `LIVE | 16-17 pkt/s | age < 68 ms` with
+neither game nor the bridge restarted. The placement half comes from
+`control-mhw-renderer.py capture`: the `enabled=1` branch was taken with
+`parameters.centre` still holding the anchor, and the texels at the anchor's
+projected screen position are exactly `127,127,127` and `143,143,143` — the
+Minecraft stone palette, which Astera's frame never produces. The runtime log
+has logged no invalidation since `anchored` at 04:46:10, so the stone survived
+the bridge outage, the world unload and the reload.
+
+Reading the renderer back also produced the measuring tool the eyeball tests
+were missing. `parameters.bin` is `{inverse, projection, centre, screen}`,
+`centre` is the anchor and `matrices.bin` is the same viewProjection, so the
+anchor's screen position is `centre * viewProjection` under System.Numerics'
+row-vector convention — the column-vector reading lands on screen centre and is
+wrong (it does not match where the stone actually is). One -600 px
+`ydotool mousemove` walked that projection from (483,406) to (1335,822): a real
+camera rotation that did *not* invalidate the placement, exactly as the
+lifecycle specifies, and the stone moved with it — the box at the new
+projection is 4200/4200 neutral texels of the stone palette while the old
+position holds only dark scene.
+
+Input into Proton is still the blocker for steps 5 and 6. Pointer motion
+rotated MHW twice, but after any focus switch to Minecraft the identical moves
+leave MHW pixel-identical (mean 0.00-0.14 over 3 s) while the game keeps
+rendering (6,790 pixels change elsewhere in those 3 s) and the link stays
+`LIVE | 12 pkt/s`; a click to re-grab the pointer does not help and
+`ydotool key` with W held a full second never moves the hunter. F7 and F3 do
+work on Minecraft when it is focused, which is how the ON/OFF comparison was
+taken: `OFF` visibly changes Minecraft's world view (mean 8.45 over 3,514
+pixels), so the link's pose really is being applied. Whether it follows MHW in
+the same direction still needs a person — Minecraft renders a featureless dark
+grass field, and MHW ignores injected input.
