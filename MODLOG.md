@@ -687,3 +687,73 @@ workspace, `hl.get_windows()` returns window objects, and `hyprctl eval` can
 write files with `io.open`, which is how the window geometry was read. Raising
 the game or lowering MHW is the person's layout, so the HUD reading stays with
 them until they say otherwise.
+
+## 2026-10-05 — terrain stage A: the game's own segment cast, behind a fingerprint
+
+Milestone 3's terrain half was a design and nothing else. It now has an
+adapter, `native/mhw-spl-plugin/TerrainAdapter.cs`, that resolves the game's
+segment cast in the loaded image and proves it on the host.
+
+**Getting the routine's contract back.** The seven terrain signatures were
+known to exist only as bytecode: `tools/inspect-mhw-signatures.py` was never
+committed, and its `__pycache__` entry was the only surviving copy. Marshalling
+that `.pyc` back and disassembling the module gave the seven name-to-pattern
+pairs and their published addresses. All seven match the MIT prior art's
+constants exactly (`sCollision::CheckSegment` at `0x14231AC00`, the `Param`
+block's three routines, `TriangleInfo`'s three), which is what makes the
+pairing trustworthy: an off-by-one pair would have disagreed. The prior art's
+`raycast()` supplied the rest — `Param::ctor(param, 0x7FFFFFFF, 0x3FFFFFFF, 0,
+0, 0xA, 0, 1, 1, 0, 1)`, `param[0xF9] = 0`, two `0x140` caller-owned buffers
+zeroed and 16-byte aligned, eight segment floats `start.xyz 0 end.xyz 0`, flag
+`1`, hit position at `tri+0xC0`, normal at `tri+0xB0`, attribute through
+`TriangleInfo::attr(tri, 0)`, and `reset`/`dtor` before the buffers go out of
+scope. `docs/terrain-query.md` records it in full.
+
+**The calling convention, answered from the running process.** SPL's
+`NativeAction`/`NativeFunction` call through `delegate* unmanaged` handles, so
+the first question was whether a managed call can reach game code at all under
+Proton: the game's PE uses the Windows x64 convention, while a Linux CLR would
+emit the System V one. `/proc/4959/maps` answers it — the game's process maps
+`coreclr.dll` out of
+`steamapps/compatdata/582010/pfx/drive_c/Program Files/dotnet/shared/Microsoft.NETCore.App/8.0.12`.
+The runtime inside the prefix is the Windows build, so its function-pointer
+calls already match the game, and the loader's own types are the right door.
+Calling one is an unsafe call, so `AllowUnsafeBlocks` is now on in the plugin
+project and the unsafe surface is three methods: `TerrainAdapter.Tick`,
+`TerrainAdapter.CastDownRay`, and `Plugin.OnUpdate`, which exists only to reach
+the ray. `Pattern.FromString` was round-tripped in the scratch reflection tool
+against both the loader's 2.0.0 and the 1.0.0 package the plugin compiles
+against, confirming `??` wildcards parse and garbage throws.
+
+**The adapter.** `OnLoad` hashes `MonsterHunterWorld.exe` from the process
+working directory (the game root, confirmed by `readlink /proc/4959/cwd`),
+compares it with the pinned SHA-256, resolves all seven patterns with
+`PatternScanner.FindFirst(pattern, cache: true)`, and allocates the aligned
+buffers. The first failure latches `Disabled` with its reason and no tick can
+move it back. `OnUpdate` ticks the adapter *before* the bridge gates anything,
+because a terrain answer is a host fact and should not wait for a guest that is
+still connecting; it publishes the state before it casts, so a loading screen
+reads *unavailable* rather than the previous ray's answer. One ray per tick,
+one-second burst of twelve self-checks then a five-minute heartbeat, each line
+carrying the ray height, `CollisionPosition`, the model origin, the normal, and
+the attribute. `CollisionPosition`'s meaning is not assumed: if it is the feet
+rather than the capsule centre, the delta shows it instead of hiding it. Every
+native call is wrapped, so a failure disables terrain for the session instead
+of escaping into the game process.
+
+**A gate that was missing.** The plugin's headless tests
+(`native/mhw-spl-plugin/tests`) existed but nothing in the gate ran them.
+`tools/test-spl-plugin.sh` does now, and the terrain policy went into them:
+every signature parsed through the loader's own `Pattern.FromString`, the
+down-segment geometry, the agreement tolerance including its boundary and its
+refusal to judge non-finite numbers, and all seven branches of the state
+machine. A typo in a byte pattern fails there instead of quietly disabling
+terrain in the next session.
+
+**Not done, and not hot-reloaded yet.** The protocol half (a request kind, a
+result kind, and a bounded queue for requests arriving from the guest), the
+guest half (mapping Minecraft coordinates through the proxy anchor), and the
+live run are all still ahead. The adapter has deliberately not been loaded into
+the running game: a native call into the game's collision routine is the first
+thing in this project that can take MHW down if the recovered ABI is wrong, and
+it should go in on purpose, with someone at the keyboard who can stop it.

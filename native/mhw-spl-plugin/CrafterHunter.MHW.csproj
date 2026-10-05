@@ -6,10 +6,14 @@
     <LangVersion>12</LangVersion>
     <AssemblyName>CrafterHunter.MHW</AssemblyName>
     <RootNamespace>CrafterHunter.MHW</RootNamespace>
-    <Version>0.3.3</Version>
+    <Version>0.3.4</Version>
     <Deterministic>true</Deterministic>
     <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- SharpPluginLoader's NativeAction/NativeFunction expose `delegate* unmanaged`
+         handles, so invoking one is an unsafe call. The unsafe surface is kept to
+         the terrain adapter's ray cast and the plugin tick that reaches it. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 

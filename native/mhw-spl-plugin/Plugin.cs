@@ -24,10 +24,10 @@ public sealed class Plugin : IPlugin
     private const int MaximumPayloadLength = 1200;
     private const int CameraPayloadLength = 44;
     private const int PlayerPayloadLength = 28;
-    private const float MhwUnitsPerMetre = 100.0f;
+    private const float MhwUnitsPerMetre = TerrainRay.UnitsPerMetre;
     private static readonly long CameraStartupDelayTicks = Stopwatch.Frequency * 10;
     private static readonly byte[] HelloPayload =
-        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.3.3");
+        Encoding.UTF8.GetBytes("crafterhunter-mhw-spl/0.3.4");
     private static readonly object DiagnosticLock = new();
 
     private readonly object _lifecycleLock = new();
@@ -60,6 +60,7 @@ public sealed class Plugin : IPlugin
     private int _playerSuccessLogged;
     private long _nextRenderDiagnosticTimestamp;
     private int _probeDiagnosticsRemaining = 12;
+    private TerrainAdapter? _terrain;
 
     public string Name => "CrafterHunter MHW Endpoint";
     public string Author => "CrafterHunter contributors";
@@ -69,6 +70,21 @@ public sealed class Plugin : IPlugin
         WriteDiagnostic("OnLoad entered.");
         try { NativeRenderer.Initialize(); }
         catch (Exception exception) { WriteDiagnostic($"Native renderer initialization failed: {exception}"); }
+
+        // Terrain is resolved once here, before any ray can run: the
+        // fingerprint and every signature are checked while the world is
+        // still whatever the last session left, and a failure latches for the
+        // whole session rather than retrying per tick.
+        try
+        {
+            _terrain = new TerrainAdapter(WriteDiagnostic);
+            _terrain.Initialize();
+        }
+        catch (Exception exception)
+        {
+            WriteDiagnostic($"Terrain adapter initialization failed: {exception}");
+            _terrain = null;
+        }
 
         lock (_lifecycleLock)
         {
@@ -111,6 +127,16 @@ public sealed class Plugin : IPlugin
     {
         WriteDiagnostic("OnUnload entered.");
         NativeRenderer.Stop();
+        try
+        {
+            _terrain?.Dispose();
+        }
+        catch (Exception exception)
+        {
+            WriteDiagnostic($"Terrain adapter disposal failed: {exception}");
+        }
+
+        _terrain = null;
         Task? task;
         CancellationTokenSource? cancellation;
 
@@ -142,10 +168,16 @@ public sealed class Plugin : IPlugin
         }
     }
 
-    public void OnUpdate(float deltaTime)
+    public unsafe void OnUpdate(float deltaTime)
     {
         _ = deltaTime;
         var now = Stopwatch.GetTimestamp();
+
+        // Terrain answers come from the host, so they do not wait on the
+        // bridge: a guest that is still connecting gets no ray, but the
+        // hunter's ground truth does not depend on it either.
+        _terrain?.Tick(now);
+
         if (Volatile.Read(ref _bridgeReady) == 0 ||
             now < Volatile.Read(ref _cameraEnableTimestamp))
         {
@@ -645,7 +677,7 @@ public sealed class Plugin : IPlugin
         {
             var assemblyDirectory = Path.GetFullPath("nativePC/plugins/CSharp/CrafterHunter");
 
-            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.3.3] {message}{Environment.NewLine}";
+            var line = $"{DateTimeOffset.Now:O} [CrafterHunter.MHW 0.3.4] {message}{Environment.NewLine}";
             lock (DiagnosticLock)
             {
                 File.AppendAllText(Path.Combine(assemblyDirectory, "CrafterHunter.runtime.log"), line);
