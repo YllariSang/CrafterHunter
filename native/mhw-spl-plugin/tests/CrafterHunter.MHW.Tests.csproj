@@ -12,6 +12,7 @@
     <Compile Include="../MinecraftBlockRenderer.cs" Link="MinecraftBlockRenderer.cs" />
     <Compile Include="../PlacementLifecycle.cs" Link="PlacementLifecycle.cs" />
     <Compile Include="../TerrainRay.cs" Link="TerrainRay.cs" />
+    <Compile Include="../TerrainRequest.cs" Link="TerrainRequest.cs" />
     <PackageReference Include="SharpPluginLoader.Core" Version="1.0.0" />
   </ItemGroup>
 </Project>

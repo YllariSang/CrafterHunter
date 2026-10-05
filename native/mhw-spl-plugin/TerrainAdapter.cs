@@ -19,14 +19,15 @@ namespace CrafterHunter.MHW;
 /// or an unresolved pattern disables terrain for the session rather than
 /// falling back to a remembered address. Rays run only from
 /// <see cref="Tick"/>, which the game thread calls through
-/// <c>Plugin.OnUpdate</c>, never more than <see cref="RaysPerTick"/> per tick.
-/// And every native call is wrapped so a failure disables queries instead of
-/// escaping into the game process.
+/// <c>Plugin.OnUpdate</c>, and only when a request is pending and at most one
+/// per sample. And every native call is wrapped so a failure disables queries
+/// instead of escaping into the game process.
 /// </summary>
 public sealed class TerrainAdapter : IDisposable
 {
     private const string ExecutableName = "MonsterHunterWorld.exe";
     private const string CollisionSingletonName = "sMhCollision";
+    private const string PluginFolder = "nativePC/plugins/CSharp/CrafterHunter";
 
     private const int ParameterBytes = 0x140;
     private const int TriangleBytes = 0x140;
@@ -40,19 +41,12 @@ public sealed class TerrainAdapter : IDisposable
     private const float AgreementToleranceMetres = 0.5f;
 
     /// <summary>
-    /// The rays one tick may spend. Stage A's self-check uses one of them;
-    /// the queue that guest requests will arrive on gets the rest of the same
-    /// budget instead of a second, larger one.
+    /// The state machine and the request file are sampled once a second; at
+    /// most one ray is cast per sample, and only on request. The queue that
+    /// guest requests will arrive on in stage B spends the same budget rather
+    /// than a second, larger one.
     /// </summary>
-    private const int RaysPerTick = 1;
-
-    /// <summary>
-    /// The self-check reports a short burst of samples while the world settles,
-    /// then drops to a slow heartbeat so a long session cannot flood the log.
-    /// </summary>
-    private const int RapidSelfChecks = 12;
-    private const double RapidSelfCheckSeconds = 1.0;
-    private const double SteadySelfCheckSeconds = 300.0;
+    private const double SampleSeconds = 1.0;
 
     private readonly Action<string> _log;
 
@@ -77,7 +71,7 @@ public sealed class TerrainAdapter : IDisposable
     private string? _disabledReason;
 
     private TerrainRay.State _state = TerrainRay.State.Unavailable;
-    private long _nextSelfCheck;
+    private long _nextSample;
     private int _selfChecks;
     private bool _singletonFailureLogged;
 
@@ -172,10 +166,12 @@ public sealed class TerrainAdapter : IDisposable
     }
 
     /// <summary>
-    /// Run at most one self-check ray, and never more than once per tick: the
-    /// caller is <c>Plugin.OnUpdate</c> on the game thread. Before the first
-    /// ray this publishes the state machine, so a loading screen shows
-    /// "unavailable" rather than the last answer the ray gave.
+    /// Publish the state machine once a second and cast at most one ray, only
+    /// when a request is pending. The caller is <c>Plugin.OnUpdate</c> on the
+    /// game thread. State is published whether or not a ray runs, so a loading
+    /// screen reads "unavailable" rather than the last answer the ray gave, and
+    /// a request that arrives while the world is not ready is refused loudly
+    /// instead of quietly.
     /// </summary>
     public unsafe void Tick(long now)
     {
@@ -184,7 +180,7 @@ public sealed class TerrainAdapter : IDisposable
             return;
         }
 
-        if (now < _nextSelfCheck)
+        if (now < _nextSample)
         {
             return;
         }
@@ -205,19 +201,24 @@ public sealed class TerrainAdapter : IDisposable
                 _log($"Terrain state changed to {_state}.");
             }
 
-            if (state != TerrainRay.State.Ready)
+            if (!TerrainRequest.ConsumeCheck(PluginFolder))
             {
-                _nextSelfCheck = now + Ticks(RapidSelfCheckSeconds);
+                _nextSample = now + Ticks(SampleSeconds);
                 return;
             }
 
-            for (var spent = 0; spent < RaysPerTick; spent++)
+            _selfChecks++;
+            if (state != TerrainRay.State.Ready)
             {
-                CastDownRay(hunter!, collision);
+                _log(
+                    $"Terrain self-check {_selfChecks} refused: the state is {_state}, " +
+                    "so no ray was cast.");
+                _nextSample = now + Ticks(SampleSeconds);
+                return;
             }
 
-            _nextSelfCheck = now + Ticks(
-                _selfChecks < RapidSelfChecks ? RapidSelfCheckSeconds : SteadySelfCheckSeconds);
+            CastDownRay(hunter!, collision);
+            _nextSample = now + Ticks(SampleSeconds);
         }
         catch (Exception exception)
         {
@@ -296,12 +297,10 @@ public sealed class TerrainAdapter : IDisposable
             {
                 Marshal.Copy(_triangle + TrianglePositionOffset, _hitPosition, 0, 3);
                 Marshal.Copy(_triangle + TriangleNormalOffset, _hitNormal, 0, 3);
-                _selfChecks++;
                 Report(hunter, position, hit: true, hits, attribute: _triangleAttribute.Invoke(_triangle, 0));
             }
             else
             {
-                _selfChecks++;
                 Report(hunter, position, hit: false, hits, attribute: 0);
             }
         }

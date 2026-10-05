@@ -246,6 +246,45 @@ VerifyState(TerrainRay.Classify(true, true, false, false), TerrainRay.State.Unav
 VerifyState(TerrainRay.Classify(true, true, true, true), TerrainRay.State.Ready);
 Console.WriteLine("Terrain state-machine checks passed: disabled, unavailable, ready.");
 
+// The request channel is the only thing that makes the adapter cast: a
+// pending request fires exactly once, and a cleared request never fires.
+var terrainFolder = Path.Combine(Path.GetTempPath(), $"crafterhunter-terrain-{Guid.NewGuid():N}");
+try
+{
+    if (TerrainRequest.ConsumeCheck(terrainFolder))
+    {
+        throw new Exception("An absent request file must not produce a self-check.");
+    }
+
+    Directory.CreateDirectory(Path.Combine(terrainFolder, TerrainRequest.FolderName));
+    File.WriteAllText(TerrainRequest.CheckPath(terrainFolder), "check\n");
+    if (!TerrainRequest.ConsumeCheck(terrainFolder) ||
+        File.Exists(TerrainRequest.CheckPath(terrainFolder)))
+    {
+        throw new Exception("A pending self-check request must be taken exactly once.");
+    }
+
+    File.WriteAllText(TerrainRequest.CheckPath(terrainFolder), "check\n");
+    TerrainRequest.Clear(terrainFolder);
+    if (File.Exists(TerrainRequest.CheckPath(terrainFolder)))
+    {
+        throw new Exception("Clear must drop a pending request.");
+    }
+
+    if (TerrainRequest.ConsumeCheck(terrainFolder))
+    {
+        throw new Exception("A cleared request must never fire.");
+    }
+}
+finally
+{
+    if (Directory.Exists(terrainFolder))
+    {
+        Directory.Delete(terrainFolder, recursive: true);
+    }
+}
+Console.WriteLine("Terrain request-channel checks passed.");
+
 static void VerifyState(TerrainRay.State actual, TerrainRay.State expected)
 {
     if (actual != expected)

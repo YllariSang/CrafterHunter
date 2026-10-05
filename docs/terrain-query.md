@@ -97,9 +97,9 @@ state machine with three states and no fourth:
 - **Unavailable** — enabled, but the collision singleton, the hunter, or the
   stage is missing. Requests answer "no terrain" instead of holding the last
   answer, which is the state a loading screen or an area transition produces.
-- **Ready** — singleton present, signatures resolved, at most a fixed number of
-  rays per `OnUpdate` tick, and a queue with a fixed depth for guest requests
-  whose overflow is dropped and counted rather than accumulated.
+- **Ready** — singleton present, signatures resolved, at most one ray per
+  one-second sample, and a queue with a fixed depth for guest requests whose
+  overflow is dropped and counted rather than accumulated.
 
 ## Stages
 
@@ -127,11 +127,21 @@ in the diagnostic log, and the tick cannot move the state back.
 `Tick(now)` runs from `OnUpdate` before the bridge gates anything, because a
 terrain answer is a host fact and should not wait on the guest. It publishes the
 state first — so a loading screen reads *unavailable* rather than the previous
-ray's answer — and only casts when the state is `Ready`. The budget is one ray
-per tick, and the self-check cadence is a one-second burst of twelve reports
-followed by a five-minute heartbeat.
+ray's answer — and then samples once a second for a request.
 
-Each report is the evidence the acceptance table asks for, one line per ray:
+**No ray is cast unless someone asks for one.** `Tick` polls for
+`nativePC/plugins/CSharp/CrafterHunter/terrain/check.request`, which
+`tools/control-mhw-terrain.py check` writes and `clear` removes. The file is
+deleted before the ray runs, so a request fires exactly once, and a request that
+arrives while the world is not ready is refused in the log rather than silently
+discarded. This matters more than it looks: a periodic self-check would make the
+first native call into the game's collision routine about a second after a world
+loads — during a cutscene, a quest transition, or with nobody watching. On
+demand, the call happens when a person is standing on the ground they want
+measured, which is also the only way to compare a slope against flat ground.
+
+Each accepted request produces one report, the evidence the acceptance table
+asks for, one line per ray:
 
 ```
 Terrain self-check 1: hit=1 agree=True rayY=42.310m collisionY=42.310m delta=0.000m positionY=43.040m normal=(0.00, 1.00, 0.00) attr=1

@@ -757,3 +757,31 @@ live run are all still ahead. The adapter has deliberately not been loaded into
 the running game: a native call into the game's collision routine is the first
 thing in this project that can take MHW down if the recovered ABI is wrong, and
 it should go in on purpose, with someone at the keyboard who can stop it.
+
+## 2026-10-05 — the terrain self-check became a request, not a heartbeat
+
+The adapter committed in `f572a79` cast a down-ray on a one-second burst as soon
+as the world was ready. Reviewing it before deploying: that puts the first
+native call into the game's collision routine about a second after a world
+loads — during a cutscene, a quest transition, or with nobody watching — and it
+would have fired unattended in a session that had not asked for terrain at all.
+It was never hot-reloaded, so no game was ever exposed to it.
+
+The rule is now explicit. `TerrainAdapter.Tick` publishes the state every
+sample and casts **at most one ray, only when a request is pending**, and the
+request is a file next to the plugin's log:
+`nativePC/plugins/CSharp/CrafterHunter/terrain/check.request`, written by
+`tools/control-mhw-terrain.py check` and removed by `clear`. The file is deleted
+before the ray runs, so a request fires exactly once; a request that arrives
+while the singleton or the hunter is missing is refused in the log with the
+state that refused it, rather than silently discarded. This is the same
+request-file pattern the native renderer already uses for `place` and `clear`,
+and it has the property the acceptance run actually needs: the cast happens
+when a person is standing on the ground they want measured, which is also the
+only way to measure a slope and compare it with flat ground.
+
+`TerrainRequest` holds the channel and the test project covers it: an absent
+request produces nothing, a pending request is taken exactly once, a cleared
+request never fires. The per-tick budget is unchanged in spirit and tighter in
+fact — one ray per one-second sample, requested — and stage B's guest queue will
+spend that same budget rather than a second, larger one.
