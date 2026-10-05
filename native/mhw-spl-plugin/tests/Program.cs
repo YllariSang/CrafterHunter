@@ -197,19 +197,66 @@ if (TerrainRay.PinnedExecutableSha256 != TerrainRay.PinnedExecutableSha256.ToLow
 }
 Console.WriteLine("Terrain signature checks passed: seven names, parseable patterns, pinned hash.");
 
-// The self-check segment starts above the hunter and ends below the ground
-// line, in metres like everything the adapter takes and returns.
-TerrainRay.DownSegment(
-    new Vector3(10.0f, 20.0f, -5.0f), 1f, 5f, out var rayStart, out var rayEnd);
-if (rayStart.X != 10 || rayStart.Z != -5)
+// Slope is a height difference between columns, not a normal: three of the five
+// surfaces measured live report a normal of magnitude 0.010, so anything read
+// out of that vector would be rounding noise wearing a direction.
+if (MathF.Abs(TerrainRay.SlopePerMetre(10.0f, 10.5f, 2.0f) - 0.25f) > 1e-6f)
 {
-    throw new Exception("A down-ray must not move the hunter horizontally.");
+    throw new Exception("A two-metre rise of half a metre is a slope of 0.25.");
 }
-if (rayStart.Y != 21 || rayEnd.Y != 15)
+if (MathF.Abs(TerrainRay.SlopePerMetre(10.5f, 10.0f, 1.0f) + 0.5f) > 1e-6f)
 {
-    throw new Exception($"Unexpected down-ray heights: start={rayStart.Y} end={rayEnd.Y}.");
+    throw new Exception("A one-metre drop of half a metre is a slope of -0.5.");
 }
-Console.WriteLine("Terrain down-segment checks passed.");
+if (!float.IsNaN(TerrainRay.SlopePerMetre(float.NaN, 10.0f, 1.0f)))
+{
+    throw new Exception("A slope across a column that found no surface must be NaN, not zero.");
+}
+if (!float.IsNaN(TerrainRay.SlopePerMetre(10.0f, 10.0f, 0.0f)))
+{
+    throw new Exception("A slope across zero spacing must be NaN, not a division by zero.");
+}
+Console.WriteLine("Terrain slope checks passed.");
+
+// The self-check sweeps the centre column and one metre to either side, so the
+// columns are the same ray shifted sideways and nothing else.
+TerrainRay.SweepColumn(
+    new Vector3(10.0f, 20.0f, -5.0f),
+    Vector3.UnitX,
+    0.0f,
+    1.0f,
+    5.0f,
+    out var centreStart,
+    out var centreEnd);
+if (centreStart.X != 10 || centreStart.Y != 21 || centreEnd.Y != 15 || centreEnd.Z != -5)
+{
+    throw new Exception($"Unexpected centre column: start={centreStart} end={centreEnd}.");
+}
+TerrainRay.SweepColumn(
+    new Vector3(10.0f, 20.0f, -5.0f),
+    Vector3.UnitX,
+    1.0f,
+    1.0f,
+    5.0f,
+    out var offsetStart,
+    out _);
+if (offsetStart.X != 11)
+{
+    throw new Exception("An offset column must shift along the hunter's right vector only.");
+}
+TerrainRay.SweepColumn(
+    new Vector3(10.0f, 20.0f, -5.0f),
+    -Vector3.UnitX,
+    1.0f,
+    1.0f,
+    5.0f,
+    out var behindStart,
+    out _);
+if (behindStart.X != 9)
+{
+    throw new Exception("A negative right vector must shift the column the other way.");
+}
+Console.WriteLine("Terrain sweep-column checks passed.");
 
 // The agreement rule: inside tolerance agrees, outside does not, and a
 // non-finite measurement never counts as a verdict.

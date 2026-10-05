@@ -940,3 +940,38 @@ which is why it took a second look to notice that the vector has no length. The
 hit count came back on the line too for the same reason: one hit means the game
 found a surface, and without it a zeroed normal is ambiguous between "no hit" and
 "hit with nothing to report".
+
+## 2026-10-05 — the normal is a value, not a direction, so slope comes from heights
+
+The person asked whether a cave in the Wetlands was good enough as a slope
+sample. The right answer was not to look at the screenshot, so the self-check
+stopped being a single ray.
+
+**Why.** A fifth surface, a cave floor with attribute `5`, reported the
+*identical* normal `(0.00, 0.01, 0.00)` that the Wetlands path had reported
+minutes earlier — same value, different place, different attribute. An unfilled
+buffer reads as zero; three surfaces do not agree to two decimals on a sentinel
+that is not zero. Whatever the game is doing there, it is reporting a value, and
+that value is not a direction. With two of five surfaces carrying a real normal
+and three carrying this, any slope feature built on normals would work on flat
+ground and fail on a hillside, which is the worst possible failure: correct until
+the player walks uphill.
+
+**So slope is measured, not read.** A check is now a sweep of three columns —
+the hunter's own, and one metre either side along their facing — and the report
+gives the rise per metre between the outer two. Three rays at two per sample, so
+a sweep spans two ticks and stays inside the per-tick budget in both. The centre
+column keeps its comparison against `CollisionPosition`, which has now come back
+0.350, 0.344, 0.350, 0.236 m on four surfaces: not a constant, and not a
+ground height either way.
+
+On that cave floor, three times in a row: `right[1m=36.533m] left[-1m=36.551m]`,
+so `slope=-0.01 rise/m`. Flat — on a floor with a visibly inclined wall metres
+away. The measurement settled a question the screenshot could not, and it will
+settle the next one the same way: the person will know they are on a slope
+because the number moved off zero, not because either of us judged a picture.
+
+`SlopePerMetre` returns NaN rather than a number when a column found no surface
+or the spacing is zero. A slope averaged across a missing sample is an invented
+number, and an invented number in a collision path is how a player ends up
+standing on nothing.

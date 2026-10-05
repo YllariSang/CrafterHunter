@@ -166,18 +166,23 @@ loads — during a cutscene, a quest transition, or with nobody watching. On
 demand, the call happens when a person is standing on the ground they want
 measured, which is also the only way to compare a slope against flat ground.
 
-Each accepted request produces one report, the evidence the acceptance table
-asks for, one line per ray:
+A check is a **sweep**, not a single ray: three columns, the hunter's own and
+one metre either side along their facing, at two rays per sample so it spans two
+ticks and never exceeds the budget in one of them.
+
+Each accepted request produces one sweep report, the evidence the acceptance
+table asks for, one line:
 
 ```
-Terrain self-check 1: hit=1 agree=True rayY=42.310m collisionY=42.310m delta=0.000m positionY=43.040m normal=(0.00, 1.00, 0.00) attr=1
+Terrain sweep 1: agree=True rayY=42.310m collisionY=42.660m delta=0.350m | centre[0m=42.310m attr=1 |n|=1.000] right[1m=42.560m attr=1 |n|=1.000] left[-1m=42.060m attr=1 |n|=1.000] | slope=0.25 rise/m
 ```
 
-`CollisionPosition`'s own meaning is not assumed: the line carries the ray, the
-collision point, and the model origin separately, so a constant offset between
-them shows up as a delta instead of a silent pass or fail. `agree` compares the
-ray with the collision point inside 0.5 m, which is the ground standing on a
-slope rather than a snapped grid.
+`CollisionPosition`'s own meaning is not assumed: the line carries the centre
+column, both neighbours, and the hunter's own collision point separately, so a
+constant offset between them shows up as a delta instead of a silent pass or
+fail. `agree` compares the centre column with the collision point inside 0.5 m,
+and `slope` is the rise per metre between the outer columns — a number, not an
+opinion about a screenshot.
 
 ### What the first live cast showed
 
@@ -231,17 +236,40 @@ offset came back at 0.350 m for the third time — the offset is a property of
 `CollisionPosition`, not of the surface. But the **normal is not a unit vector
 here**: `|n|` is 0.010, stable across three samples, on a surface class whose
 attribute is `0x00104000` against `0` for dirt and `0x00100000` for the wooden
-platform. Either that class leaves the triangle-info normal unfilled, or this
-particular hit resolved against a collision volume rather than a triangle; both
-are plausible and neither can be told apart from the outside.
+platform.
 
-What matters downstream is not which: **a guest must not assume the normal is
-unit length.** Normalizing a near-zero vector amplifies rounding noise into an
-arbitrary direction, and a slope feature built on that would steer the player
-somewhere the ground does not. The rule for stage C is that a normal below a
-threshold means "no normal reported", and the surface is treated as flat. The
-self-check line prints `|n|` for exactly this reason — a bare `(0.00, 0.01,
-0.00)` in a log reads as a direction to anyone who does not go and measure it.
+A fifth surface, a cave floor in the Wetlands with attribute `5`, reported the
+*identical* vector `(-0.00, 0.01, 0.00)`. Same value, different place, different
+attribute. An unfilled buffer would be zero; three surfaces do not coincidentally
+agree to two decimals on a "no normal" sentinel that is not zero. So this is a
+value the game genuinely reports, and it is not a direction.
+
+That settled the design: **slope cannot be read from the normal, and it does not
+have to be.** The self-check sweeps three columns — the hunter's own, and one
+metre to either side along their facing — and reports the rise per metre between
+the outer two. On that cave floor:
+
+```
+16:36:17.892  Terrain sweep 3: agree=True rayY=36.544m collisionY=36.780m delta=0.236m |
+              centre[0m=36.544m attr=5 |n|=0.010] right[1m=36.533m attr=5 |n|=0.010]
+              left[-1m=36.551m attr=5 |n|=0.010] | slope=-0.01 rise/m
+```
+
+36.533 and 36.551 one metre apart: a slope of one centimetre per metre, three
+times in a row, on a cave floor with a visibly inclined wall metres away. The
+hunter was standing on the flat part of it. The measurement says so without
+anyone having to judge a screenshot, which is the point — stage C needs ground
+heights over an area, not surface directions, so heights are what it should be
+built on.
+
+**Rule for stage C.** A normal below a threshold means "no normal reported" and
+the surface is treated as flat. Where slope matters, take it from neighbouring
+column heights, the way the sweep does, and let `SlopePerMetre` return NaN rather
+than a number when a column found nothing — a slope averaged across a missing
+sample is a made-up number.
+
+Three rays at two per sample, so a sweep spans two ticks and never exceeds the
+per-tick budget in either of them.
 
 ## Answering the guest
 

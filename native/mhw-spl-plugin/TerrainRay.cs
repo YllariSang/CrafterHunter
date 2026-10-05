@@ -67,19 +67,39 @@ public static class TerrainRay
     ];
 
     /// <summary>
-    /// The segment the self-check casts: from one metre above the hunter's
-    /// position down through the ground. Metres, like everything the adapter
-    /// takes and returns; only the cast itself works in MHW units.
+    /// The segment for one column of a sweep: from one metre above a point
+    /// offset sideways from the hunter, down through the ground. Metres, like
+    /// everything the adapter takes and returns; only the cast itself works in
+    /// MHW units. The centre column is offset zero, which is the one compared
+    /// against the hunter's own collision point.
     /// </summary>
-    public static void DownSegment(
+    public static void SweepColumn(
         Vector3 positionMetres,
+        Vector3 right,
+        float offsetMetres,
         float startAboveMetres,
         float depthMetres,
         out Vector3 start,
         out Vector3 end)
     {
-        start = positionMetres + new Vector3(0, startAboveMetres, 0);
-        end = positionMetres - new Vector3(0, depthMetres, 0);
+        var column = positionMetres + right * offsetMetres;
+        start = column + new Vector3(0, startAboveMetres, 0);
+        end = column - new Vector3(0, depthMetres, 0);
+    }
+
+    /// <summary>
+    /// The rise per metre between two columns a metre apart. NaN when either
+    /// column found no surface, because a slope averaged across a missing
+    /// sample is a made-up number.
+    /// </summary>
+    public static float SlopePerMetre(float leftHeight, float rightHeight, float spacingMetres)
+    {
+        if (!float.IsFinite(leftHeight) || !float.IsFinite(rightHeight) || spacingMetres <= 0)
+        {
+            return float.NaN;
+        }
+
+        return (rightHeight - leftHeight) / spacingMetres;
     }
 
     /// <summary>

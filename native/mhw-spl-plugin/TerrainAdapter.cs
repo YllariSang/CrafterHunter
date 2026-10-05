@@ -50,6 +50,22 @@ public sealed class TerrainAdapter : IDisposable
     private const int ResultQueueDepth = 32;
 
     /// <summary>
+    /// The self-check sweeps the centre column and one metre to either side, so
+    /// a slope can be measured as a height difference even on a surface that
+    /// reports no normal. Three rays at two per sample, so a sweep spans two
+    /// ticks and never exceeds the budget in one of them.
+    /// </summary>
+    private static readonly float[] ProbeOffsets = [0.0f, 1.0f, -1.0f];
+
+    /// <summary>What one column of a sweep found.</summary>
+    private readonly record struct ProbeSample(
+        float Offset,
+        bool Hit,
+        float Height,
+        Vector3 Normal,
+        uint Attribute);
+
+    /// <summary>
     /// The sample cadence. The state machine and the queue are cheap, and
     /// twenty hertz bounds a guest's wait for an answer without turning into a
     /// frame spike.
@@ -70,6 +86,10 @@ public sealed class TerrainAdapter : IDisposable
     private int _droppedRequests;
     private int _reportedDrops;
     private int _droppedResults;
+
+    private readonly Queue<float> _probeOffsets = new();
+    private readonly List<ProbeSample> _probeSamples = new();
+    private int _sweeps;
 
     // The three caller-owned buffers the call sequence needs: a filter block,
     // a triangle-info block, and eight segment floats. Each is allocated as
@@ -93,7 +113,6 @@ public sealed class TerrainAdapter : IDisposable
 
     private TerrainRay.State _state = TerrainRay.State.Unavailable;
     private long _nextSample;
-    private int _selfChecks;
     private bool _singletonFailureLogged;
 
     private NativeAction<IntPtr, uint, uint, uint, uint, uint, ulong, byte, uint, uint, byte> _parameterConstructor;
@@ -237,9 +256,50 @@ public sealed class TerrainAdapter : IDisposable
                 }
             }
 
-            if (spent == 0 && TerrainRequest.ConsumeCheck(PluginFolder))
+            if (spent == 0 && TerrainRequest.ConsumeCheck(PluginFolder) && BeginSweep(hunter, state))
             {
-                SelfCheck(hunter, collision, state);
+                // fall through: the sweep casts on this tick and the next
+            }
+
+            while (spent < RaysPerTick && _probeOffsets.Count > 0)
+            {
+                spent++;
+                if (hunter is null || state != TerrainRay.State.Ready)
+                {
+                    AbortSweep(state);
+                    break;
+                }
+
+                var offset = _probeOffsets.Dequeue();
+                var position = hunter.Position / TerrainRay.UnitsPerMetre;
+                var right = RightVector(hunter.Forward);
+                TerrainRay.SweepColumn(
+                    position,
+                    right,
+                    offset,
+                    StartAboveMetres,
+                    DepthMetres,
+                    out var start,
+                    out var end);
+                var hit = TryCast(collision, start, end, out var hits, out var at, out var normal, out var attribute);
+                _probeSamples.Add(
+                    new ProbeSample(
+                        offset,
+                        hit,
+                        hit ? at.Y : float.NaN,
+                        hit ? normal : Vector3.Zero,
+                        hit ? attribute : 0u));
+                if (hits == 0 && state == TerrainRay.State.Ready)
+                {
+                    _log(
+                        $"Terrain sweep {_sweeps + 1}: the column {offset:F0}m to the side " +
+                        "found no surface.");
+                }
+            }
+
+            if (_probeSamples.Count == ProbeOffsets.Length && _probeOffsets.Count == 0)
+            {
+                ReportSweep(hunter!);
             }
         }
         catch (Exception exception)
@@ -364,51 +424,91 @@ public sealed class TerrainAdapter : IDisposable
     }
 
     /// <summary>
-    /// The request-file self-check: cast from above the hunter down through the
-    /// ground, then compare where it landed with the hunter's own collision
-    /// point and report the numbers. That comparison is milestone 3's
-    /// ground-truth rule: the ray has to hit the ground the hunter stands on,
-    /// flat and on slopes.
+    /// Start a sweep on a request file, if the world can answer one. Returns
+    /// false when it cannot, so the request is refused with a reason instead of
+    /// quietly doing nothing.
     /// </summary>
-    private unsafe void SelfCheck(Player? hunter, IntPtr collision, TerrainRay.State state)
+    private bool BeginSweep(Player? hunter, TerrainRay.State state)
     {
-        _selfChecks++;
         if (hunter is null || state != TerrainRay.State.Ready)
         {
             _log(
-                $"Terrain self-check {_selfChecks} refused: the state is {_state}, " +
-                "so no ray was cast.");
-            return;
+                $"Terrain sweep refused: the state is {_state}, so no ray was cast.");
+            return false;
         }
 
         var position = hunter.Position / TerrainRay.UnitsPerMetre;
-        TerrainRay.DownSegment(position, StartAboveMetres, DepthMetres, out var start, out var end);
-        if (!IsFinite(start) || !IsFinite(end))
+        if (!IsFinite(position))
         {
-            _log($"Terrain self-check {_selfChecks} refused: the hunter's position is not finite.");
-            return;
+            _log("Terrain sweep refused: the hunter's position is not finite.");
+            return false;
         }
 
-        if (!TryCast(collision, start, end, out var hits, out var hit, out var normal, out var attribute))
+        _sweeps++;
+        _probeSamples.Clear();
+        _probeOffsets.Clear();
+        foreach (var offset in ProbeOffsets)
         {
-            _log($"Terrain self-check {_selfChecks}: no hit in {DepthMetres:F1}m below the hunter.");
-            return;
+            _probeOffsets.Enqueue(offset);
         }
 
-        // The magnitude is on the line because the normal is not guaranteed to
-        // be a unit vector: one surface class in the wild comes back as almost
-        // exactly zero, and a reader that assumes a unit vector would read that
-        // as a direction rather than as the absence of one.
-        var length = MathF.Sqrt(normal.X * normal.X + normal.Y * normal.Y + normal.Z * normal.Z);
-        var collisionY = hunter.CollisionPosition.Y / TerrainRay.UnitsPerMetre;
-        _log(
-            $"Terrain self-check {_selfChecks}: hits={hits} agree=" +
-            $"{TerrainRay.Agrees(hit.Y, collisionY, AgreementToleranceMetres)} " +
-            $"rayY={hit.Y:F3}m collisionY={collisionY:F3}m " +
-            $"delta={MathF.Abs(hit.Y - collisionY):F3}m positionY={position.Y:F3}m " +
-            $"normal=({normal.X:F2}, {normal.Y:F2}, {normal.Z:F2}) |n|={length:F3} " +
-            $"attr={attribute}");
+        return true;
     }
+
+    private void AbortSweep(TerrainRay.State state)
+    {
+        _log($"Terrain sweep {_sweeps} abandoned: the state changed to {_state} mid-sweep.");
+        _probeOffsets.Clear();
+        _probeSamples.Clear();
+    }
+
+    /// <summary>
+    /// Report the sweep: the centre column's comparison against the hunter's
+    /// own collision point, then the three heights and the slope between the
+    /// outer columns.
+    ///
+    /// The slope is measured as a height difference rather than read from the
+    /// normal, because three of the five surfaces measured so far report a
+    /// normal of `(0.00, 0.01, 0.00)` — magnitude 0.010, the identical value in
+    /// three different places on three different attributes. A slope derived
+    /// from that vector would be a rounding artefact wearing a direction.
+    /// </summary>
+    private void ReportSweep(Player hunter)
+    {
+        var samples = _probeSamples.ToArray();
+        _probeSamples.Clear();
+        var centre = samples[0];
+        var right = samples[1];
+        var left = samples[2];
+        var collisionY = hunter.CollisionPosition.Y / TerrainRay.UnitsPerMetre;
+        var slope = centre.Hit && right.Hit && left.Hit
+            ? TerrainRay.SlopePerMetre(left.Height, right.Height, right.Offset - left.Offset)
+            : TerrainRay.SlopePerMetre(left.Height, right.Height, right.Offset - left.Offset);
+
+        string Column(ProbeSample sample) =>
+            sample.Hit
+                ? $"{sample.Offset:F0}m={sample.Height:F3}m " +
+                  $"attr={sample.Attribute} |n|={Length(sample.Normal):F3}"
+                : $"{sample.Offset:F0}m=no-surface";
+
+        _log(
+            $"Terrain sweep {_sweeps}: agree=" +
+            $"{TerrainRay.Agrees(centre.Height, collisionY, AgreementToleranceMetres)} " +
+            $"rayY={centre.Height:F3}m collisionY={collisionY:F3}m " +
+            $"delta={MathF.Abs(centre.Height - collisionY):F3}m | " +
+            $"centre[{Column(centre)}] right[{Column(right)}] left[{Column(left)}] | " +
+            $"slope={slope:F2} rise/m");
+    }
+
+    private static Vector3 RightVector(Vector3 forward)
+    {
+        var right = Vector3.Cross(forward, Vector3.UnitY);
+        var length = Length(right);
+        return length > 0.01f ? right / length : Vector3.UnitX;
+    }
+
+    private static float Length(Vector3 value) =>
+        MathF.Sqrt(value.X * value.X + value.Y * value.Y + value.Z * value.Z);
 
     /// <summary>
     /// Cast one segment and release both buffers before returning, whatever the
