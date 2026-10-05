@@ -144,6 +144,20 @@ Two observations for whoever revisits selection:
   adopting any rule other than `depths[0]`, capture another area and at least
   one cutscene, and prefer this-frame freshness over list index.
 
+### Live composition checks (2026-10-05)
+
+The person drove these against the live games during the camera-link session
+and reports them passing: the block keeps perspective while orbiting,
+foreground geometry hides it and it returns when the obstruction clears, and
+the map and the game cursor draw above it. The stone was fed by the running
+Minecraft client (`Received actual minecraft:stone pixels and PNG from
+Minecraft` in `CrafterHunter.runtime.log`), so this covers the live path that
+the 2026-10-04 session deliberately did not claim.
+
+The cutscene case is **untested** — not a failure, simply never driven. It
+stays open, along with the depth-selection rule and the frame-synchronization
+evidence below.
+
 ### Remaining scope
 
 This is experimental support for the pinned executable and tested DX11 settings,
