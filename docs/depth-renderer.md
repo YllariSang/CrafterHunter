@@ -323,6 +323,59 @@ matching, the fresh-but-empty case measured this morning, the threshold
 boundary from both sides, discovery-order fall-through, whole-frame coverage
 sampling, and fail-closed behaviour when nothing qualifies.
 
+#### Live validation (2026-10-05, 13:14–13:21)
+
+The rebuilt DLL went in through the development reload path: the previous DLL
+was backed up to `~/.local/share/crafterhunter-backups/renderer-20261005T131415/`
+(outside the repo), the pinned executable hash was re-checked first, and the
+plugin consumed `native-renderer.reload` one second later, copying the new build
+to a fresh `render/renderer-*.bin`. The rule then behaved as designed on its
+first frames:
+
+| wall | log |
+| --- | --- |
+| 13:14:16 | `D3D11 renderer initialized`, `backbuffer 1920x1080`, `depth[0] … clear=0.000` |
+| 13:16:15 | `no eligible depth candidate (1 observed; unmeasured, stale or empty) - composition skipped` |
+| 13:16:17 | `depth[0] content 56.94% holds geometry (age=0)` → `depth select=0 covered=56.94% age=0` |
+| 13:17:58 | `depth[1] … clear=0.000` → `depth[1] content 0.00% empty (age=0)` |
+
+Composition failed closed for two seconds until the first read-back landed,
+then bound `depth[0]`. A few minutes in, a second candidate appeared and was
+measured **empty at `age=0`** — the fresh-but-empty case this morning's
+captures described, reproduced in the running game and refused by the rule
+rather than bound. `depth[1]` never appears in a selection line.
+
+The trace was then armed repeatedly across a minute of camera movement:
+
+```
+  frames traced   : 958 (frame 142..6935)
+  depth bound     : [0]   age 0..0 frames
+  coverage        : 56.94..100.00 %
+  camera          : changed=36 same=922 unread=0
+  CPU/GPU delta   : max |dx|=0.000 px  max |dy|=0.000 px  mean=0.000 px
+```
+
+`python tools/inspect-framesync.py` reports PASS, exit 0. Three separate claims
+are worth pulling apart rather than quoting as one number:
+
+- **Every frame composed with a same-frame depth.** 958/958 bound `depth[0]`
+  with `age=0`; the trace never saw a `depth=-1`.
+- **The camera was live, not frozen.** 37 distinct GPU camera hashes, 36 flagged
+  `changed`, and the projected anchor travelled from `(960.0, 540.0)` to
+  `(1060.5, 504.4)` over 35 distinct positions — so non-zero deltas were
+  available to observe and still read zero.
+- **CPU and GPU agreed exactly.** `delta` is 0.000 px on every frame *including
+  the moving ones*: the CPU-side view-projection handed to `CH_Frame` for a
+  frame is bit-identical to the GPU host matrix of the draw composed for that
+  frame. That is the synchronization claim, and it held across 958 frames at a
+  28.9 fps average — 37.7 fps while MHW's window was focused, against roughly
+  1 fps when its workspace was inactive, which is the practical reason the two
+  games have to share the active workspace.
+
+The trace costs nothing once disarmed: `frameSyncRemaining` reaches zero and
+the read-back path stops. Evidence: `20261005T1321-framesync-trace.log`, 958
+frames, gitignored with the rest of the acceptance material.
+
 ### Remaining scope
 
 This is experimental support for the pinned executable and tested DX11 settings,

@@ -468,3 +468,50 @@ Renderer rebuilds clean under mingw with `-Wall -Wextra`. Gates run: 12 Rust
 tests, the fabric camera checks, and the new depth-selection tests, all green.
 Still outstanding is the live half — deploy the DLL, run the framesync trace
 against the running games, and judge it.
+
+## 2026-10-05 — depth selection and frame sync validated against the live game
+
+The rebuilt DLL was deployed through the development reload path — previous
+build backed up to `~/.local/share/crafterhunter-backups/renderer-20261005T131415/`,
+pinned executable hash re-checked first — and the plugin picked it up at
+13:14:16, one second after the reload request.
+
+The new selection rule then showed its two behaviours in the running game,
+which is what the whole change existed for.
+
+**It fails closed.** The first composed frame logged
+`no eligible depth candidate (1 observed; unmeasured, stale or empty) -
+composition skipped`, then at 13:16:17, two seconds later, `depth[0] content
+56.94% holds geometry (age=0)` and `depth select=0`. Nothing binds until a
+read-back has proven the buffer holds geometry — no defaulting to index 0, and
+no draw-through while the measurement is pending.
+
+**It refuses a fresh empty buffer.** At 13:17:58 a second candidate appeared
+(`depth[1] 1920x1080 format=39 bind=72 clear=0.000`) and was measured
+`content 0.00% empty (age=0)`. That is the hazard from this morning's captures
+— fresh, correctly cleared, holding nothing — occurring on its own in live
+play, and the rule declined it. It never appears in a selection line.
+
+The frame-sync trace was armed repeatedly across a minute of camera movement.
+`python tools/inspect-framesync.py` reports PASS (exit 0) over 958 frames:
+
+- every frame bound a depth, `depth=0` throughout, `age=0` throughout, no
+  `depth=-1` anywhere;
+- 37 distinct GPU camera hashes with 36 flagged `changed`, and the projected
+  anchor moving from `(960.0, 540.0)` to `(1060.5, 504.4)` across 35 distinct
+  positions — so the camera was demonstrably live rather than stuck;
+- `delta` 0.000 px on all 958 frames including the moving ones: the CPU-side
+  view-projection handed to `CH_Frame` for a frame is bit-identical to the GPU
+  host matrix of the draw composed for that frame.
+
+Rate context worth keeping: 28.9 fps averaged across the run, 37.7 fps with
+MHW's window focused, and roughly 1 fps while MHW sat on an inactive
+workspace. That last number is why the games must share the active workspace —
+it is the same rule the packet-rate observation recorded in milestone 1, now
+measured on the renderer side.
+
+Evidence archived as `20261005T1321-framesync-trace.log` (958 frames,
+gitignored). Both milestone 2 follow-ups are closed; `docs/depth-renderer.md`
+carries the full table and `MODDING_PLAN.md` the updated status. The trace is
+bounded — once disarmed, `frameSyncRemaining` hits zero and no further GPU
+read-backs happen.
