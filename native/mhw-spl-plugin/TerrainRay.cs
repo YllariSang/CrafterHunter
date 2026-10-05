@@ -68,19 +68,18 @@ public static class TerrainRay
 
     /// <summary>
     /// The segment the self-check casts: from one metre above the hunter's
-    /// position down through the ground, in MHW units like everything else the
-    /// game reports.
+    /// position down through the ground. Metres, like everything the adapter
+    /// takes and returns; only the cast itself works in MHW units.
     /// </summary>
     public static void DownSegment(
-        Vector3 positionUnits,
+        Vector3 positionMetres,
         float startAboveMetres,
         float depthMetres,
-        float unitsPerMetre,
         out Vector3 start,
         out Vector3 end)
     {
-        start = positionUnits + new Vector3(0, startAboveMetres * unitsPerMetre, 0);
-        end = positionUnits - new Vector3(0, depthMetres * unitsPerMetre, 0);
+        start = positionMetres + new Vector3(0, startAboveMetres, 0);
+        end = positionMetres - new Vector3(0, depthMetres, 0);
     }
 
     /// <summary>
@@ -89,17 +88,16 @@ public static class TerrainRay
     /// false against every tolerance and quietly look like a verdict.
     /// </summary>
     public static bool Agrees(
-        float rayHitYUnits,
-        float collisionYUnits,
-        float toleranceMetres,
-        float unitsPerMetre)
+        float rayHitYMetres,
+        float collisionYMetres,
+        float toleranceMetres)
     {
-        if (!float.IsFinite(rayHitYUnits) || !float.IsFinite(collisionYUnits))
+        if (!float.IsFinite(rayHitYMetres) || !float.IsFinite(collisionYMetres))
         {
             return false;
         }
 
-        return MathF.Abs(rayHitYUnits - collisionYUnits) <= toleranceMetres * unitsPerMetre;
+        return MathF.Abs(rayHitYMetres - collisionYMetres) <= toleranceMetres;
     }
 
     /// <summary>

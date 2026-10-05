@@ -18,6 +18,8 @@ public sealed class Plugin : IPlugin
     private const ushort HeartbeatKind = 3;
     private const ushort CameraStateKind = 10;
     private const ushort PlayerStateKind = 11;
+    private const ushort TerrainRequestKind = 12;
+    private const ushort TerrainResultKind = 13;
     private const ushort BlockPixelsKind = 20;
     private const ushort BlockPngKind = 21;
     private const int HeaderLength = 24;
@@ -522,7 +524,7 @@ public sealed class Plugin : IPlugin
                     while (client.Available > 0)
                     {
                         var inbound = client.Receive(ref remoteEndpoint);
-                        HandleMinecraftAssetPacket(inbound);
+                        HandleMinecraftPacket(inbound);
                     }
                     var cameraPayload = Interlocked.Exchange(ref _latestCameraPayload, null);
                     if (cameraPayload is not null)
@@ -533,6 +535,10 @@ public sealed class Plugin : IPlugin
                     if (playerPayload is not null)
                     {
                         Send(client, PlayerStateKind, ++sequence, playerPayload);
+                    }
+                    while (_terrain is { } terrain && terrain.TryTakeResult(out var terrainPayload))
+                    {
+                        Send(client, TerrainResultKind, ++sequence, terrainPayload);
                     }
 
                     var now = Stopwatch.GetTimestamp();
@@ -580,7 +586,7 @@ public sealed class Plugin : IPlugin
                    (uint)(packet.Length - HeaderLength);
     }
 
-    private void HandleMinecraftAssetPacket(ReadOnlySpan<byte> packet)
+    private void HandleMinecraftPacket(ReadOnlySpan<byte> packet)
     {
         if (packet.Length < HeaderLength || packet.Length > HeaderLength + MaximumPayloadLength ||
             !packet[..4].SequenceEqual("CHNT"u8) ||
@@ -594,6 +600,18 @@ public sealed class Plugin : IPlugin
 
         var kind = BinaryPrimitives.ReadUInt16LittleEndian(packet.Slice(6, 2));
         var payload = packet[HeaderLength..];
+        if (kind == TerrainRequestKind)
+        {
+            // Only a payload that matches the pinned layout is queued, and the
+            // cast waits for the game thread either way.
+            if (TerrainPacket.TryReadRequest(payload, out var id, out var start, out var end))
+            {
+                _terrain?.Enqueue(id, start, end);
+            }
+
+            return;
+        }
+
         if (kind == BlockPixelsKind &&
             MinecraftBlockAsset.TryReadPixels(payload, out var pixels))
         {

@@ -198,43 +198,103 @@ if (TerrainRay.PinnedExecutableSha256 != TerrainRay.PinnedExecutableSha256.ToLow
 Console.WriteLine("Terrain signature checks passed: seven names, parseable patterns, pinned hash.");
 
 // The self-check segment starts above the hunter and ends below the ground
-// line, in the same units the game reports positions in.
+// line, in metres like everything the adapter takes and returns.
 TerrainRay.DownSegment(
-    new Vector3(10, 2000, -5), 1f, 5f, TerrainRay.UnitsPerMetre, out var rayStart, out var rayEnd);
+    new Vector3(10.0f, 20.0f, -5.0f), 1f, 5f, out var rayStart, out var rayEnd);
 if (rayStart.X != 10 || rayStart.Z != -5)
 {
     throw new Exception("A down-ray must not move the hunter horizontally.");
 }
-if (rayStart.Y != 2100 || rayEnd.Y != 1500)
+if (rayStart.Y != 21 || rayEnd.Y != 15)
 {
     throw new Exception($"Unexpected down-ray heights: start={rayStart.Y} end={rayEnd.Y}.");
-}
-if (!(rayStart.Y > 2000 && rayEnd.Y < 2000))
-{
-    throw new Exception("A down-ray must straddle the hunter's own height.");
 }
 Console.WriteLine("Terrain down-segment checks passed.");
 
 // The agreement rule: inside tolerance agrees, outside does not, and a
 // non-finite measurement never counts as a verdict.
-if (!TerrainRay.Agrees(2000f, 2000f, 0.5f, 100f))
+if (!TerrainRay.Agrees(20.0f, 20.0f, 0.5f))
 {
     throw new Exception("A ray that lands exactly on the collision point must agree.");
 }
-if (!TerrainRay.Agrees(2050f, 2000f, 0.5f, 100f))
+if (!TerrainRay.Agrees(20.5f, 20.0f, 0.5f))
 {
     throw new Exception("A ray at exactly the tolerance must agree.");
 }
-if (TerrainRay.Agrees(2051f, 2000f, 0.5f, 100f))
+if (TerrainRay.Agrees(20.51f, 20.0f, 0.5f))
 {
     throw new Exception("A ray beyond the tolerance must not agree.");
 }
-if (TerrainRay.Agrees(float.NaN, 2000f, 0.5f, 100f) ||
-    TerrainRay.Agrees(2000f, float.PositiveInfinity, 0.5f, 100f))
+if (TerrainRay.Agrees(float.NaN, 20.0f, 0.5f) ||
+    TerrainRay.Agrees(20.0f, float.PositiveInfinity, 0.5f))
 {
     throw new Exception("A non-finite measurement must never agree.");
 }
 Console.WriteLine("Terrain agreement checks passed.");
+
+// The wire layout, read and written the way the Rust protocol crate pins it.
+// These bytes are the contract between C# and Java; if either side drifts, this
+// fails here rather than in the middle of a quest.
+byte[] goldenRequest =
+[
+    0x01, 0x00, 0x00, 0x00, // id
+    0x00, 0x00, 0x80, 0x3F, // start.x 1.0
+    0x00, 0x00, 0x00, 0x40, // start.y 2.0
+    0x00, 0x00, 0x60, 0x40, // start.z 3.5
+    0x00, 0x00, 0x80, 0xC0, // end.x -4.0
+    0x00, 0x00, 0xA0, 0x40, // end.y 5.0
+    0x00, 0x00, 0xD0, 0x40, // end.z 6.5
+];
+if (!TerrainPacket.TryReadRequest(goldenRequest, out var requestId, out var requestStart, out var requestEnd) ||
+    requestId != 1 ||
+    requestStart != new Vector3(1.0f, 2.0f, 3.5f) ||
+    requestEnd != new Vector3(-4.0f, 5.0f, 6.5f))
+{
+    throw new Exception("A well-formed terrain request did not decode as pinned.");
+}
+if (TerrainPacket.TryReadRequest(goldenRequest.AsSpan(0, 24), out _, out _, out _))
+{
+    throw new Exception("A short terrain request must be refused.");
+}
+byte[] poisoned = (byte[])goldenRequest.Clone();
+poisoned[4] = 0xFF;
+poisoned[5] = 0xFF;
+poisoned[6] = 0xFF;
+poisoned[7] = 0x7F;
+if (TerrainPacket.TryReadRequest(poisoned, out _, out _, out _))
+{
+    throw new Exception("A non-finite terrain request must be refused.");
+}
+
+byte[] goldenResult = TerrainPacket.EncodeResult(
+    7, TerrainPacket.StatusHit, new Vector3(1.0f, -2.0f, 3.5f), new Vector3(0.0f, 1.0f, 0.0f), 0x0010_0000);
+if (!goldenResult.AsSpan().SequenceEqual(new byte[]
+    {
+        0x07, 0x00, 0x00, 0x00, // id
+        0x02, 0x00, 0x00, 0x00, // status Hit, then three reserved zeros
+        0x00, 0x00, 0x80, 0x3F, // position.x 1.0
+        0x00, 0x00, 0x00, 0xC0, // position.y -2.0
+        0x00, 0x00, 0x60, 0x40, // position.z 3.5
+        0x00, 0x00, 0x00, 0x00, // normal.x 0.0
+        0x00, 0x00, 0x80, 0x3F, // normal.y 1.0
+        0x00, 0x00, 0x00, 0x00, // normal.z 0.0
+        0x00, 0x00, 0x10, 0x00, // attribute 0x00100000
+    }))
+{
+    throw new Exception("A terrain hit result did not encode as pinned.");
+}
+byte[] expectedMiss = new byte[TerrainPacket.ResultPayloadLength];
+expectedMiss[0] = 8;
+expectedMiss[4] = TerrainPacket.StatusMiss;
+if (!TerrainPacket
+        .EncodeResult(8, TerrainPacket.StatusMiss, new Vector3(9.0f), new Vector3(9.0f), 99)
+        .AsSpan()
+        .SequenceEqual(expectedMiss))
+{
+    throw new Exception(
+        "A miss must carry its id and status and nothing else: no position, normal, or attribute.");
+}
+Console.WriteLine("Terrain packet checks passed: pinned bytes, short and non-finite refused, miss carries no geometry.");
 
 // The state machine: a fingerprint or signature failure dominates everything.
 VerifyState(TerrainRay.Classify(false, true, true, true), TerrainRay.State.Disabled);

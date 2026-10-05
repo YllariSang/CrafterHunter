@@ -19,10 +19,14 @@ namespace CrafterHunter.MHW;
 /// or an unresolved pattern disables terrain for the session rather than
 /// falling back to a remembered address. Rays run only from
 /// <see cref="Tick"/>, which the game thread calls through
-/// <c>Plugin.OnUpdate</c>, and only when a request is pending and at most one
-/// per sample. And every native call is wrapped so a failure disables queries
-/// instead of escaping into the game process.
-/// </summary>
+/// <c>Plugin.OnUpdate</c>, at most <see cref="RaysPerTick"/> of them per sample.
+/// And every native call is wrapped so a failure disables queries instead of
+/// escaping into the game process.
+///
+/// Requests arrive on the endpoint thread and are queued, never cast there: the
+/// game's collision routine is game-thread-only. The queue has a fixed depth and
+/// its overflow is dropped and counted rather than accumulated, because a guest
+/// that outruns the host should lose answers, not stall the game.
 public sealed class TerrainAdapter : IDisposable
 {
     private const string ExecutableName = "MonsterHunterWorld.exe";
@@ -40,15 +44,32 @@ public sealed class TerrainAdapter : IDisposable
     private const float DepthMetres = 5.0f;
     private const float AgreementToleranceMetres = 0.5f;
 
+    /// <summary>Rays cast per sample, and requests allowed to wait.</summary>
+    private const int RaysPerTick = 2;
+    private const int RequestQueueDepth = 8;
+    private const int ResultQueueDepth = 32;
+
     /// <summary>
-    /// The state machine and the request file are sampled once a second; at
-    /// most one ray is cast per sample, and only on request. The queue that
-    /// guest requests will arrive on in stage B spends the same budget rather
-    /// than a second, larger one.
+    /// The sample cadence. The state machine and the queue are cheap, and
+    /// twenty hertz bounds a guest's wait for an answer without turning into a
+    /// frame spike.
     /// </summary>
-    private const double SampleSeconds = 1.0;
+    private const double SampleSeconds = 0.05;
+
+    /// <summary>Requests refused because the queue was full, between reports.</summary>
+    private const int DropReportInterval = 64;
 
     private readonly Action<string> _log;
+
+    // Requests cross from the endpoint thread to the game thread through this
+    // queue and never anywhere else: the cast may only happen on the game
+    // thread, and the endpoint thread may only touch bytes.
+    private readonly object _queueLock = new();
+    private readonly Queue<(uint Id, Vector3 Start, Vector3 End)> _requests = new();
+    private readonly Queue<byte[]> _results = new();
+    private int _droppedRequests;
+    private int _reportedDrops;
+    private int _droppedResults;
 
     // The three caller-owned buffers the call sequence needs: a filter block,
     // a triangle-info block, and eight segment floats. Each is allocated as
@@ -166,21 +187,18 @@ public sealed class TerrainAdapter : IDisposable
     }
 
     /// <summary>
-    /// Publish the state machine once a second and cast at most one ray, only
-    /// when a request is pending. The caller is <c>Plugin.OnUpdate</c> on the
-    /// game thread. State is published whether or not a ray runs, so a loading
-    /// screen reads "unavailable" rather than the last answer the ray gave, and
-    /// a request that arrives while the world is not ready is refused loudly
-    /// instead of quietly.
+    /// Publish the state machine, spend the sample's ray budget on queued
+    /// requests, and fall back to the request file's self-check when the queue is
+    /// empty. The caller is <c>Plugin.OnUpdate</c> on the game thread. State is
+    /// published whether or not a ray runs, so a loading screen reads
+    /// "unavailable" rather than the last answer the ray gave, and a request
+    /// that arrives while the world is not ready is answered "no terrain" rather
+    /// than dropped.
     /// </summary>
     public unsafe void Tick(long now)
     {
+        _nextSample = now + Ticks(SampleSeconds);
         if (_disabled || !_initialized)
-        {
-            return;
-        }
-
-        if (now < _nextSample)
         {
             return;
         }
@@ -201,24 +219,28 @@ public sealed class TerrainAdapter : IDisposable
                 _log($"Terrain state changed to {_state}.");
             }
 
-            if (!TerrainRequest.ConsumeCheck(PluginFolder))
+            var spent = 0;
+            while (spent < RaysPerTick && TryTakeRequest(out var request))
             {
-                _nextSample = now + Ticks(SampleSeconds);
-                return;
+                spent++;
+                if (state == TerrainRay.State.Ready)
+                {
+                    Answer(collision, request);
+                }
+                else
+                {
+                    // Unavailable is a state, not a silence: the guest is told
+                    // now rather than left to time out holding an old hit.
+                    Publish(
+                        TerrainPacket.EncodeResult(
+                            request.Id, TerrainPacket.StatusNoTerrain, Vector3.Zero, Vector3.Zero, 0));
+                }
             }
 
-            _selfChecks++;
-            if (state != TerrainRay.State.Ready)
+            if (spent == 0 && TerrainRequest.ConsumeCheck(PluginFolder))
             {
-                _log(
-                    $"Terrain self-check {_selfChecks} refused: the state is {_state}, " +
-                    "so no ray was cast.");
-                _nextSample = now + Ticks(SampleSeconds);
-                return;
+                SelfCheck(hunter, collision, state);
             }
-
-            CastDownRay(hunter!, collision);
-            _nextSample = now + Ticks(SampleSeconds);
         }
         catch (Exception exception)
         {
@@ -226,6 +248,86 @@ public sealed class TerrainAdapter : IDisposable
             // terminate MHW; terrain queries switch off for the session and
             // the diagnostic log keeps the exception for the next run.
             Disable($"terrain ray failed with {exception.GetType().FullName}: {exception.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Accept a request from the guest. Called on the endpoint thread: it only
+    /// parses and queues. A full queue drops the request and counts it, because
+    /// a guest that outruns the host must lose answers rather than make the
+    /// game wait.
+    /// </summary>
+    public void Enqueue(uint id, Vector3 start, Vector3 end)
+    {
+        lock (_queueLock)
+        {
+            if (_requests.Count >= RequestQueueDepth)
+            {
+                _droppedRequests++;
+                if (_droppedRequests - _reportedDrops >= DropReportInterval)
+                {
+                    _reportedDrops = _droppedRequests;
+                    _log(
+                        $"Terrain requests dropped: {_droppedRequests} in total, " +
+                        $"queue depth {RequestQueueDepth}.");
+                }
+
+                return;
+            }
+
+            _requests.Enqueue((id, start, end));
+        }
+    }
+
+    /// <summary>Take one answer for the endpoint thread to send.</summary>
+    public bool TryTakeResult(out byte[] payload)
+    {
+        lock (_queueLock)
+        {
+            if (_results.Count == 0)
+            {
+                payload = Array.Empty<byte>();
+                return false;
+            }
+
+            payload = _results.Dequeue();
+            return true;
+        }
+    }
+
+    private bool TryTakeRequest(out (uint Id, Vector3 Start, Vector3 End) request)
+    {
+        lock (_queueLock)
+        {
+            if (_requests.Count == 0)
+            {
+                request = default;
+                return false;
+            }
+
+            request = _requests.Dequeue();
+            return true;
+        }
+    }
+
+    private void Publish(byte[] payload)
+    {
+        lock (_queueLock)
+        {
+            if (_results.Count >= ResultQueueDepth)
+            {
+                // The endpoint thread is behind, not the guest: drop the newest
+                // answer and count it rather than growing without bound.
+                _droppedResults++;
+                if (_droppedResults % DropReportInterval == 0)
+                {
+                    _log($"Terrain answers dropped: {_droppedResults} in total.");
+                }
+
+                return;
+            }
+
+            _results.Enqueue(payload);
         }
     }
 
@@ -244,19 +346,84 @@ public sealed class TerrainAdapter : IDisposable
     }
 
     /// <summary>
-    /// Cast one ray from above the hunter down through the ground, then compare
-    /// where it landed with the hunter's own collision point and report the
-    /// numbers. That comparison is milestone 3's ground-truth rule: the ray has
-    /// to hit the ground the hunter stands on, flat and on slopes.
+    /// Answer one queued request: cast the guest's segment and publish the
+    /// result, with a miss carrying no position so it cannot be read as a hit at
+    /// the origin.
     /// </summary>
-    private unsafe void CastDownRay(Player hunter, IntPtr collision)
+    private unsafe void Answer(IntPtr collision, (uint Id, Vector3 Start, Vector3 End) request)
     {
-        var position = hunter.Position;
-        TerrainRay.DownSegment(
-            position, StartAboveMetres, DepthMetres, TerrainRay.UnitsPerMetre, out var start, out var end);
+        var hit = TryCast(collision, request.Start, request.End, out var position, out var normal, out var attribute);
+        Publish(
+            TerrainPacket.EncodeResult(
+                request.Id,
+                hit ? TerrainPacket.StatusHit : TerrainPacket.StatusMiss,
+                hit ? position : Vector3.Zero,
+                hit ? normal : Vector3.Zero,
+                hit ? attribute : 0u));
+    }
+
+    /// <summary>
+    /// The request-file self-check: cast from above the hunter down through the
+    /// ground, then compare where it landed with the hunter's own collision
+    /// point and report the numbers. That comparison is milestone 3's
+    /// ground-truth rule: the ray has to hit the ground the hunter stands on,
+    /// flat and on slopes.
+    /// </summary>
+    private unsafe void SelfCheck(Player? hunter, IntPtr collision, TerrainRay.State state)
+    {
+        _selfChecks++;
+        if (hunter is null || state != TerrainRay.State.Ready)
+        {
+            _log(
+                $"Terrain self-check {_selfChecks} refused: the state is {_state}, " +
+                "so no ray was cast.");
+            return;
+        }
+
+        var position = hunter.Position / TerrainRay.UnitsPerMetre;
+        TerrainRay.DownSegment(position, StartAboveMetres, DepthMetres, out var start, out var end);
         if (!IsFinite(start) || !IsFinite(end))
         {
+            _log($"Terrain self-check {_selfChecks} refused: the hunter's position is not finite.");
             return;
+        }
+
+        if (!TryCast(collision, start, end, out var hit, out var normal, out var attribute))
+        {
+            _log($"Terrain self-check {_selfChecks}: no hit in {DepthMetres:F1}m below the hunter.");
+            return;
+        }
+
+        var collisionY = hunter.CollisionPosition.Y / TerrainRay.UnitsPerMetre;
+        _log(
+            $"Terrain self-check {_selfChecks}: hit=True agree=" +
+            $"{TerrainRay.Agrees(hit.Y, collisionY, AgreementToleranceMetres)} " +
+            $"rayY={hit.Y:F3}m collisionY={collisionY:F3}m " +
+            $"delta={MathF.Abs(hit.Y - collisionY):F3}m positionY={position.Y:F3}m " +
+            $"normal=({normal.X:F2}, {normal.Y:F2}, {normal.Z:F2}) attr={attribute}");
+    }
+
+    /// <summary>
+    /// Cast one segment and release both buffers before returning, whatever the
+    /// result. Metres go in and come out; the game only ever sees its own units.
+    /// </summary>
+    private unsafe bool TryCast(
+        IntPtr collision,
+        Vector3 startMetres,
+        Vector3 endMetres,
+        out Vector3 hitPosition,
+        out Vector3 hitNormal,
+        out uint attribute)
+    {
+        hitPosition = Vector3.Zero;
+        hitNormal = Vector3.Zero;
+        attribute = 0;
+
+        var start = startMetres * TerrainRay.UnitsPerMetre;
+        var end = endMetres * TerrainRay.UnitsPerMetre;
+        if (!IsFinite(start) || !IsFinite(end))
+        {
+            return false;
         }
 
         _segmentValues[0] = start.X;
@@ -293,44 +460,29 @@ public sealed class TerrainAdapter : IDisposable
         var hits = _checkSegment.Invoke(collision, _segment, 1, _triangle, _parameter);
         try
         {
-            if (hits > 0)
+            if (hits <= 0)
             {
-                Marshal.Copy(_triangle + TrianglePositionOffset, _hitPosition, 0, 3);
-                Marshal.Copy(_triangle + TriangleNormalOffset, _hitNormal, 0, 3);
-                Report(hunter, position, hit: true, hits, attribute: _triangleAttribute.Invoke(_triangle, 0));
+                return false;
             }
-            else
-            {
-                Report(hunter, position, hit: false, hits, attribute: 0);
-            }
+
+            Marshal.Copy(_triangle + TrianglePositionOffset, _hitPosition, 0, 3);
+            Marshal.Copy(_triangle + TriangleNormalOffset, _hitNormal, 0, 3);
+            attribute = _triangleAttribute.Invoke(_triangle, 0);
+            hitPosition = new Vector3(
+                _hitPosition[0] / TerrainRay.UnitsPerMetre,
+                _hitPosition[1] / TerrainRay.UnitsPerMetre,
+                _hitPosition[2] / TerrainRay.UnitsPerMetre);
+            hitNormal = new Vector3(
+                _hitNormal[0] / TerrainRay.UnitsPerMetre,
+                _hitNormal[1] / TerrainRay.UnitsPerMetre,
+                _hitNormal[2] / TerrainRay.UnitsPerMetre);
+            return true;
         }
         finally
         {
             _triangleReset.Invoke(_triangle);
             _parameterDestructor.Invoke(_parameter);
         }
-    }
-
-    private void Report(Player hunter, Vector3 position, bool hit, int hits, uint attribute)
-    {
-        if (!hit)
-        {
-            _log($"Terrain self-check {_selfChecks}: no hit in {DepthMetres:F1}m below the hunter.");
-            return;
-        }
-
-        var collisionY = hunter.CollisionPosition.Y;
-        var rayY = _hitPosition[1];
-        var agree = TerrainRay.Agrees(
-            rayY, collisionY, AgreementToleranceMetres, TerrainRay.UnitsPerMetre);
-        _log(
-            $"Terrain self-check {_selfChecks}: hit={hits} agree={agree} " +
-            $"rayY={rayY / TerrainRay.UnitsPerMetre:F3}m " +
-            $"collisionY={collisionY / TerrainRay.UnitsPerMetre:F3}m " +
-            $"delta={MathF.Abs(rayY - collisionY) / TerrainRay.UnitsPerMetre:F3}m " +
-            $"positionY={position.Y / TerrainRay.UnitsPerMetre:F3}m " +
-            $"normal=({_hitNormal[0]:F2}, {_hitNormal[1]:F2}, {_hitNormal[2]:F2}) " +
-            $"attr={attribute}");
     }
 
     private static long Ticks(double seconds) => (long)(Stopwatch.Frequency * seconds);

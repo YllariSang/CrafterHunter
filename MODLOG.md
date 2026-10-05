@@ -873,3 +873,38 @@ guest into a bounded queue, cast within the per-tick budget, answer) and the
 guest half (pace requests, map coordinates, feed collision) are next, and the
 bridge has to be rebuilt and restarted before either can work — the lesson from
 `UnknownKind(11)`.
+
+## 2026-10-05 — the host answers terrain requests
+
+The host half of stage B is in. `TerrainRequest` arrives on the endpoint thread,
+where nothing native may happen, and is queued for the game thread: eight deep,
+a ninth dropped and counted with a report every 64, so a guest that outruns the
+host loses answers rather than making the game wait. The tick samples at twenty
+hertz and casts at most two rays per sample, which drains a full queue in about
+two frames of budget instead of stalling one. A request that lands while the
+state is not `Ready` is answered `no terrain` straight away — the whole reason
+that status exists, rather than letting the guest time out holding an old hit.
+Answers queue separately at thirty-two, where the slow side is the endpoint
+rather than the guest, and drop the newest.
+
+`TerrainPacket` is the wire layout in C#, and the plugin's tests pin the same
+bytes the Rust crate pins: the same constants read in one language and written in
+the other, plus the refusal of a short request, a request with a NaN in it (never
+handed to the game), and a miss that must carry its id and status and nothing
+else.
+
+`TerrainRay.DownSegment` and `Agrees` moved to metres, because the adapter now
+takes and returns metres everywhere and only the cast itself works in MHW units.
+That is the same class of mistake as reading `CollisionPosition` as ground
+height: a scale factor that leaks into a boundary is a bug waiting for a
+multiplier nobody expected.
+
+**Why the wire path is not proven yet.** The obvious test is the probe, which
+already speaks the protocol. It cannot be used: the bridge keeps one endpoint
+per source and routes only Mhw↔Minecraft, so a probe would have to register as
+`Minecraft` and take the guest's slot, and the real mod only registers on its
+Hello at startup — the camera and player links would stay dead until Minecraft
+was restarted. Probe-sourced packets are not routed at all, so it would not see
+its own answers either. Proving the wire path with the real guest is stage C, and
+the bridge has to be rebuilt and restarted first or kinds 12 and 13 will vanish
+into `UnknownKind`.

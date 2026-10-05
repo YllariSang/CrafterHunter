@@ -132,7 +132,7 @@ state machine with three states and no fourth:
 | Stage | What it proves | State |
 | --- | --- | --- |
 | A. Host adapter | The routine is callable on this build: signatures resolve in the loaded image, a down-ray from the hunter lands where `CollisionPosition` says the ground is, flat and on slopes, all inside the per-tick budget | implemented in plugin 0.3.4; awaits a live run |
-| B. Protocol | `TerrainRequest` and `TerrainResult` carry a segment and an answer between the games with golden bytes in Rust | kinds 12 and 13 defined and tested in Rust; neither side sends them yet |
+| B. Protocol | `TerrainRequest` and `TerrainResult` carry a segment and an answer between the games with golden bytes in Rust | kinds 12 and 13 defined and tested on both sides; the host answers them, the guest does not ask yet |
 | C. Guest | The guest maps Minecraft coordinates to host coordinates through the proxy anchor, paces requests, and feeds the answer to collision | not started |
 | D. Live acceptance | Ground, slopes, movement, loading screens, chunk streaming, and control fallback in the running games | not started |
 
@@ -204,8 +204,44 @@ in that line are worth keeping.
 - The normal is a unit vector tilted about 27 degrees from vertical, which is
   what a slanted plank looks like. The ray also hits man-made geometry, because
   stage architecture, wooden platforms, and terrain all share one collision
-  system. A sample taken indoors is evidence about geometry, not about terrain:
-  the outdoor samples are still outstanding.
+  system. A sample taken indoors is evidence about geometry, not about terrain.
+
+Outdoors on flat dirt in Astera's base camp, three requests, three identical
+lines:
+
+```
+16:08:23.564  Terrain self-check 5: hit=True agree=True rayY=37.871m collisionY=38.215m delta=0.344m positionY=37.865m normal=(0.05, 1.00, -0.06) attr=0
+```
+
+The normal is within four degrees of vertical, so the ground really is flat
+there, and the surface attribute changed from `0x00100000` on the wooden
+platform to `0` on dirt — the attribute is real signal, not a constant. The
+collision offset came back at 0.344 m against the 0.350 m measured indoors,
+which is what a fixed semantic offset looks like rather than a coincidence. A
+slope sample is still owed.
+
+## Answering the guest
+
+Requests arrive on the endpoint thread, where nothing native may happen, and are
+queued for the game thread:
+
+- the queue holds eight requests; a ninth is dropped and counted, and every 64
+  drops are reported. A guest that outruns the host loses answers rather than
+  making the game wait.
+- the tick samples twenty times a second and casts at most two rays per sample,
+  so a full queue drains in about two frames' worth of budget rather than
+  stalling a frame.
+- a request that arrives while the state is not `Ready` is answered `no terrain`
+  immediately. That is the point of the status: the guest is told now instead of
+  timing out holding an old hit.
+- answers queue separately at depth thirty-two, because there the slow side is
+  the endpoint, not the guest; the newest answer is dropped rather than the
+  queue growing.
+
+`TerrainPacket` holds the wire layout in C#, and the plugin's tests pin the same
+bytes the Rust crate pins — the same constants read in one language and written
+in the other. A request that does not match is refused before it is queued, and
+in particular a segment with a NaN in it is never handed to the game.
 
 ## Checks that run outside the game
 
@@ -214,8 +250,8 @@ in that line are worth keeping.
 through the loader's own `Pattern.FromString` — a typo or a mangled wildcard
 fails there instead of quietly disabling terrain in the next session — and
 checks the down-segment geometry, the agreement tolerance including its
-boundary and its refusal to judge non-finite numbers, and every branch of the
-state machine.
+boundary and its refusal to judge non-finite numbers, every branch of the state
+machine, the request file, and the wire layout in both directions.
 
 One build change was needed for the adapter: SharpPluginLoader's
 `NativeAction`/`NativeFunction` expose `delegate* unmanaged` handles, so calling
