@@ -217,8 +217,31 @@ The normal is within four degrees of vertical, so the ground really is flat
 there, and the surface attribute changed from `0x00100000` on the wooden
 platform to `0` on dirt — the attribute is real signal, not a constant. The
 collision offset came back at 0.344 m against the 0.350 m measured indoors,
-which is what a fixed semantic offset looks like rather than a coincidence. A
-slope sample is still owed.
+which is what a fixed semantic offset looks like rather than a coincidence.
+
+A third surface, a dirt path in the Wildspire Wetlands, behaved differently:
+
+```
+16:23:35.040  Terrain self-check 1: hits=1 agree=True rayY=39.480m collisionY=39.830m
+              delta=0.350m positionY=39.480m normal=(-0.00, 0.01, 0.00) |n|=0.010 attr=1064960
+```
+
+The hit height was still exactly the hunter's own height, and the collision
+offset came back at 0.350 m for the third time — the offset is a property of
+`CollisionPosition`, not of the surface. But the **normal is not a unit vector
+here**: `|n|` is 0.010, stable across three samples, on a surface class whose
+attribute is `0x00104000` against `0` for dirt and `0x00100000` for the wooden
+platform. Either that class leaves the triangle-info normal unfilled, or this
+particular hit resolved against a collision volume rather than a triangle; both
+are plausible and neither can be told apart from the outside.
+
+What matters downstream is not which: **a guest must not assume the normal is
+unit length.** Normalizing a near-zero vector amplifies rounding noise into an
+arbitrary direction, and a slope feature built on that would steer the player
+somewhere the ground does not. The rule for stage C is that a normal below a
+threshold means "no normal reported", and the surface is treated as flat. The
+self-check line prints `|n|` for exactly this reason — a bare `(0.00, 0.01,
+0.00)` in a log reads as a direction to anyone who does not go and measure it.
 
 ## Answering the guest
 

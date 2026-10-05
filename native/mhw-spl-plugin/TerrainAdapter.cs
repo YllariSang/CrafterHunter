@@ -352,7 +352,8 @@ public sealed class TerrainAdapter : IDisposable
     /// </summary>
     private unsafe void Answer(IntPtr collision, (uint Id, Vector3 Start, Vector3 End) request)
     {
-        var hit = TryCast(collision, request.Start, request.End, out var position, out var normal, out var attribute);
+        var hit = TryCast(
+            collision, request.Start, request.End, out _, out var position, out var normal, out var attribute);
         Publish(
             TerrainPacket.EncodeResult(
                 request.Id,
@@ -388,19 +389,25 @@ public sealed class TerrainAdapter : IDisposable
             return;
         }
 
-        if (!TryCast(collision, start, end, out var hit, out var normal, out var attribute))
+        if (!TryCast(collision, start, end, out var hits, out var hit, out var normal, out var attribute))
         {
             _log($"Terrain self-check {_selfChecks}: no hit in {DepthMetres:F1}m below the hunter.");
             return;
         }
 
+        // The magnitude is on the line because the normal is not guaranteed to
+        // be a unit vector: one surface class in the wild comes back as almost
+        // exactly zero, and a reader that assumes a unit vector would read that
+        // as a direction rather than as the absence of one.
+        var length = MathF.Sqrt(normal.X * normal.X + normal.Y * normal.Y + normal.Z * normal.Z);
         var collisionY = hunter.CollisionPosition.Y / TerrainRay.UnitsPerMetre;
         _log(
-            $"Terrain self-check {_selfChecks}: hit=True agree=" +
+            $"Terrain self-check {_selfChecks}: hits={hits} agree=" +
             $"{TerrainRay.Agrees(hit.Y, collisionY, AgreementToleranceMetres)} " +
             $"rayY={hit.Y:F3}m collisionY={collisionY:F3}m " +
             $"delta={MathF.Abs(hit.Y - collisionY):F3}m positionY={position.Y:F3}m " +
-            $"normal=({normal.X:F2}, {normal.Y:F2}, {normal.Z:F2}) attr={attribute}");
+            $"normal=({normal.X:F2}, {normal.Y:F2}, {normal.Z:F2}) |n|={length:F3} " +
+            $"attr={attribute}");
     }
 
     /// <summary>
@@ -411,10 +418,12 @@ public sealed class TerrainAdapter : IDisposable
         IntPtr collision,
         Vector3 startMetres,
         Vector3 endMetres,
+        out int hitCount,
         out Vector3 hitPosition,
         out Vector3 hitNormal,
         out uint attribute)
     {
+        hitCount = 0;
         hitPosition = Vector3.Zero;
         hitNormal = Vector3.Zero;
         attribute = 0;
@@ -460,6 +469,7 @@ public sealed class TerrainAdapter : IDisposable
         var hits = _checkSegment.Invoke(collision, _segment, 1, _triangle, _parameter);
         try
         {
+            hitCount = hits;
             if (hits <= 0)
             {
                 return false;

@@ -908,3 +908,35 @@ was restarted. Probe-sourced packets are not routed at all, so it would not see
 its own answers either. Proving the wire path with the real guest is stage C, and
 the bridge has to be rebuilt and restarted first or kinds 12 and 13 will vanish
 into `UnknownKind`.
+
+## 2026-10-05 — three surfaces, and a normal that is not a normal
+
+Two more requested casts, flat dirt in Astera's base camp and a dirt path in the
+Wildspire Wetlands, completed the ground-truth comparison across three surface
+classes. The hit height agreed with the hunter's own height every time — to the
+millimetre indoors, within 6 mm outdoors — and `CollisionPosition` came back
+0.350 m, 0.344 m and 0.350 m above the hit. Three surfaces, three offsets inside
+6 mm of each other: that is a property of `CollisionPosition`, not of the ground,
+and stage C has to use the ray's own hit for ground height.
+
+**The finding worth the trip.** On the Wetlands path the hit normal came back
+`(-0.00, 0.01, 0.00)` — magnitude 0.010 — while the two earlier surfaces
+returned unit vectors, and its surface attribute was `0x00104000` against `0` for
+dirt and `0x00100000` for the wooden platform. Three samples, same value, so it
+is not noise from one cast: either that surface class leaves the triangle-info
+normal unfilled, or the hit resolved against a collision volume instead of a
+triangle. Nothing available from outside the process can tell those apart, and
+it does not matter, because the consequence for the guest is the same either
+way — **a normal cannot be assumed to be unit length.** Normalizing a vector
+that short amplifies rounding noise into an arbitrary direction, and a slope
+feature built on that would walk the player off a surface that is actually flat.
+Stage C's rule is now written down: below a threshold, treat the normal as
+absent and treat the surface as flat.
+
+The self-check line prints `|n|` because of that, and this is the reason to
+care about a log line's shape. `(0.00, 0.01, 0.00)` reads as a direction — "the
+ground faces almost straight up" — to anyone reading it quickly, including me,
+which is why it took a second look to notice that the vector has no length. The
+hit count came back on the line too for the same reason: one hit means the game
+found a surface, and without it a zeroed normal is ambiguous between "no hit" and
+"hit with nothing to report".
