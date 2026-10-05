@@ -2020,3 +2020,40 @@ AWAITING | 0 pkt/s` and the log shows `PortUnreachableException`, so the camera 
 player-proxy links are not running. That is the UDP bridge, not the frame path, and
 nothing in this milestone depends on it — but the HUD is reporting two dead links and
 that should not be left looking healthy.
+
+## 2026-10-06 — measuring the link instead of reading it off a screenshot
+
+The bridge was down: no process, nothing on UDP 38470, and Minecraft's log full of
+`PortUnreachableException`. The binary was newer than its source, so no rebuild was
+needed; it is started detached with `setsid` so it survives the shell that launched it.
+Both endpoints registered within five seconds and the plugin reported:
+
+```
+Connected to crafterhunter-bridge/v1
+Bridge HelloAck received; camera reads are armed after the startup grace.
+First guarded player read succeeded.
+First guarded camera read succeeded.
+Received actual minecraft:stone pixels and PNG from Minecraft.
+```
+
+**Reading that off a screenshot would have been the wrong instrument**, twice over. The
+HUD sits exactly where Minecraft's own F3 debug screen does, so the first attempt to
+photograph the telemetry got the debug screen instead — which was itself useful, since it
+reports the guest build as 1.27.8.1 / 27.8.1. And a composited image cannot say which
+frame it came from, which is the whole question.
+
+So `LinkStatus` writes the same numbers the HUD draws, plus the camera pose, to
+`crafterhunter/out/link.txt` at 4 Hz, and `tools/sample-link-status.py` samples it. The
+pose is recorded because it is what alignment is measured *against*: yaw span, pitch span
+and position travel over a window say whether synchronized movement is even possible
+during that window, and a static camera would make any such demonstration meaningless.
+Failures are swallowed deliberately — instrumentation that can interrupt the frame it
+measures is worse than none.
+
+**A test of mine was silently environment-dependent.** `checkUnmappedRefuses` opened the
+*fixed* channel path to prove that opening a missing channel fails. With Minecraft
+publishing, the "unmapped" source mapped a live channel and read a real frame, and two
+assertions failed for reasons that had nothing to do with the rule under test. It now
+opens a path that cannot exist. This is the second time a test of mine has depended on
+the machine's state rather than the code's, and it is worth stating as a rule: a test
+whose result changes because a game is running is not a test.

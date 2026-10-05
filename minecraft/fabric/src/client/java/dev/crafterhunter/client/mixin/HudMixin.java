@@ -4,6 +4,7 @@ import dev.crafterhunter.client.CameraFeed;
 import dev.crafterhunter.client.CameraLink;
 import dev.crafterhunter.client.BlockAssetFeed;
 import dev.crafterhunter.client.FrameCapture;
+import dev.crafterhunter.client.LinkStatus;
 import dev.crafterhunter.client.PlayerFeed;
 import dev.crafterhunter.client.PlayerLink;
 import java.util.Locale;
@@ -23,6 +24,10 @@ public abstract class HudMixin {
                                      CallbackInfo callback) {
         Minecraft minecraft = Minecraft.getInstance();
         BlockAssetFeed.refresh(minecraft);
+        // The same telemetry the lines below draw, written where a tool can read it.
+        // Measuring synchronization from a composited screenshot cannot say which frame it
+        // came from; this can.
+        LinkStatus.maybeWrite();
         if (minecraft.player == null || ((Hud) (Object) this).isHidden()) return;
         CameraFeed.Diagnostics status = CameraFeed.diagnostics();
         PlayerFeed.Diagnostics player = PlayerFeed.diagnostics();

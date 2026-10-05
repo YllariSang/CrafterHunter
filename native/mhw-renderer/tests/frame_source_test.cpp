@@ -212,8 +212,15 @@ void checkFrozenFrameSurvivesRecovery() {
 void checkUnmappedRefuses() {
     Source source;
     check(!source.mapped(), "a source that was never opened is not mapped");
-    check(!source.open() || source.mapped(),
-          "opening a channel that does not exist must fail rather than pretend");
+
+    // A path that cannot exist, deliberately. This used to open the *fixed* channel
+    // path, which made the test depend on the machine: with Minecraft publishing, the
+    // "unmapped" source mapped a live channel and read a real frame, and the two
+    // assertions below failed for a reason that had nothing to do with the rule being
+    // checked. A test whose result depends on whether a game is running is not a test.
+    const char* absent = "/tmp/crafterhunter-no-such-channel-9d1f4a.bin";
+    check(!source.open(absent), "opening a path that does not exist fails rather than pretending");
+    check(!source.mapped(), "and leaves the source unmapped");
 
     const char* reason = nullptr;
     // Even if a caller ignored `open()` and asked anyway, the answer is a refusal.
