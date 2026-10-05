@@ -17,6 +17,19 @@ def require_game():
     return active
 
 
+def focus_hyprland(what):
+    """Focus the window whose class contains `what`, via this Hyprland's API."""
+    script = (
+        'local ok, err = pcall(function() '
+        'for _, w in ipairs(hl.get_windows()) do '
+        f'if w.class:find("{what}") then hl.dispatch(hl.dsp.focus({{ window = w }})) return end '
+        'end end) return "error:" .. tostring(err)'
+    )
+    result = run("hyprctl", "eval", script)
+    if "error:" in result:
+        raise SystemExit(f"Could not focus {what}: {result}")
+
+
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("action", choices=["focus", "shot", "key", "mouse"])
 parser.add_argument("values", nargs="*")
@@ -28,7 +41,11 @@ if args.action == "focus":
     if game is None:
         raise SystemExit("MHW is not running")
     address = game["address"]
-    run("hyprctl", "dispatch", f'hl.dsp.focus({{window="address:{address}"}})')
+    # This Hyprland's dispatcher takes dispatcher objects, not strings:
+    # hl.dsp.focus wants an HL.Window, which only hl.get_windows builds, and the
+    # call has to go through hl.dispatch from inside an eval because the
+    # `hyprctl dispatch` shortcut only accepts a bare dispatcher expression.
+    focus_hyprland(f"MHW at {address}")
 elif args.action == "shot":
     game = require_game()
     x, y = game["at"]

@@ -1,5 +1,6 @@
 import java.nio.file.Files;
 import java.nio.file.Path;
+import dev.crafterhunter.client.FrameCopyState;
 import dev.crafterhunter.client.FrameLayout;
 import dev.crafterhunter.client.FrameRequest;
 
@@ -89,6 +90,9 @@ public final class FrameLayoutTest {
 
         System.out.println(
             "Frame layout checks passed: row order, frame size, meta line, request parsing.");
+
+        FrameCopyState.check();
+        System.out.println("Frame copy-state checks passed: in flight, ready, idle.");
     }
 
     private static void check(boolean condition, String message) {

@@ -10,5 +10,6 @@ mkdir -p "$output_directory"
 javac --release 25 -Xlint:all -Werror -d "$output_directory" \
     "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameLayout.java" \
     "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameRequest.java" \
+    "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameCopyState.java" \
     "$project_root/minecraft/fabric/tests/FrameLayoutTest.java"
 java -cp "$output_directory" FrameLayoutTest

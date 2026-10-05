@@ -1106,3 +1106,52 @@ a Minecraft restart before anyone can ask it for a frame.
 **Not done:** the native half. Nothing composites this yet — no shared-memory
 transport, no per-pixel depth compare, no frame in MHW. The next step after a
 human confirms the PNG is a correct frame is the transport, then the composite.
+
+## 2026-10-05 — the frame capture shipped a bug that looked like a feature
+
+The first live run of the spike accepted a request and then produced nothing.
+No exception, no output file, and a summary that said `status=queued 1` — the
+capture was neither working nor failing, which is the one state a request path
+must never be in.
+
+**The bug was an inverted flag, and it was mine.** One boolean stood for both
+"the copy is in flight" and "the copy has landed". It was set true when the copy
+was queued and cleared by the GPU callback when the copy completed, so the frame
+loop published *while the copy was still being written* and re-queued the request
+the instant the callback arrived. Every frame: publish nothing, queue again. The
+request was genuinely accepted and genuinely never satisfied, and the only
+visible symptom was a status line that had been written before the attempt.
+
+Two flags now, because those are two different facts, and the transition between
+them is a state machine: `IN_FLIGHT` waits, `READY` publishes exactly once, `IDLE`
+may queue. `FrameCopyState` holds it as pure logic and `tools/test-fabric-frame.sh`
+walks all three transitions plus the "callback fires twice" case, because a bug
+this shape is invisible to integration testing — the request genuinely went in,
+and nothing genuinely came out.
+
+**The lesson is about the evidence channel, not the flag.** I designed the
+summary file to make silent failures impossible, and then the first thing I did
+with it was `writeSummary` only on request and only at the end, so the one
+failure mode that mattered reported nothing. Every outcome now writes the
+summary: on accept, on copy failure, on short readback, on completion. The HUD
+line stopped saying "idle" for a failure too, because idle and broken are
+indistinguishable from outside and the HUD is all most people will ever look at.
+
+**Wasted time worth recording.** I burned several turns on Hyprland window-close
+after being told to read the configs first. What actually closes Minecraft is
+`SIGTERM`: `window.close()` reaches the game, which answers with a "Save and Quit
+to Title?" dialog that waits for a click, so the window stays open and the
+process never exits — which reads exactly like a broken close request. The
+focus dispatch also takes an `HL.Window` object from `hl.get_windows()`, not an
+address string, and the call has to go through `hl.dispatch` inside an `eval`
+because the `hyprctl dispatch` shortcut only accepts a bare dispatcher
+expression. `tools/mhw-control.py` now uses that form and
+`tools/restart-minecraft.py` uses `SIGTERM`, both documented at the call site.
+
+Mod 0.3.0 rebuilt (50,927 bytes) and installed. Full gate green: 19 protocol
+tests, five headless suites including the new copy-state checks, gradle, plugin,
+host verification.
+
+**Not done:** still nothing composites this. No transport, no depth compare, no
+frame in MHW. The next run answers one question — does a real frame come back,
+and how long does it take.

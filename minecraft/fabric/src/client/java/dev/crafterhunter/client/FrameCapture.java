@@ -60,8 +60,19 @@ public final class FrameCapture {
     private int bufferHeight;
 
     private long nextPollNanos;
-    private boolean copyPending;
     private long copyQueuedNanos;
+    private boolean hookSeen;
+
+    /**
+     * Two flags, because "the copy is in flight" and "the copy has landed" are
+     * different facts, and the transition between them is a state machine worth
+     * testing on its own. One flag conflating them shipped once: publication
+     * waited for a copy still being written and the request was re-queued
+     * forever, so a capture was accepted, reported success, and produced
+     * nothing. {@link FrameCopyState} is that machine, checked outside the game.
+     */
+    private volatile boolean copyInFlight;
+    private volatile boolean copyReady;
 
     private int remaining;
     private int requestedFrames = 1;
@@ -74,7 +85,8 @@ public final class FrameCapture {
 
     /** Called from the render thread at the end of every frame. */
     public void onRenderedFrame(long nowNanos) {
-        if (copyPending) {
+        if (copyReady) {
+            copyReady = false;
             publish(nowNanos);
         }
 
@@ -83,15 +95,21 @@ public final class FrameCapture {
             readRequest();
         }
 
-        if (remaining > 0 && !copyPending) {
+        if (remaining > 0 && !copyInFlight && !copyReady) {
             queueCopy(nowNanos);
         }
     }
 
-    /** One line for the HUD: what the last capture did. */
+    /**
+     * One line for the HUD: what the last capture did.
+     *
+     * A failure is shown as itself rather than as "idle", because idle and
+     * broken look identical from outside and this is the only thing visible
+     * without a log file.
+     */
     public String hudLine() {
         if (captured == 0) {
-            return "FRAME: idle";
+            return status.equals("idle") ? "FRAME: idle" : "FRAME: " + status;
         }
         return String.format(
             Locale.ROOT,
@@ -133,10 +151,20 @@ public final class FrameCapture {
         captured = 0;
         totalMapNanos = 0;
         totalPublishNanos = 0;
+        lastWidth = 0;
+        lastHeight = 0;
         status = "queued " + frames;
+        // Written before the copy so "requested but never captured" is
+        // distinguishable from "never polled at all" after the fact.
+        writeSummary("accepted");
     }
 
     private void queueCopy(long nowNanos) {
+        if (!hookSeen) {
+            hookSeen = true;
+            System.out.println("[CrafterHunter] Frame hook is live on the render thread");
+        }
+
         RenderTarget target;
         try {
             target = Minecraft.getInstance().gameRenderer.mainRenderTarget();
@@ -176,41 +204,75 @@ public final class FrameCapture {
             }
 
             CommandEncoder encoder = device.createCommandEncoder();
-            copyPending = true;
+            copyInFlight = true;
             copyQueuedNanos = nowNanos;
+            // The callback is what makes the buffer readable: it fires when the
+            // copy has actually landed, which is why publication waits for it
+            // instead of assuming the submit was enough.
             encoder.copyTextureToBuffer(
-                color, buffer, 0L, () -> copyPending = false, 0, 0, 0, width, height);
+                color,
+                buffer,
+                0L,
+                () -> {
+                    copyInFlight = false;
+                    copyReady = true;
+                },
+                0,
+                0,
+                0,
+                width,
+                height);
             encoder.submit();
             lastWidth = width;
             lastHeight = height;
         } catch (RuntimeException exception) {
-            copyPending = false;
+            copyInFlight = false;
+            copyReady = false;
             remaining = 0;
             status = "copy failed: " + exception;
+            System.out.println("[CrafterHunter] Frame copy failed: " + exception);
+            writeSummary(null);
         }
     }
 
     private void publish(long nowNanos) {
-        // The callback can fire before the copy is readable on some backends;
-        // a still-empty buffer is reported rather than published as garbage.
+        // Every outcome writes the summary file, including the failures: a
+        // capture that silently produces nothing is indistinguishable from a
+        // capture that was never requested, and only one of those is a bug in
+        // the GPU path.
         try (GpuBufferSlice.MappedView view = buffer.map(true, false)) {
             ByteBuffer data = view.data();
             int stride = bufferWidth * 4;
             byte[] raw = new byte[stride * bufferHeight];
+            int available = data.remaining();
+            if (available < raw.length) {
+                remaining = 0;
+                copyInFlight = false;
+                status = "readback short: " + available + " of " + raw.length + " bytes";
+                writeSummary(null);
+                return;
+            }
+
             data.get(raw);
             totalMapNanos += nowNanos - copyQueuedNanos;
-
             byte[] flipped = FrameLayout.flipRows(raw, bufferWidth, bufferHeight);
-            writePng(flipped, captured == 0);
+
+            // The raw frame first: it is what the native side will consume, so
+            // a PNG writer that fails must not cost us the measurement.
             writeShared(flipped, captured + 1 == requestedFrames);
+            writePng(flipped, captured == 0);
             captured++;
             remaining--;
             status = remaining > 0 ? "capturing" : "done";
         } catch (RuntimeException | IOException exception) {
             remaining = 0;
-            copyPending = false;
+            copyInFlight = false;
+            copyReady = false;
             status = "readback failed: " + exception;
+            System.out.println("[CrafterHunter] Frame readback failed: " + exception);
         }
+
+        writeSummary(null);
     }
 
     private void writePng(byte[] pixels, boolean alsoWriteFile) throws IOException {
@@ -249,6 +311,8 @@ public final class FrameCapture {
     public void writeSummary(String note) {
         try {
             Files.createDirectories(outputDirectory);
+            System.out.println("[CrafterHunter] frame summary: " + note + " " + status
+                + " " + captured + "/" + requestedFrames + " " + lastWidth + "x" + lastHeight);
             StringBuilder summary = new StringBuilder();
             summary.append("captured=").append(captured).append(System.lineSeparator());
             summary.append("requested=").append(requestedFrames).append(System.lineSeparator());
