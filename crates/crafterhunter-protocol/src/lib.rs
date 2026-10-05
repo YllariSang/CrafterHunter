@@ -39,6 +39,7 @@ pub enum Kind {
     HelloAck = 2,
     Heartbeat = 3,
     CameraState = 10,
+    PlayerState = 11,
     BlockPixels = 20,
     BlockPng = 21,
 }
@@ -52,6 +53,7 @@ impl TryFrom<u16> for Kind {
             2 => Ok(Self::HelloAck),
             3 => Ok(Self::Heartbeat),
             10 => Ok(Self::CameraState),
+            11 => Ok(Self::PlayerState),
             20 => Ok(Self::BlockPixels),
             21 => Ok(Self::BlockPng),
             _ => Err(ProtocolError::UnknownKind(value)),
@@ -196,6 +198,57 @@ impl CameraState {
     }
 }
 
+/// The host hunter: world position in metres and the model rotation quaternion.
+///
+/// MHW world coordinates sit far from Minecraft's origin, so a consumer maps
+/// them by relative displacement from an anchor rather than absolutely; the
+/// payload carries raw host coordinates for the same reason `CameraState`
+/// does.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PlayerState {
+    pub position: [f32; 3],
+    pub rotation: [f32; 4],
+}
+
+impl PlayerState {
+    pub const PAYLOAD_LEN: usize = 28;
+
+    pub fn encode(self) -> [u8; Self::PAYLOAD_LEN] {
+        let values = [
+            self.position[0],
+            self.position[1],
+            self.position[2],
+            self.rotation[0],
+            self.rotation[1],
+            self.rotation[2],
+            self.rotation[3],
+        ];
+        let mut output = [0_u8; Self::PAYLOAD_LEN];
+        for (index, value) in values.into_iter().enumerate() {
+            output[index * 4..index * 4 + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        output
+    }
+
+    pub fn decode(payload: &[u8]) -> Result<Self, ProtocolError> {
+        if payload.len() != Self::PAYLOAD_LEN {
+            return Err(ProtocolError::InvalidPlayerLength(payload.len()));
+        }
+        let mut values = [0_f32; 7];
+        for (index, value) in values.iter_mut().enumerate() {
+            let offset = index * 4;
+            *value = f32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
+        }
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err(ProtocolError::NonFinitePlayerValue);
+        }
+        Ok(Self {
+            position: [values[0], values[1], values[2]],
+            rotation: [values[3], values[4], values[5], values[6]],
+        })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProtocolError {
     PacketTooShort(usize),
@@ -208,6 +261,8 @@ pub enum ProtocolError {
     LengthMismatch { declared: usize, actual: usize },
     InvalidCameraLength(usize),
     NonFiniteCameraValue,
+    InvalidPlayerLength(usize),
+    NonFinitePlayerValue,
 }
 
 impl fmt::Display for ProtocolError {
@@ -279,6 +334,66 @@ mod tests {
         assert_eq!(
             CameraState::decode(&payload),
             Err(ProtocolError::NonFiniteCameraValue)
+        );
+    }
+
+    #[test]
+    fn player_round_trip() {
+        let player = PlayerState {
+            position: [-270.25, -455.0, -116.875],
+            rotation: [0.0, 0.5, 0.0, 0.8660254],
+        };
+        assert_eq!(PlayerState::decode(&player.encode()).unwrap(), player);
+    }
+
+    #[test]
+    fn player_state_matches_cross_language_golden_bytes() {
+        // The plugin writes these bytes in C# and the guest reads them in Java;
+        // this pins the layout both sides must agree on.
+        let player = PlayerState {
+            position: [1.0, -2.0, 3.5],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+        };
+        assert_eq!(
+            player.encode().to_vec(),
+            vec![
+                0x00, 0x00, 0x80, 0x3F, // 1.0
+                0x00, 0x00, 0x00, 0xC0, // -2.0
+                0x00, 0x00, 0x60, 0x40, // 3.5
+                0x00, 0x00, 0x00, 0x00, // quaternion x
+                0x00, 0x00, 0x00, 0x00, // quaternion y
+                0x00, 0x00, 0x00, 0x00, // quaternion z
+                0x00, 0x00, 0x80, 0x3F, // quaternion w
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_wrong_player_payload_length() {
+        assert_eq!(
+            PlayerState::decode(&[0_u8; 24]),
+            Err(ProtocolError::InvalidPlayerLength(24))
+        );
+    }
+
+    #[test]
+    fn rejects_non_finite_player_value() {
+        let mut payload = [0_u8; PlayerState::PAYLOAD_LEN];
+        payload[4..8].copy_from_slice(&f32::INFINITY.to_le_bytes());
+        assert_eq!(
+            PlayerState::decode(&payload),
+            Err(ProtocolError::NonFinitePlayerValue)
+        );
+    }
+
+    #[test]
+    fn player_state_kind_is_eleven() {
+        assert_eq!(Kind::try_from(11).unwrap(), Kind::PlayerState);
+        assert_eq!(Kind::PlayerState as u16, 11);
+        assert_eq!(
+            Kind::try_from(12),
+            Err(ProtocolError::UnknownKind(12)),
+            "kind 11 is taken; the next value stays unassigned"
         );
     }
 }

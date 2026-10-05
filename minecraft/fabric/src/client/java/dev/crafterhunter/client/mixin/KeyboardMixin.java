@@ -1,6 +1,7 @@
 package dev.crafterhunter.client.mixin;
 
 import dev.crafterhunter.client.CameraLink;
+import dev.crafterhunter.client.PlayerLink;
 import net.minecraft.client.KeyboardHandler;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.input.KeyEvent;
@@ -18,5 +19,6 @@ public abstract class KeyboardMixin {
             || minecraft.player == null || minecraft.gui.screen() != null) return;
         if (key.key() == 296) CameraLink.instance().toggle(); // GLFW_KEY_F7
         if (key.key() == 297) CameraLink.instance().reset();  // GLFW_KEY_F8
+        if (key.key() == 298) PlayerLink.instance().toggle(); // GLFW_KEY_F9
     }
 }

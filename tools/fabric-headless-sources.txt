@@ -1,0 +1,15 @@
+# Java sources shared by the headless link checks.
+#
+# Only classes with no Minecraft or mixin imports belong here: they are compiled
+# with javac alone, without a game jar on the classpath, which is what makes the
+# behavioral checks runnable on any machine. Paths are relative to the project
+# root and each script prefixes its own absolute root.
+minecraft/fabric/src/client/java/dev/crafterhunter/client/TelemetrySample.java
+minecraft/fabric/src/client/java/dev/crafterhunter/client/SampleFeed.java
+minecraft/fabric/src/client/java/dev/crafterhunter/client/Rotation.java
+minecraft/fabric/src/client/java/dev/crafterhunter/client/CameraState.java
+minecraft/fabric/src/client/java/dev/crafterhunter/client/CameraFeed.java
+minecraft/fabric/src/client/java/dev/crafterhunter/client/CameraLink.java
+minecraft/fabric/src/client/java/dev/crafterhunter/client/PlayerState.java
+minecraft/fabric/src/client/java/dev/crafterhunter/client/PlayerFeed.java
+minecraft/fabric/src/client/java/dev/crafterhunter/client/PlayerLink.java

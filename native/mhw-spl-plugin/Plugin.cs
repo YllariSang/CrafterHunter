@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Numerics;
 using System.Text;
 using SharpPluginLoader.Core;
+using SharpPluginLoader.Core.Entities;
 
 namespace CrafterHunter.MHW;
 
@@ -16,11 +17,13 @@ public sealed class Plugin : IPlugin
     private const ushort HelloKind = 1;
     private const ushort HeartbeatKind = 3;
     private const ushort CameraStateKind = 10;
+    private const ushort PlayerStateKind = 11;
     private const ushort BlockPixelsKind = 20;
     private const ushort BlockPngKind = 21;
     private const int HeaderLength = 24;
     private const int MaximumPayloadLength = 1200;
     private const int CameraPayloadLength = 44;
+    private const int PlayerPayloadLength = 28;
     private const float MhwUnitsPerMetre = 100.0f;
     private static readonly long CameraStartupDelayTicks = Stopwatch.Frequency * 10;
     private static readonly byte[] HelloPayload =
@@ -33,6 +36,7 @@ public sealed class Plugin : IPlugin
     private CancellationTokenSource? _cancellation;
     private Task? _endpointTask;
     private byte[]? _latestCameraPayload;
+    private byte[]? _latestPlayerPayload;
     private MinecraftBlockAsset? _blockAsset;
     private byte[]? _pendingPixels;
     private byte[]? _pendingPng;
@@ -51,6 +55,9 @@ public sealed class Plugin : IPlugin
     private int _cameraSuccessLogged;
     private long _cameraEnableTimestamp;
     private long _nextCameraSampleTimestamp;
+    private long _nextPlayerSampleTimestamp;
+    private int _playerSamplingDisabled;
+    private int _playerSuccessLogged;
     private long _nextRenderDiagnosticTimestamp;
     private int _probeDiagnosticsRemaining = 12;
 
@@ -144,6 +151,11 @@ public sealed class Plugin : IPlugin
         {
             return;
         }
+
+        // The startup grace is shared with the camera: neither sample leaves the
+        // process until the bridge has acknowledged and ten seconds have passed.
+        SamplePlayer(now);
+
         if (now < Volatile.Read(ref _nextCameraSampleTimestamp))
         {
             return;
@@ -377,6 +389,76 @@ public sealed class Plugin : IPlugin
         return true;
     }
 
+    /// <summary>
+    /// Samples the host hunter on the game thread, at the same 20 Hz cadence as
+    /// the camera.
+    ///
+    /// No player is a normal state, not an error: during a loading screen or an
+    /// area transition there is nothing to sample, so no sample is produced and
+    /// no packet is sent. The guest ages the telemetry out on its own freshness
+    /// window rather than holding a position that no longer exists. Only a
+    /// managed API failure stops player sampling for this plugin lifetime, and
+    /// it stops the player alone - camera telemetry keeps running.
+    /// </summary>
+    private void SamplePlayer(long now)
+    {
+        if (Volatile.Read(ref _playerSamplingDisabled) != 0 ||
+            now < Volatile.Read(ref _nextPlayerSampleTimestamp))
+        {
+            return;
+        }
+        Volatile.Write(ref _nextPlayerSampleTimestamp, now + Stopwatch.Frequency / 20);
+
+        try
+        {
+            var player = Player.MainPlayer;
+            if (player is null)
+            {
+                return;
+            }
+
+            var position = player.Position / MhwUnitsPerMetre;
+            var rotation = player.Rotation.NormalizedSafe;
+            Span<float> values =
+            [
+                position.X,
+                position.Y,
+                position.Z,
+                rotation.X,
+                rotation.Y,
+                rotation.Z,
+                rotation.W,
+            ];
+            if (!AllFinite(values))
+            {
+                return;
+            }
+
+            var payload = new byte[PlayerPayloadLength];
+            for (var index = 0; index < values.Length; index++)
+            {
+                BinaryPrimitives.WriteInt32LittleEndian(
+                    payload.AsSpan(index * sizeof(float), sizeof(float)),
+                    BitConverter.SingleToInt32Bits(values[index])
+                );
+            }
+            Interlocked.Exchange(ref _latestPlayerPayload, payload);
+            if (Interlocked.Exchange(ref _playerSuccessLogged, 1) == 0)
+            {
+                WriteDiagnostic("First guarded player read succeeded.");
+            }
+        }
+        catch (Exception exception)
+        {
+            // A managed API failure must not escape an in-process plugin callback
+            // and terminate MHW; the diagnostic log keeps the exception for the
+            // next run instead.
+            Volatile.Write(ref _playerSamplingDisabled, 1);
+            WriteDiagnostic(
+                $"Player sampling disabled after {exception.GetType().FullName}: {exception.Message}");
+        }
+    }
+
     private async Task RunEndpointAsync(CancellationToken cancellationToken)
     {
         uint sequence = 0;
@@ -414,6 +496,11 @@ public sealed class Plugin : IPlugin
                     if (cameraPayload is not null)
                     {
                         Send(client, CameraStateKind, ++sequence, cameraPayload);
+                    }
+                    var playerPayload = Interlocked.Exchange(ref _latestPlayerPayload, null);
+                    if (playerPayload is not null)
+                    {
+                        Send(client, PlayerStateKind, ++sequence, playerPayload);
                     }
 
                     var now = Stopwatch.GetTimestamp();

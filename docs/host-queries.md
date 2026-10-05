@@ -105,6 +105,25 @@ which produces no packet, which ages out on the guest. Silence is the failure
 signal; the guest never keeps the last known position alive past the freshness
 window.
 
+**Status: implemented, awaiting live acceptance.** The plugin samples the
+hunter at 20 Hz beside the camera and sends kind 11; the bridge needs no change
+because it already forwards every game-to-game packet. On the guest,
+`PlayerMixin` runs at the tail of `LocalPlayer.tick()`, so vanilla finishes its
+own movement for the frame before the proxy places the player, zeroes velocity,
+and clears accumulated fall distance. F9 toggles the link.
+
+Two details were made deliberate rather than incidental:
+
+- **The 25 m single-frame rule is shared with the placement anchor.** A jump
+  larger than that between consecutive samples re-anchors the proxy at the
+  player's current position instead of sweeping the player across the world to
+  catch up, because such a jump is a scene change, not walking.
+- **The camera and player feeds age by one rule, not two.** `SampleFeed` holds
+  the freshness and arrival logic both streams use, and the quaternion-to-yaw
+  conversion lives in `Rotation`, shared by `CameraState` and `PlayerState`.
+  Extracting them was a refactor of working camera code; both headless suites
+  pass over the result.
+
 ## Verification still required in the real games
 
 | Question | How it will be answered |
@@ -113,6 +132,7 @@ window.
 | Does it survive a loading screen? | Enter and leave an area; confirm queries report "no terrain" rather than a stale hit, and that the proxy anchor clears. |
 | Does chunk streaming disturb it? | Query across an area boundary during streaming and reject answers that disagree with the ground under the hunter. |
 | Does control fall back immediately? | Stop the bridge mid-motion and confirm the guest stops driving on the freshness timeout. |
+| Does the proxy follow and face the hunter? | Walk and turn in MHW, watch the HUD proxy target and the Minecraft character, and confirm the yaw convention matches the hunter's facing rather than being mirrored; press F9 mid-motion and confirm movement returns to the keyboard on that tick. |
 
 These acceptance steps need the games running and are recorded in `MODLOG.md`
 when they run.

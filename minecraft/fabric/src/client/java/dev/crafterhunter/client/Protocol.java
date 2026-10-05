@@ -17,6 +17,7 @@ final class Protocol {
     static final short KIND_HELLO_ACK = 2;
     static final short KIND_HEARTBEAT = 3;
     static final short KIND_CAMERA_STATE = 10;
+    static final short KIND_PLAYER_STATE = 11;
     static final short KIND_BLOCK_PIXELS = 20;
     static final short KIND_BLOCK_PNG = 21;
 

@@ -571,3 +571,66 @@ reason the camera link does: MHW world coordinates sit hundreds of metres from
 Minecraft's origin.
 
 No game file was modified and nothing was executed inside the game process.
+
+## 2026-10-05 — milestone 3: the host player proxy, end to end
+
+The player half of milestone 3 now runs from the game thread in MHW to the
+player in Minecraft.
+
+**Protocol.** `PlayerState` (kind 11) is seven `f32`: world position in metres
+and the model rotation quaternion, mirroring `CameraState`. The Rust crate
+encodes and decodes it and pins the layout with golden bytes, because C# writes
+it and Java reads it and neither compiler checks the other's work.
+
+**Plugin.** `SamplePlayer` runs inside `OnUpdate`, the same game-thread tick as
+the camera, at the same 20 Hz. No player is a normal state rather than an
+error: a loading screen or an area transition produces no sample, therefore no
+packet, and the guest ages the stream out instead of holding a position that no
+longer exists. Only a managed API failure stops player sampling, and it stops
+the player alone - camera telemetry keeps running. The bridge needed no change,
+since it already forwards every game-to-game packet.
+
+**Guest.** `PlayerMixin` runs at the tail of `LocalPlayer.tick()`, so vanilla
+finishes its own movement for the frame first; the proxy then places the player,
+sets facing, zeroes velocity, and clears accumulated fall distance so physics
+cannot apply a second move for one the host already made. F9 toggles the link.
+The release path is the same code with no work to do: stale feed, disabled
+toggle, or world change makes `PlayerLink.update` return null and the mixin
+touches nothing, so movement returns to the keyboard on that tick.
+
+Two decisions are worth stating rather than leaving implicit.
+
+*Relative displacement, not absolute coordinates.* MHW's world sits hundreds of
+metres from anything in a Minecraft world, so the first fresh sample anchors
+both the host position and the player's current position, and later samples
+apply their difference: one metre of hunter travel becomes one block.
+
+*The 25 m single-frame jump rule, reused.* The placement anchor already treats a
+single frame that moves more than 25 m as a scene change rather than motion. The
+proxy does the same: such a jump re-anchors it where the player stands instead
+of sweeping the player across the world to catch up.
+
+**Refactors the change forced, both with their suites green afterwards.** The
+camera's quaternion-to-yaw conversion moved to `Rotation`, shared with the
+player, because two copies of that math would drift the first time one is
+corrected. The freshness and arrival rules moved to `SampleFeed`, so camera and
+player age samples by exactly one rule while remaining independent streams -
+the player check asserts that a stale player sample stays stale while the camera
+feed goes live, and vice versa.
+
+**Checks.** Rust: 10 protocol tests including golden bytes and rejection of
+wrong length, non-finite values, and an unassigned kind. Java: a new
+`PlayerLinkTest` covering anchor, movement, yaw wrapping across +/-180, the jump
+re-anchor, every release path, world change, payload decoding, and feed
+independence; the camera suite still passes after both refactors. The two
+headless scripts now read one shared source list so they cannot drift. The
+mixins compile against the mapped 26.2 jar through `./gradlew --offline
+compileClientJava`, which is the gate that proves `PlayerMixin` and its
+injection target are real.
+
+**Not done.** The terrain half of milestone 3 has not started. The proxy has not
+yet been accepted in the running games: the yaw convention in particular is
+derived from the camera's proven conversion and has to be watched against the
+hunter's actual facing, because a mirrored proxy would still look plausible in
+motion. My first run of the new suite failed on an expectation of mine, not the
+code: identity wraps to -180, not +180.

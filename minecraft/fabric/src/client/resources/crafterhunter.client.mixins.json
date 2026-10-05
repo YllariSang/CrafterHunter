@@ -5,7 +5,8 @@
   "client": [
     "CameraMixin",
     "HudMixin",
-    "KeyboardMixin"
+    "KeyboardMixin",
+    "PlayerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

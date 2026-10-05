@@ -37,6 +37,7 @@ for future diagnostic packets.
 | 2 | HelloAck | UTF-8 bridge description |
 | 3 | Heartbeat | Empty |
 | 10 | CameraState | 44 bytes, described below |
+| 11 | PlayerState | 28 bytes, described below |
 | 20 | BlockPixels | Vanilla block ID and 16×16 RGBA pixels |
 | 21 | BlockPng | Vanilla block ID and PNG bytes from the active resource manager |
 
@@ -64,6 +65,23 @@ aspect ratio
 near plane metres
 far plane metres
 ```
+
+### PlayerState
+
+Seven `f32` values:
+
+```text
+position x, y, z            host world position in metres
+rotation quaternion x, y, z, w
+```
+
+The host hunter, sampled on the game thread at 20 Hz alongside the camera. It
+is sent only while a player exists: a loading screen or an area transition
+produces no sample and therefore no packet, and the guest ages the stream out
+after 500 ms instead of holding a position that no longer exists. MHW world
+coordinates sit hundreds of metres from anything in a Minecraft world, so the
+guest maps them by relative displacement from an anchor rather than applying
+them absolutely; `docs/host-queries.md` records why and where.
 
 Packets with an invalid magic, version, source, declared length, or payload
 shape are discarded. Endpoints expire after five seconds without a valid

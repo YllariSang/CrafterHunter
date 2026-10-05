@@ -5,8 +5,7 @@ output_directory="$project_root/minecraft/fabric/build/headless-tests"
 source_list="$project_root/tools/fabric-headless-sources.txt"
 mkdir -p "$output_directory"
 
-# Both link checks compile the same dependency set from one list, so adding a
-# shared class cannot leave one of them behind.
+# Shares its dependency list with the camera check, so the two can never drift.
 sources=()
 while IFS= read -r line; do
     [[ -z "$line" || "$line" == \#* ]] && continue
@@ -15,5 +14,5 @@ done < "$source_list"
 
 javac --release 25 -Xlint:all -Werror -d "$output_directory" \
     "${sources[@]}" \
-    "$project_root/minecraft/fabric/tests/CameraLinkTest.java"
-java -cp "$output_directory" dev.crafterhunter.client.CameraLinkTest
+    "$project_root/minecraft/fabric/tests/PlayerLinkTest.java"
+java -cp "$output_directory" dev.crafterhunter.client.PlayerLinkTest

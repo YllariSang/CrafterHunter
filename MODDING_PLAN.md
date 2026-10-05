@@ -77,7 +77,12 @@ playable mode is a later feature and must not have both games drive the player.
    through the game's own routine resolved from byte signatures at runtime —
    necessary anyway because the executable's `.text` section is encrypted on
    disk and `tools/verify-host-build.py` confirms it can only be scanned in the
-   loaded image.
+   loaded image. The player half is now implemented end to end — `PlayerState`
+   (kind 11), a 20 Hz game-thread sampler in the plugin, and a client mixin
+   that aligns the Minecraft player and releases it the instant the stream
+   ages out — with headless checks covering anchoring, the shared 25 m jump
+   rule, every release path, and camera/player feed independence. It still
+   needs live acceptance in the running games; the terrain half has not started.
 4. **One monster:** export a stable session entity ID, transform, hit volumes,
    and health. One Minecraft attack produces one validated host combat action;
    one monster attack produces one player hit. MHW executes its normal death

@@ -39,6 +39,7 @@ final class BridgeClient implements AutoCloseable {
                     runSession();
                 } catch (IOException error) {
                     CameraFeed.clear();
+                    PlayerFeed.clear();
                     if (running.get()) {
                         System.err.println("[CrafterHunter] Bridge I/O failed; retrying: " + error);
                         waitBeforeRetry();
@@ -49,6 +50,7 @@ final class BridgeClient implements AutoCloseable {
             socket = null;
             running.set(false);
             CameraFeed.clear();
+            PlayerFeed.clear();
         }
     }
 
@@ -102,6 +104,11 @@ final class BridgeClient implements AutoCloseable {
                 CameraState.decode(packet.payload(), packet.sequence(), System.nanoTime())
             );
         }
+        if (packet.source() == Protocol.SOURCE_MHW && packet.kind() == Protocol.KIND_PLAYER_STATE) {
+            PlayerFeed.publish(
+                PlayerState.decode(packet.payload(), packet.sequence(), System.nanoTime())
+            );
+        }
     }
 
     private void sendHello(DatagramSocket activeSocket) throws IOException {
@@ -134,6 +141,7 @@ final class BridgeClient implements AutoCloseable {
     public synchronized void close() {
         running.set(false);
         CameraFeed.clear();
+        PlayerFeed.clear();
         if (socket != null) {
             socket.close();
         }

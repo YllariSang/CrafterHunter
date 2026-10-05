@@ -21,12 +21,11 @@ public record CameraState(
     float minecraftRollDegrees,
     int sequence,
     long receivedAtNanos
-) {
+) implements TelemetrySample {
     static final int PAYLOAD_LENGTH = 44;
     private static final float MIN_FOV_RADIANS = (float) Math.toRadians(1.0);
     private static final float MAX_FOV_RADIANS = (float) Math.toRadians(179.0);
     private static final double MIN_QUATERNION_LENGTH_SQUARED = 1.0e-12;
-    private static final double GIMBAL_LOCK_EPSILON = 1.0e-6;
 
     static CameraState decode(byte[] payload, int sequence, long receivedAtNanos) {
         if (payload.length != PAYLOAD_LENGTH) {
@@ -72,7 +71,7 @@ public record CameraState(
         quaternionZ *= inverseLength;
         quaternionW *= inverseLength;
 
-        EulerAngles euler = toMinecraftEuler(
+        Rotation.EulerAngles euler = Rotation.toMinecraftEuler(
             quaternionX,
             quaternionY,
             quaternionZ,
@@ -98,62 +97,11 @@ public record CameraState(
         );
     }
 
-    private static EulerAngles toMinecraftEuler(float qx, float qy, float qz, float qw) {
-        // Extract a Y-X-Z rotation from the canonical camera quaternion. Minecraft's
-        // Camera#setRotation builds the same order, with a 180-degree yaw offset and
-        // an inverted pitch angle because its zero-yaw view points toward +Z.
-        double r00 = 1.0 - 2.0 * (qy * (double) qy + qz * (double) qz);
-        double r02 = 2.0 * (qx * (double) qz + qw * (double) qy);
-        double r10 = 2.0 * (qx * (double) qy + qw * (double) qz);
-        double r11 = 1.0 - 2.0 * (qx * (double) qx + qz * (double) qz);
-        double r12 = 2.0 * (qy * (double) qz - qw * (double) qx);
-        double r20 = 2.0 * (qx * (double) qz - qw * (double) qy);
-        double r22 = 1.0 - 2.0 * (qx * (double) qx + qy * (double) qy);
-
-        double xRadians = Math.asin(clamp(-r12, -1.0, 1.0));
-        double cosineX = Math.cos(xRadians);
-        double yRadians;
-        double zRadians;
-        if (Math.abs(cosineX) > GIMBAL_LOCK_EPSILON) {
-            yRadians = Math.atan2(r02, r22);
-            zRadians = Math.atan2(r10, r11);
-        } else {
-            // At +/-90 degrees of pitch, yaw and roll describe the same axis. Keep
-            // all of that rotation in yaw to produce a stable camera pose.
-            yRadians = Math.atan2(-r20, r00);
-            zRadians = 0.0;
-        }
-
-        return new EulerAngles(
-            wrapDegrees(180.0f - (float) Math.toDegrees(yRadians)),
-            -(float) Math.toDegrees(xRadians),
-            wrapDegrees((float) Math.toDegrees(zRadians))
-        );
-    }
-
     private static void requireFinite(float... values) {
         for (float value : values) {
             if (!Float.isFinite(value)) {
                 throw new IllegalArgumentException("camera payload contains a non-finite value");
             }
         }
-    }
-
-    private static double clamp(double value, double minimum, double maximum) {
-        return Math.max(minimum, Math.min(maximum, value));
-    }
-
-    private static float wrapDegrees(float degrees) {
-        float wrapped = degrees % 360.0f;
-        if (wrapped >= 180.0f) {
-            wrapped -= 360.0f;
-        }
-        if (wrapped < -180.0f) {
-            wrapped += 360.0f;
-        }
-        return wrapped;
-    }
-
-    private record EulerAngles(float yawDegrees, float pitchDegrees, float rollDegrees) {
     }
 }
