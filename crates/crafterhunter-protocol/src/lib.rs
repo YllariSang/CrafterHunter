@@ -40,6 +40,8 @@ pub enum Kind {
     Heartbeat = 3,
     CameraState = 10,
     PlayerState = 11,
+    TerrainRequest = 12,
+    TerrainResult = 13,
     BlockPixels = 20,
     BlockPng = 21,
 }
@@ -54,6 +56,8 @@ impl TryFrom<u16> for Kind {
             3 => Ok(Self::Heartbeat),
             10 => Ok(Self::CameraState),
             11 => Ok(Self::PlayerState),
+            12 => Ok(Self::TerrainRequest),
+            13 => Ok(Self::TerrainResult),
             20 => Ok(Self::BlockPixels),
             21 => Ok(Self::BlockPng),
             _ => Err(ProtocolError::UnknownKind(value)),
@@ -249,6 +253,139 @@ impl PlayerState {
     }
 }
 
+/// Why a terrain request could not be answered.
+///
+/// `NoTerrain` is a state, not a failure of the request: the adapter is
+/// disabled by the fingerprint, or the collision singleton and the hunter are
+/// missing, which is what a loading screen and an area transition look like.
+/// `Miss` is a real answer — the segment did not touch a surface — and must not
+/// be confused with having no answer, or a guest would hold the last hit
+/// through a wall it cannot see.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum TerrainStatus {
+    NoTerrain = 0,
+    Miss = 1,
+    Hit = 2,
+}
+
+impl TryFrom<u8> for TerrainStatus {
+    type Error = ProtocolError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::NoTerrain),
+            1 => Ok(Self::Miss),
+            2 => Ok(Self::Hit),
+            _ => Err(ProtocolError::UnknownTerrainStatus(value)),
+        }
+    }
+}
+
+/// A segment the guest wants cast against stage collision.
+///
+/// Endpoints are metres in host world coordinates. The guest cannot ask in
+/// Minecraft coordinates: the host does not know where the guest anchored, so
+/// the guest maps through the same proxy anchor it already uses for the player,
+/// and the answer comes back in the same space it was asked in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TerrainRequest {
+    pub id: u32,
+    pub start: [f32; 3],
+    pub end: [f32; 3],
+}
+
+impl TerrainRequest {
+    pub const PAYLOAD_LEN: usize = 28;
+
+    pub fn encode(self) -> [u8; Self::PAYLOAD_LEN] {
+        let mut output = [0_u8; Self::PAYLOAD_LEN];
+        output[0..4].copy_from_slice(&self.id.to_le_bytes());
+        for (index, value) in self.start.into_iter().chain(self.end).enumerate() {
+            let offset = 4 + index * 4;
+            output[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        output
+    }
+
+    pub fn decode(payload: &[u8]) -> Result<Self, ProtocolError> {
+        if payload.len() != Self::PAYLOAD_LEN {
+            return Err(ProtocolError::InvalidTerrainRequestLength(payload.len()));
+        }
+        let id = read_u32(payload, 0);
+        let mut values = [0_f32; 6];
+        for (index, value) in values.iter_mut().enumerate() {
+            let offset = 4 + index * 4;
+            *value = f32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
+        }
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err(ProtocolError::NonFiniteTerrainValue);
+        }
+        Ok(Self {
+            id,
+            start: [values[0], values[1], values[2]],
+            end: [values[3], values[4], values[5]],
+        })
+    }
+}
+
+/// The answer to one `TerrainRequest`, echoing its `id`.
+///
+/// Position and normal are metres in host world coordinates and are zeroed
+/// unless the status is `Hit`, so a decoded miss cannot be mistaken for a hit at
+/// the origin. The attribute is the game's own surface attribute, untranslated.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TerrainResult {
+    pub id: u32,
+    pub status: TerrainStatus,
+    pub position: [f32; 3],
+    pub normal: [f32; 3],
+    pub attribute: u32,
+}
+
+impl TerrainResult {
+    pub const PAYLOAD_LEN: usize = 36;
+
+    pub fn encode(self) -> [u8; Self::PAYLOAD_LEN] {
+        let mut output = [0_u8; Self::PAYLOAD_LEN];
+        output[0..4].copy_from_slice(&self.id.to_le_bytes());
+        output[4] = self.status as u8;
+        // Bytes 5..8 stay zero, exactly like the header's reserved bytes.
+        for (index, value) in self.position.into_iter().chain(self.normal).enumerate() {
+            let offset = 8 + index * 4;
+            output[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        output[32..36].copy_from_slice(&self.attribute.to_le_bytes());
+        output
+    }
+
+    pub fn decode(payload: &[u8]) -> Result<Self, ProtocolError> {
+        if payload.len() != Self::PAYLOAD_LEN {
+            return Err(ProtocolError::InvalidTerrainResultLength(payload.len()));
+        }
+        let id = read_u32(payload, 0);
+        let status = TerrainStatus::try_from(payload[4])?;
+        if payload[5..8] != [0, 0, 0] {
+            return Err(ProtocolError::ReservedTerrainBitsSet);
+        }
+        let mut values = [0_f32; 6];
+        for (index, value) in values.iter_mut().enumerate() {
+            let offset = 8 + index * 4;
+            *value = f32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
+        }
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err(ProtocolError::NonFiniteTerrainValue);
+        }
+        Ok(Self {
+            id,
+            status,
+            position: [values[0], values[1], values[2]],
+            normal: [values[3], values[4], values[5]],
+            attribute: read_u32(payload, 32),
+        })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ProtocolError {
     PacketTooShort(usize),
@@ -263,6 +400,11 @@ pub enum ProtocolError {
     NonFiniteCameraValue,
     InvalidPlayerLength(usize),
     NonFinitePlayerValue,
+    InvalidTerrainRequestLength(usize),
+    InvalidTerrainResultLength(usize),
+    UnknownTerrainStatus(u8),
+    ReservedTerrainBitsSet,
+    NonFiniteTerrainValue,
 }
 
 impl fmt::Display for ProtocolError {
@@ -387,13 +529,146 @@ mod tests {
     }
 
     #[test]
-    fn player_state_kind_is_eleven() {
+    fn terrain_kinds_are_twelve_and_thirteen() {
         assert_eq!(Kind::try_from(11).unwrap(), Kind::PlayerState);
-        assert_eq!(Kind::PlayerState as u16, 11);
+        assert_eq!(Kind::try_from(12).unwrap(), Kind::TerrainRequest);
+        assert_eq!(Kind::try_from(13).unwrap(), Kind::TerrainResult);
         assert_eq!(
-            Kind::try_from(12),
-            Err(ProtocolError::UnknownKind(12)),
-            "kind 11 is taken; the next value stays unassigned"
+            Kind::try_from(14),
+            Err(ProtocolError::UnknownKind(14)),
+            "kinds 12 and 13 are taken; 14 stays unassigned"
+        );
+    }
+
+    #[test]
+    fn terrain_request_round_trip() {
+        let request = TerrainRequest {
+            id: 7,
+            start: [1.0, -2.0, 3.5],
+            end: [-4.0, 5.0, 6.5],
+        };
+        assert_eq!(TerrainRequest::decode(&request.encode()).unwrap(), request);
+    }
+
+    #[test]
+    fn terrain_request_matches_cross_language_golden_bytes() {
+        // The plugin decodes these bytes in C# and the guest writes them in
+        // Java; this pins the layout both sides must agree on.
+        let request = TerrainRequest {
+            id: 1,
+            start: [1.0, 2.0, 3.5],
+            end: [-4.0, 5.0, 6.5],
+        };
+        assert_eq!(
+            request.encode().to_vec(),
+            vec![
+                0x01, 0x00, 0x00, 0x00, // id
+                0x00, 0x00, 0x80, 0x3F, // start.x 1.0
+                0x00, 0x00, 0x00, 0x40, // start.y 2.0
+                0x00, 0x00, 0x60, 0x40, // start.z 3.5
+                0x00, 0x00, 0x80, 0xC0, // end.x -4.0
+                0x00, 0x00, 0xA0, 0x40, // end.y 5.0
+                0x00, 0x00, 0xD0, 0x40, // end.z 6.5
+            ]
+        );
+    }
+
+    #[test]
+    fn terrain_result_round_trip() {
+        let result = TerrainResult {
+            id: 7,
+            status: TerrainStatus::Hit,
+            position: [1.0, -2.0, 3.5],
+            normal: [0.0, 1.0, 0.0],
+            attribute: 0x0010_0000,
+        };
+        assert_eq!(TerrainResult::decode(&result.encode()).unwrap(), result);
+    }
+
+    #[test]
+    fn terrain_result_matches_cross_language_golden_bytes() {
+        let result = TerrainResult {
+            id: 7,
+            status: TerrainStatus::Hit,
+            position: [1.0, -2.0, 3.5],
+            normal: [0.0, 1.0, 0.0],
+            attribute: 0x0010_0000,
+        };
+        assert_eq!(
+            result.encode().to_vec(),
+            vec![
+                0x07, 0x00, 0x00, 0x00, // id
+                0x02, 0x00, 0x00, 0x00, // status Hit, then three reserved zeros
+                0x00, 0x00, 0x80, 0x3F, // position.x 1.0
+                0x00, 0x00, 0x00, 0xC0, // position.y -2.0
+                0x00, 0x00, 0x60, 0x40, // position.z 3.5
+                0x00, 0x00, 0x00, 0x00, // normal.x 0.0
+                0x00, 0x00, 0x80, 0x3F, // normal.y 1.0
+                0x00, 0x00, 0x00, 0x00, // normal.z 0.0
+                0x00, 0x00, 0x10, 0x00, // attribute 0x00100000
+            ]
+        );
+    }
+
+    #[test]
+    fn a_miss_carries_no_position() {
+        let result = TerrainResult {
+            id: 3,
+            status: TerrainStatus::Miss,
+            position: [0.0; 3],
+            normal: [0.0; 3],
+            attribute: 0,
+        };
+        let decoded = TerrainResult::decode(&result.encode()).unwrap();
+        assert_eq!(decoded.status, TerrainStatus::Miss);
+        assert_eq!(decoded.position, [0.0; 3], "a miss must not look like a hit at the origin");
+    }
+
+    #[test]
+    fn rejects_wrong_terrain_payload_lengths() {
+        assert_eq!(
+            TerrainRequest::decode(&[0_u8; 24]),
+            Err(ProtocolError::InvalidTerrainRequestLength(24))
+        );
+        assert_eq!(
+            TerrainResult::decode(&[0_u8; 28]),
+            Err(ProtocolError::InvalidTerrainResultLength(28))
+        );
+    }
+
+    #[test]
+    fn rejects_non_finite_terrain_value() {
+        let mut request = [0_u8; TerrainRequest::PAYLOAD_LEN];
+        request[4..8].copy_from_slice(&f32::NAN.to_le_bytes());
+        assert_eq!(
+            TerrainRequest::decode(&request),
+            Err(ProtocolError::NonFiniteTerrainValue)
+        );
+        let mut result = [0_u8; TerrainResult::PAYLOAD_LEN];
+        result[8..12].copy_from_slice(&f32::INFINITY.to_le_bytes());
+        assert_eq!(
+            TerrainResult::decode(&result),
+            Err(ProtocolError::NonFiniteTerrainValue)
+        );
+    }
+
+    #[test]
+    fn rejects_unknown_terrain_status() {
+        let mut payload = [0_u8; TerrainResult::PAYLOAD_LEN];
+        payload[4] = 9;
+        assert_eq!(
+            TerrainResult::decode(&payload),
+            Err(ProtocolError::UnknownTerrainStatus(9))
+        );
+    }
+
+    #[test]
+    fn rejects_reserved_terrain_bits() {
+        let mut payload = [0_u8; TerrainResult::PAYLOAD_LEN];
+        payload[7] = 1;
+        assert_eq!(
+            TerrainResult::decode(&payload),
+            Err(ProtocolError::ReservedTerrainBitsSet)
         );
     }
 }

@@ -73,6 +73,32 @@ the loaded image and records the result in SharpPluginLoader's
 `PluginCache.json`, keyed by the pattern string and versioned with the build
 (`421810`), exactly as the two signatures already in that file are.
 
+## The two packets
+
+| Kind | Direction | Payload |
+| --- | --- | --- |
+| `TerrainRequest` = 12 | guest to host | `u32 id`, then `start.x y z` and `end.x y z` as six little-endian `f32` — 28 bytes |
+| `TerrainResult` = 13 | host to guest | `u32 id`, `u8 status`, three reserved zero bytes, `position.x y z` and `normal.x y z` as six `f32`, `u32 attribute` — 36 bytes |
+
+Endpoints and the answer are metres in host world coordinates. The guest cannot
+ask in Minecraft coordinates, because the host does not know where the guest
+anchored: the guest maps through the same proxy anchor it already uses for the
+player, so a question and its answer live in one space the guest can reason
+about.
+
+`status` is `0` **no terrain**, `1` **miss**, `2` **hit**. The three are not
+cosmetic. *No terrain* is the state a loading screen or an area transition
+produces, and it must arrive rather than be inferred from silence. *Miss* is a
+real answer — the segment touched nothing — and a guest that cannot tell it from
+"no answer" would hold its last hit straight through a wall. A miss therefore
+carries a zeroed position, so it cannot also be read as a hit at the origin.
+
+Both payloads have golden bytes pinned in `cargo test`, the way the player
+payload's are, because the plugin decodes one in C# and the guest writes the
+other in Java. Decoding refuses a wrong length, a non-finite float, an unknown
+status, and non-zero reserved bytes — the same fail-closed shape the header
+already uses for its own reserved bits.
+
 ## Loader API shapes
 
 Verified by reflecting the installed `SharpPluginLoader.Core.dll` (2.0.0) in
@@ -106,7 +132,7 @@ state machine with three states and no fourth:
 | Stage | What it proves | State |
 | --- | --- | --- |
 | A. Host adapter | The routine is callable on this build: signatures resolve in the loaded image, a down-ray from the hunter lands where `CollisionPosition` says the ground is, flat and on slopes, all inside the per-tick budget | implemented in plugin 0.3.4; awaits a live run |
-| B. Protocol | `TerrainRequest` and `TerrainResult` carry a segment and an answer between the games with golden bytes in Rust | not started |
+| B. Protocol | `TerrainRequest` and `TerrainResult` carry a segment and an answer between the games with golden bytes in Rust | kinds 12 and 13 defined and tested in Rust; neither side sends them yet |
 | C. Guest | The guest maps Minecraft coordinates to host coordinates through the proxy anchor, paces requests, and feeds the answer to collision | not started |
 | D. Live acceptance | Ground, slopes, movement, loading screens, chunk streaming, and control fallback in the running games | not started |
 

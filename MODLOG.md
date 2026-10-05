@@ -835,3 +835,41 @@ survived all of them with the bridge and both endpoints still registered. The
 periodic version that was committed first would have fired a native call the
 moment the world became ready, which is why it was replaced before it was ever
 loaded.
+
+## 2026-10-05 — terrain on the wire: kinds 12 and 13
+
+The protocol half of milestone 3's terrain stage is now defined, and both
+payloads have golden bytes pinned by tests, because the plugin will decode one
+in C# and the guest will write the other in Java and neither side is written
+yet — this is the moment to fix the layout rather than after.
+
+`TerrainRequest` (12, guest to host) is a `u32 id` and six `f32`: `start.x y z`
+then `end.x y z`, 28 bytes. `TerrainResult` (13, host to guest) is a `u32 id`,
+a `u8 status`, three reserved zero bytes, six `f32` for position and normal, and
+the game's `u32` surface attribute: 36 bytes. Endpoints are metres in host
+coordinates, because the guest is the only side that knows where it anchored —
+the host cannot answer a question asked in Minecraft coordinates. A guest that
+maps through its own proxy anchor keeps the question and the answer in one
+space, the same reason the camera and player payloads carry raw host
+coordinates instead of pre-mapped values.
+
+Three statuses, and the difference between them is the whole point:
+`0 no terrain`, `1 miss`, `2 hit`. *No terrain* has to be an answer, not an
+absence, or the guest's freshness timeout would be the only way to learn about a
+loading screen. *Miss* is a real answer and must be distinguishable from having
+no answer, because a guest that conflates them holds its last hit straight
+through a wall; it therefore carries a zeroed position so it also cannot be read
+as a hit at the origin. Decoding refuses a wrong length, a non-finite float, an
+unknown status, and non-zero reserved bytes, matching the header's own reserved
+bits.
+
+Two of the new tests caught my own mistakes rather than the code's: `-4.0` is
+`0xC0800000`, not `0xC0000000`, and a non-finite `attribute` is just a large
+`u32` — the attribute is not a float and cannot be probed that way. Both were
+caught because the layout was pinned as bytes rather than described in prose.
+
+Still nothing sends either packet: the host half (accept requests from the
+guest into a bounded queue, cast within the per-tick budget, answer) and the
+guest half (pace requests, map coordinates, feed collision) are next, and the
+bridge has to be rebuilt and restarted before either can work — the lesson from
+`UnknownKind(11)`.
