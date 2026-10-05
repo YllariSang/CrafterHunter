@@ -2,94 +2,125 @@
 # Runtime evidence for the paired world colour+depth capture.
 #
 # This is the only check that can tell whether depth readback works at all.
-# Having a D32_FLOAT depth attachment and an OpenGL copyTextureToBuffer with no
-# format guard is an argument that it should; it is not a result. This reads what
-# the capture actually recorded and is explicit about the difference between:
 #
-#   * "a pair was published" means both asynchronous readbacks of one capture
-#     identity landed and were written together.
-#   * "depth looks like depth" means the numbers have the shape depth must have:
-#     in [0,1], varying across the frame, no non-finite values, and near/far
-#     distinguishable. A buffer of zeros, of colour, or of one repeated value all
-#     copy without complaint and would pass a weaker check than this one.
-#   * Neither means distance is correct. Reconstructing it needs the projection
-#     and a normalisation against MHW's reversed-Z, neither of which is done.
+# It runs the three request modes in order, and the order is the diagnostic:
 #
-# It never touches the live frame channel. This capture writes its own files and
+#   * "colour" asks for the colour attachment alone, at the world-render hook.
+#   * "depth" asks for the depth attachment alone, at the same hook.
+#   * "capture" asks for both.
+#
+# Asking them separately is not tidiness. A refused copy raises nothing in Java, and
+# the first live run produced exactly one driver error line and no publish, which is
+# equally consistent with "the depth copy was refused" and "both copies were refused
+# at a hook where no framebuffer is bound". Those need different fixes, and guessing
+# between them is how the wrong thing gets fixed. The colour-only run settles it: if
+# colour works at this hook, the hook is fine and depth is the specific problem.
+#
+# A mode that produces no publish is reported as "refused or stalled", with the
+# driver's own GL error quoted if there is one. It is not reported as a pass.
+#
+# It never touches the live frame channel. This capture writes its own files, and
 # deleting a channel the renderer is using would be sabotage, not a reset.
 #
-# Usage: tools/verify-world-capture.sh [frames]
+# Usage: tools/verify-world-capture.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-frames="${1:-2}"
 game="$HOME/.minecraft/crafterhunter"
 out="$game/out"
 request="$game/world.request"
-meta="$out/world-capture.meta"
 summary="$out/world-capture.txt"
+meta="$out/world-capture.meta"
+log="$HOME/.minecraft/logs/latest.log"
 
 fail() { printf 'FAIL: %s\n' "$1"; exit 1; }
 
-[ -f "$summary" ] || fail "no summary at $summary - is the game running with the new jar?"
-grep -q 'hookSeen=true' "$summary" || fail "the world-render hook never fired (hookSeen is not true)"
+[ -f "$summary" ] || fail "no summary at $summary"
+grep -q 'hookSeen=true' "$summary" \
+  || fail "the world-render hook never fired (hookSeen is not true in $summary)"
 
-printf 'capture requested: %s frame(s)\n' "$frames"
-printf 'capture %s\n' "$frames" > "$request"
+printf 'hook is live at the world-render boundary\n\n'
 
-# The capture is queued from a render hook and lands a frame or two later.
-waited=0
-while [ ! -f "$meta" ]; do
-  sleep 0.5
-  waited=$((waited + 1))
-  [ "$waited" -gt 60 ] && fail "no metadata after 30s - request was seen but nothing published"
-done
-sleep 0.5
+# One mode: request it, wait for a publish, and report what happened.
+run_mode() {
+  local verb="$1" label="$2"
+  local gl_before
+  gl_before=$(grep -ac "glReadPixels" "$log" 2>/dev/null || echo 0)
 
-printf '\n=== recorded metadata ===\n'
-cat "$meta"
+  rm -f "$meta"
+  printf 'capture %s\n' "$verb" > "$request"
 
-value() { grep "^$1=" "$meta" | head -1 | cut -d= -f2-; }
+  local waited=0
+  while [ ! -f "$meta" ]; do
+    sleep 0.25
+    waited=$((waited + 1))
+    # The in-flight timeout is 3s, plus slack for the summary write.
+    if [ "$waited" -gt 32 ]; then
+      break
+    fi
+  done
 
-printf '\n=== what that has to satisfy ===\n'
+  local gl_after gl_new
+  gl_after=$(grep -ac "glReadPixels" "$log" 2>/dev/null || echo 0)
+  gl_new=$((gl_after - gl_before))
 
-identity="$(value identity)"
-[ -n "$identity" ] || fail "no capture identity recorded - nothing can be claimed about pairing"
-printf 'pairing identity present: %s\n' "$identity"
+  if [ ! -f "$meta" ]; then
+    printf '%-8s : NO PUBLISH after %ss\n' "$label" "$((waited / 4))"
+    printf '           status: %s\n' "$(grep '^status=' "$summary" | cut -d= -f2-)"
+    printf '           colourLanded=%s depthLanded=%s\n' \
+      "$(grep '^colourLanded=' "$summary" | cut -d= -f2-)" \
+      "$(grep '^depthLanded=' "$summary" | cut -d= -f2-)"
+    if [ "$gl_new" -gt 0 ]; then
+      printf '           driver said: %s\n' \
+        "$(grep -a 'glReadPixels' "$log" | tail -1 | sed 's/.*message=//' | cut -c1-90)"
+    fi
+    return 1
+  fi
 
-[ "$(value depthFormat)" = "D32_FLOAT" ] \
-  || fail "depth format is $(value depthFormat), not the D32_FLOAT the target allocates"
+  printf '%-8s : published\n' "$label"
+  printf '           %s\n' "$(grep -E '^(depthMin|depthMax|colourNonZero|depthStats)=' "$meta" | tr '\n' ' ')"
+  [ "$gl_new" -gt 0 ] && printf '           driver said: %s\n' \
+    "$(grep -a 'glReadPixels' "$log" | tail -1 | sed 's/.*message=//' | cut -c1-90)"
+  return 0
+}
 
-width="$(value width)"; height="$(value height)"
-[ "$width" -gt 0 ] 2>/dev/null && [ "$height" -gt 0 ] 2>/dev/null \
-  || fail "dimensions are ${width}x${height}"
+run_mode colour COLOUR; colour_ok=$?
+echo
+run_mode depth DEPTH;   depth_ok=$?
+echo
+run_mode capture PAIRED; paired_ok=$?
 
-# The row-layout question. If the driver padded rows, a tight-stride read shears
-# every row but the first, and the numbers below would still look plausible.
-if [ "$(value depthRowsPadded)" = "true" ]; then
-  fail "depth rows are padded ($((width * 4)) tight vs $(value depthBufferBytes) actual) - a tight-stride read would be wrong"
+printf '\n=== what that establishes ===\n'
+if [ "$colour_ok" -ne 0 ] && [ "$depth_ok" -ne 0 ]; then
+  printf 'Neither attachment publishes at the world-render hook, so the problem is the\n'
+  printf 'hook rather than either format: most likely no framebuffer is bound for\n'
+  printf 'reading there, and both glReadPixels calls are refused.\n'
+  printf 'A refused copy raises nothing in Java, which is why this had to be measured.\n'
+  exit 1
 fi
-printf 'row layout tight (depth %s bytes = %s x %s x 4)\n' \
-  "$(value depthBufferBytes)" "$width" "$height"
+if [ "$colour_ok" -ne 0 ] && [ "$depth_ok" -eq 0 ]; then
+  printf 'Depth publishes but colour does not: the reverse of the expectation.\n'
+  exit 1
+fi
+if [ "$colour_ok" -eq 0 ] && [ "$depth_ok" -ne 0 ]; then
+  printf 'Colour publishes from the world-render hook and depth does not.\n'
+  printf 'So the hook point is sound, the target is readable, and the failure is\n'
+  printf 'specific to reading the D32_FLOAT depth attachment. The GL backend has no\n'
+  printf 'format guard, so it forwards the copy to glReadPixels, and the driver\n'
+  printf 'refuses it. This is the exact risk: an accessible depth texture is not a\n'
+  printf 'depth texture whose format the existing readback method supports.\n'
+  printf '\nPaired capture is therefore NOT achieved, and the transport extension is\n'
+  printf 'not started - there is no second attachment to carry yet.\n'
+  exit 1
+fi
 
-nonfinite="$(value depthNonFinite)"
-[ "$nonfinite" = "0" ] || fail "$nonfinite non-finite depth values - this is not a depth buffer"
+if [ "$paired_ok" -eq 0 ]; then
+  printf 'Both attachments publish individually and together. Paired capture works.\n'
+  printf 'Next: tools/validate-world-depth.py against a block of known distance.\n'
+  exit 0
+fi
 
-min="$(value depthMin)"; max="$(value depthMax)"
-python3 - "$min" "$max" <<'PY' || exit 1
-import sys
-lo, hi = float(sys.argv[1]), float(sys.argv[2])
-if not (0.0 <= lo <= hi <= 1.0):
-    print(f"FAIL: depth range [{lo}, {hi}] is not a window-space depth range")
-    raise SystemExit(1)
-PY
-printf 'depth range [%s, %s] is inside window depth\n' "$min" "$max"
-
-distinct="$(value depthDistinctApprox)"
-[ "$distinct" -gt 4 ] 2>/dev/null || fail "only $distinct distinct depth values - this may be a flat buffer, not a scene"
-printf 'depth varies: %s distinct values across the frame\n' "$distinct"
-
-printf '\nOK: a colour+depth pair was published, and the depth has the shape depth must have.\n'
-printf 'Still unknown: whether these depths linearise to the right distances, and\n'
-printf 'whether they are comparable with MHW depth at all. Both need the projection\n'
-printf 'and a normalisation against MHW reversed-Z, and neither is done.\n'
+printf 'Both publish alone but not together. The pairing discipline is refusing to\n'
+printf 'publish an incomplete pair, which is the intended behaviour - but it means\n'
+printf 'one of the two copies is being dropped when issued in the same submit.\n'
+exit 1

@@ -136,6 +136,22 @@ public final class WorldCapture {
             publish(nowNanos);
         }
 
+        // A half that never lands must become a report, not an indefinite wait.
+        // The first version of this class had no such path and the consequence was
+        // observed live: the driver refused the depth copy with
+        // GL_INVALID_FRAMEBUFFER_OPERATION, no callback ever fired, and the capture
+        // sat in flight forever writing nothing. A stall that reports nothing is
+        // indistinguishable from a stall that has not happened yet.
+        if (inFlight && !colourLanded && !depthLanded
+                && nowNanos - inFlightQueuedNanos > IN_FLIGHT_TIMEOUT_NANOS) {
+            inFlight = false;
+            remaining = 0;
+            status = "no half landed in " + (IN_FLIGHT_TIMEOUT_NANOS / 1_000_000L)
+                + "ms - the copy was refused (colour=" + colourLanded
+                + " depth=" + depthLanded + ")";
+            writeSummary();
+        }
+
         if (remaining == 0 && nowNanos >= nextPollNanos) {
             nextPollNanos = nowNanos + POLL_INTERVAL_NANOS;
             readRequest();
@@ -144,11 +160,46 @@ public final class WorldCapture {
         if (remaining > 0 && !inFlight) {
             queueCapture(nowNanos);
         }
+
+        // The summary is written whether or not a capture was asked for, because
+        // "the hook never fired" has to be distinguishable from "nothing was
+        // requested". Without this the file only appeared after a successful publish,
+        // so the one failure it exists to detect - a hook that never ran - was the
+        // one failure it could not report.
+        if (nowNanos >= nextSummaryNanos) {
+            nextSummaryNanos = nowNanos + SUMMARY_INTERVAL_NANOS;
+            writeSummary();
+        }
     }
 
     /** Which half has landed. Separate flags: they may arrive in either order. */
     private volatile boolean colourLanded;
     private volatile boolean depthLanded;
+
+    private long nextSummaryNanos;
+
+    /** How long a capture may stay in flight before it is reported as stalled. */
+    private static final long IN_FLIGHT_TIMEOUT_NANOS = 3_000_000_000L;
+
+    /** How often the summary is refreshed when nothing is happening. */
+    private static final long SUMMARY_INTERVAL_NANOS = 500_000_000L;
+
+    /**
+     * Which attachments a request asked for.
+     *
+     * <p>Exists because the live run could not tell whether the driver refused the
+     * depth copy, the colour copy, or both: both were issued into one submit and the
+     * driver reported one error line, which is consistent with either answer. Asking
+     * for them separately is the only way to find out, and guessing would have been
+     * the difference between fixing the right thing and fixing the wrong thing.
+     */
+    private enum Mode {
+        BOTH,
+        COLOUR_ONLY,
+        DEPTH_ONLY
+    }
+
+    private Mode mode = Mode.BOTH;
 
     private void readRequest() {
         try {
@@ -161,9 +212,15 @@ public final class WorldCapture {
                 return;
             }
             String[] parts = line.split("\\s+");
-            if (!"capture".equals(parts[0])) {
-                status = "unknown request: " + line;
-                return;
+            String verb = parts[0];
+            switch (verb) {
+                case "capture" -> mode = Mode.BOTH;
+                case "colour", "color" -> mode = Mode.COLOUR_ONLY;
+                case "depth" -> mode = Mode.DEPTH_ONLY;
+                default -> {
+                    status = "unknown request: " + line;
+                    return;
+                }
             }
             int frames = parts.length > 1 ? Integer.parseInt(parts[1]) : 1;
             if (frames < 1 || frames > 64) {
@@ -172,7 +229,7 @@ public final class WorldCapture {
             }
             requestedFrames = frames;
             remaining = frames;
-            status = "requested " + frames;
+            status = "requested " + frames + " " + mode;
         } catch (IOException | NumberFormatException problem) {
             status = "request failed: " + problem;
         }
@@ -188,14 +245,17 @@ public final class WorldCapture {
         }
         int width = target.width;
         int height = target.height;
-        GpuTexture colour = target.getColorTexture();
-        GpuTexture depth = target.getDepthTexture();
+        boolean wantColour = mode != Mode.DEPTH_ONLY;
+        boolean wantDepth = mode != Mode.COLOUR_ONLY;
+        GpuTexture colour = wantColour ? target.getColorTexture() : null;
+        GpuTexture depth = wantDepth ? target.getDepthTexture() : null;
         if (width <= 0 || height <= 0 || width > MAX_DIMENSION || height > MAX_DIMENSION
-                || colour == null || depth == null) {
-            // A null depth attachment is a real possibility and must be reported as
-            // itself: "unusable target" would hide which of the two was missing.
+                || (wantColour && colour == null) || (wantDepth && depth == null)) {
+            // A missing attachment is reported as itself rather than folded into
+            // "unusable target", which would hide which one was absent.
             status = "unusable target " + width + "x" + height
-                + " colour=" + (colour != null) + " depth=" + (depth != null);
+                + " colour=" + (wantColour ? String.valueOf(colour != null) : "not asked")
+                + " depth=" + (wantDepth ? String.valueOf(depth != null) : "not asked");
             remaining = 0;
             return;
         }
@@ -223,15 +283,23 @@ public final class WorldCapture {
             inFlightDepthFormat = String.valueOf(depth.getFormat());
 
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-            // Both copies go into one submit. Two submits would let the first land
-            // while the second had not been recorded, which is the same pairing
-            // problem one level down.
-            encoder.copyTextureToBuffer(colour, colourBuffer, 0L, () -> colourLanded = true,
-                0, 0, 0, width, height);
-            encoder.copyTextureToBuffer(depth, depthBuffer, 0L, () -> depthLanded = true,
-                0, 0, 0, width, height);
+            // Copies go into one submit, so the first cannot land while the second is
+            // still unrecorded - the same pairing problem one level down.
+            //
+            // A refused copy raises nothing in Java. The live run proved this: the
+            // driver returned GL_INVALID_FRAMEBUFFER_OPERATION and the callback simply
+            // never fired, so the only honest signal that a copy did not happen is
+            // that its flag never arrives. That is why the in-flight timeout exists.
+            if (wantColour) {
+                encoder.copyTextureToBuffer(colour, colourBuffer, 0L,
+                    () -> colourLanded = true, 0, 0, 0, width, height);
+            }
+            if (wantDepth) {
+                encoder.copyTextureToBuffer(depth, depthBuffer, 0L,
+                    () -> depthLanded = true, 0, 0, 0, width, height);
+            }
             encoder.submit();
-            status = "copying " + width + "x" + height;
+            status = "copying " + width + "x" + height + " " + mode;
         } catch (RuntimeException problem) {
             inFlight = false;
             remaining = 0;
@@ -350,39 +418,53 @@ public final class WorldCapture {
         int width = bufferWidth;
         int height = bufferHeight;
         long identity = inFlightIdentity;
+        boolean wantColour = mode != Mode.DEPTH_ONLY;
+        boolean wantDepth = mode != Mode.COLOUR_ONLY;
 
-        // The pairing assertion, stated rather than assumed: both halves must belong
-        // to the capture that is being published.
-        if (!colourLanded || !depthLanded || identity != inFlightIdentity) {
-            status = "halves did not pair";
+        // The pairing assertion, stated rather than assumed: every half asked for
+        // must belong to the capture being published. A mode that asked for one
+        // attachment is not a failure of pairing.
+        boolean satisfied = (!wantColour || colourLanded) && (!wantDepth || depthLanded);
+        if (!satisfied || identity != inFlightIdentity) {
+            status = "halves did not pair (colour=" + colourLanded
+                + " depth=" + depthLanded + " wanted " + mode + ")";
             inFlight = false;
+            remaining = 0;
+            writeSummary();
             return;
         }
 
         try {
             byte[] colour = new byte[width * height * 4];
             byte[] depth = new byte[width * height * 4];
-            readInto(colourBuffer, colour);
-            lastColourBytes = colourLength;
-            readInto(depthBuffer, depth);
-            lastDepthBytes = depthLength;
+            if (wantColour) {
+                readInto(colourBuffer, colour);
+                lastColourBytes = colourLength;
+            }
+            if (wantDepth) {
+                readInto(depthBuffer, depth);
+                lastDepthBytes = depthLength;
+            }
 
             Files.createDirectories(outputDirectory);
-            // Raw, not PNG: depth is data, and re-encoding it would make the row
-            // layout and the exact float values unrecoverable.
-            Files.write(outputDirectory.resolve("world-colour.rgba"), colour);
-            Files.write(outputDirectory.resolve("world-depth.f32"), depth);
-            writePng(colour, width, height);
+            // Depth is raw, not PNG: it is data, and re-encoding it would make the
+            // row layout and the exact values unrecoverable.
+            if (wantDepth) {
+                Files.write(outputDirectory.resolve("world-depth.f32"), depth);
+            }
+            if (wantColour) {
+                Files.write(outputDirectory.resolve("world-colour.rgba"), colour);
+                writePng(colour, width, height);
+            }
 
-            String metadata = describe(width, height, identity, nowNanos, colour, depth);
+            String metadata = describe(width, height, identity, nowNanos, colour, depth, wantDepth);
             Files.writeString(outputDirectory.resolve("world-capture.meta"), metadata,
                 StandardCharsets.UTF_8);
 
             captured++;
             remaining--;
             inFlight = false;
-            status = "captured " + captured + "/" + requestedFrames
-                + " depth=" + inFlightDepthFormat;
+            status = "captured " + captured + "/" + requestedFrames + " " + mode;
             writeSummary();
         } catch (IOException | RuntimeException problem) {
             inFlight = false;
@@ -394,13 +476,13 @@ public final class WorldCapture {
 
     /** Records what was actually observed, including the things that are unknown. */
     private String describe(int width, int height, long identity, long nowNanos,
-            byte[] colour, byte[] depth) {
-        FloatSummary summary = FloatSummary.of(depth, width, height);
+            byte[] colour, byte[] depth, boolean haveDepth) {
         StringBuilder text = new StringBuilder(1024);
         text.append("# Paired world capture. Recorded, not assumed.\n");
         text.append("generation=").append(generation).append('\n');
         text.append("identity=").append(identity).append('\n');
         text.append("sequence=").append(captured).append('\n');
+        text.append("mode=").append(mode).append('\n');
         text.append("capturedAtNanos=").append(nowNanos).append('\n');
         text.append("ageMillis=").append((nowNanos - inFlightQueuedNanos) / 1_000_000.0).append('\n');
         text.append("width=").append(width).append('\n');
@@ -414,7 +496,7 @@ public final class WorldCapture {
         text.append("depthBufferBytes=").append(lastDepthBytes).append('\n');
         text.append("colourBufferBytes=").append(lastColourBytes).append('\n');
         text.append("depthRowsPadded=")
-            .append(lastDepthBytes > (long) width * height * 4L).append('\n');
+            .append(haveDepth && lastDepthBytes > (long) width * height * 4L).append('\n');
         text.append("depthRowOrder=topdown\n");
         text.append("depthConvention=opengl-window-depth\n");
         text.append("anchorSource=").append(inFlightAnchorSource).append('\n');
@@ -433,13 +515,25 @@ public final class WorldCapture {
                 text.append(inFlightMatrix[i]).append(i == 15 ? '\n' : ' ');
             }
         }
+
+        if (!haveDepth) {
+            // No depth was asked for, so no depth statistics. Reporting statistics of
+            // an untouched zero buffer would be worse than reporting nothing: it looks
+            // like a measurement of a flat depth buffer.
+            text.append("depthStats=not requested\n");
+            text.append("colourNonZero=").append(countNonZero(colour)).append('\n');
+            return text.toString();
+        }
+
         // What the depth actually contained, so "the readback worked" is a claim about
         // data rather than about the absence of an exception.
+        FloatSummary summary = FloatSummary.of(depth, width, height);
+        text.append("depthStats=").append(mode).append('\n');
         text.append("depthMin=").append(summary.min).append('\n');
         text.append("depthMax=").append(summary.max).append('\n');
         text.append("depthMean=").append(String.format(Locale.ROOT, "%.6f", summary.mean)).append('\n');
         text.append("depthDistinctApprox=").append(summary.distinctApprox).append('\n');
-                text.append("depthCornersTL_TR_BL_BR=").append(summary.corners).append('\n');
+        text.append("depthCornersTL_TR_BL_BR=").append(summary.corners).append('\n');
         text.append("depthNonFinite=").append(summary.nonFinite).append('\n');
         text.append("depthFirstRowDistinct=").append(summary.firstRowDistinct).append('\n');
         text.append("depthLastRowDistinct=").append(summary.lastRowDistinct).append('\n');
@@ -571,10 +665,21 @@ public final class WorldCapture {
             StringBuilder text = new StringBuilder();
             text.append("captured=").append(captured).append('\n');
             text.append("requested=").append(requestedFrames).append('\n');
+            text.append("mode=").append(mode).append('\n');
             text.append("status=").append(status).append('\n');
             text.append("hookSeen=").append(hookSeen).append('\n');
             text.append("depthFormat=").append(inFlightDepthFormat).append('\n');
             text.append("colourFormat=").append(inFlightColourFormat).append('\n');
+            // Which half has landed. The live failure was a copy the driver refused
+            // without raising anything in Java, so these two flags are the only honest
+            // signal that a copy did not happen - and they are worth publishing
+            // precisely while nothing has landed.
+            text.append("colourLanded=").append(colourLanded).append('\n');
+            text.append("depthLanded=").append(depthLanded).append('\n');
+            text.append("inFlight=").append(inFlight).append('\n');
+            text.append("remaining=").append(remaining).append('\n');
+            text.append("inFlightMillis=").append(inFlight
+                ? (System.nanoTime() - inFlightQueuedNanos) / 1_000_000L : -1).append('\n');
             Files.writeString(summaryFile, text.toString(), StandardCharsets.UTF_8);
         } catch (IOException ignored) {
             // Instrumentation must never break the frame it measures.
