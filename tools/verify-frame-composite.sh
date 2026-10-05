@@ -41,6 +41,12 @@ game="$(game_pid)"
 mark="$(wc -l < "$log")"
 printf 'MHW pid %s, renderer log marked at line %s\n' "$game" "$mark"
 
+# The session start, so facts that hold once per session rather than per run - the
+# pipeline being created, the depth candidates being found - are not reported missing
+# merely because they happened before this run asked.
+session="$(grep -n "renderer initialized" "$log" | tail -1 | cut -d: -f1)"
+session="${session:-1}"
+
 # The channel before we ask for anything, so a stale file from an earlier session
 # cannot be mistaken for a live one.
 #
@@ -104,17 +110,31 @@ tail -n "+$((mark + 1))" "$log" > "$out/renderer.log"
 
 echo
 echo "--- verdict ---"
+# Session-wide facts, from the session start rather than from this run's mark.
+sed -n "${session},\$p" "$log" > "$out/session.log"
+
 verdict() {
-    if grep -q "Minecraft frame pipeline ready" "$out/renderer.log"; then
+    if grep -q "Minecraft frame pipeline ready" "$out/session.log"; then
         echo "  pipeline     : created"
     else
-        echo "  pipeline     : NOT created (see the compile error above, if any)"
+        echo "  pipeline     : NOT created (see any compile error in the session log)"
     fi
-    if grep -q "First Minecraft frame uploaded" "$out/renderer.log"; then
-        echo "  upload       : $(grep -m1 'First Minecraft frame uploaded' "$out/renderer.log" | cut -c1-120)"
+    # The upload line is guarded to fire once per session, so its absence says nothing
+    # about whether uploads are happening now. Reporting "none" from it was wrong twice
+    # over: it missed uploads entirely, and it could not tell a reader that never worked
+    # from one working quietly. What says something is whether refusals are still arriving.
+    uploaded="$(grep -m1 'First Minecraft frame uploaded' "$out/session.log" | cut -c1-110)"
+    if [ -n "$uploaded" ]; then
+        echo "  upload       : first upload seen this session - ${uploaded#*] }"
     else
-        echo "  upload       : none"
+        echo "  upload       : no upload has ever been logged this session"
     fi
+    echo "  stall lines  : $(grep -c 'frame is not being published' "$out/session.log") in the whole session"
+    echo "  last log tick: $(grep -oE '^\[[0-9]+\]' "$out/session.log" | tail -1 | tr -d '[]') ms since boot"
+    echo "  note         : uploads after the first are silent by design. Liveness is judged by"
+    echo "                 whether 'frame is not being published' has stopped, and by the"
+    echo "                 screenshot - not by this count."
+
     if grep -q "Compositing Minecraft frame" "$out/renderer.log"; then
         echo "  composition  : $(grep -m1 'Compositing Minecraft frame' "$out/renderer.log" | cut -c1-120)"
     else
@@ -124,7 +144,8 @@ verdict() {
     refusals="$(grep -c "Minecraft frame refused" "$out/renderer.log")"
     echo "  refusals     : $refusals"
     grep "Minecraft frame refused" "$out/renderer.log" | sort -u | head -5 | sed 's/^/                /'
-    grep "re-opened the Minecraft frame channel" "$out/renderer.log" | head -2 | sed 's/^/                /'
+    grep -E "re-opened the Minecraft frame channel|opened via the" "$out/session.log" \
+        | head -4 | sed 's/^/                /'
 }
 verdict | tee "$out/verdict.txt"
 

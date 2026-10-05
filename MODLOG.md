@@ -1956,3 +1956,67 @@ redundant for correctness and kept only because throwing is expensive in the ren
 path. Mutating just its final `return` also did nothing, since the guard short-circuits
 first. Replacing the whole method does fail, with the assertion naming the consequence. A
 mutation that cannot fail is worth as little as a test that cannot.
+
+## 2026-10-06 — Steve renders inside MHW. Screenshot, not inference.
+
+First live composite. Measured, in order:
+
+```
+[2534188] re-opened the Minecraft frame channel (was absent, size 15691648): restarted, memory cleared
+[2534189] frame channel opened via the Unix-style spelling (15691648 bytes)
+[2534192] First Minecraft frame uploaded: seq=42 1908x1028
+[2535203] Compositing Minecraft frame with MHW scene depth
+```
+
+- **Guest sequences advancing**: sampled the channel twice four seconds apart; the
+  sequence moved by 58, about 14 fps, newest frame 126 ms old.
+- **Upload**: `First Minecraft frame uploaded: seq=42 1908x1028`.
+- **Draw issued**: `Compositing Minecraft frame with MHW scene depth`.
+- **Visible**: `screenshot-live.png` and `live-a.png` / `live-b.png` in
+  `build/evidence/frame-composite/`. Minecraft's ocean, its blocky cliff, the hotbar,
+  the "Potion" stack and our own HUD are composited into the middle of MHW's screen,
+  **and the hunter, the Palico, the minimap and MHW's control prompts are drawn over
+  it** — the sky-only rule behaving exactly as specified: Minecraft fills the pixels MHW
+  left empty, MHW's geometry wins everywhere else.
+- **Liveness, visually**: `live-a.png` and `live-b.png` four seconds apart differ in
+  99.95% of the pixels of the HUD band, so the composited content is moving. That is a
+  stronger statement than any log line, because a log line only says a draw was issued.
+
+**Two more things the run settled.**
+
+*The Windows path question is answered.* `frame channel opened via the Unix-style
+spelling` — Wine accepted `/dev/shm/crafterhunter/frame.channel` outright and never
+needed the `Z:` fallback. The fallback stays, because a silent fallback from "the path
+spelling Wine stopped accepting" to "the guest has not published" is precisely the
+failure this file has produced before.
+
+*The publisher stall is fixed in-game, which is the point of fix 1.* When a capture ran
+out, the reader logged `same writer, memory kept` with `frame is not being published`
+once a second, 168 times, and uploaded **zero** further frames. Before that fix it
+zeroed the liveness clock on every re-open, so a frozen Steve would have been redrawn
+every second indefinitely while the log looked healthy. A guest restart was exercised
+live too — Minecraft was relaunched before this run — and the reader classified it
+`restarted, memory cleared` before uploading.
+
+**Two defects in my own verification script, both found by it disagreeing with the
+screen.**
+
+1. It reported `pipeline: NOT created` because it searched only the log since its own
+   mark, while the pipeline is created once per session long before any capture.
+2. It reported `upload: none` while uploads were demonstrably happening, because the
+   upload line is guarded to fire once. Its absence means nothing at all.
+
+Both now read from the session start, and the verdict states that liveness is judged by
+whether the stall lines have stopped and by the screenshot.
+
+**Still not verified: a window resize.** The channel is still 1908×1028 and no resize has
+happened this session, so the `Resized` branch of the generation classifier has live
+evidence only from the integration test, never from the game. Dragging the Minecraft
+window is all that is needed, and it is the last thing between this milestone and
+"verified".
+
+**Unrelated and also broken: the bridge is down.** Minecraft's HUD reads `MHW LINK:
+AWAITING | 0 pkt/s` and the log shows `PortUnreachableException`, so the camera and
+player-proxy links are not running. That is the UDP bridge, not the frame path, and
+nothing in this milestone depends on it — but the HUD is reporting two dead links and
+that should not be left looking healthy.
