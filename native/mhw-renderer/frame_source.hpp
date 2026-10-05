@@ -147,8 +147,16 @@ public:
     // The newest complete frame, or a frame with null pixels when there is
     // nothing to draw. Never guesses: every refusal returns a null pointer and a
     // reason the caller can log once.
+    //
+    // `nowNanos` is accepted but deliberately unused for the age decision. This
+    // function cannot judge freshness: the guest stamps frames with a clock
+    // measured 3,422,487 ms away from ours, so comparing the two here would
+    // refuse every frame that was ever published. The caller decides, using
+    // frame_clock.hpp, which is where the measurement behind that decision is
+    // recorded.
     crafterhunter::frame::FrameView newestFrame(std::uint32_t hostWidth,
         std::uint32_t hostHeight, std::uint64_t nowNanos, const char** reason) const {
+        (void)nowNanos;
         crafterhunter::frame::FrameView view{0, 0, 0, 0, nullptr};
         if (!mapped_) { *reason = "channel not mapped"; return view; }
         if (!channelLongEnough(length())) {
@@ -173,12 +181,6 @@ public:
         }
 
         const crafterhunter::frame::SlotHeader& slot = slots[pick];
-        // Freshness is the reader's call, not the writer's: only this side knows
-        // what time it is drawing at.
-        if (!crafterhunter::frame::fresh(slot.capturedNanos, nowNanos)) {
-            *reason = "frame is stale";
-            return view;
-        }
 
         const std::size_t offset = crafterhunter::frame::pixelsOffset(pick, slot.width, slot.height);
         if (offset + crafterhunter::frame::frameBytes(slot.width, slot.height) > length()) {

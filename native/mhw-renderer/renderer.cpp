@@ -19,12 +19,14 @@
 #include "frame_transport.hpp"
 #include "frame_source.hpp"
 #include "frame_composite.hpp"
+#include "frame_clock.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace sel = crafterhunter::depth;
 namespace frameio = crafterhunter::frame;
 namespace frames = crafterhunter::frames;
 namespace cmp = crafterhunter::composite;
+namespace ch = crafterhunter::clock;
 namespace {
 constexpr char Dir[] = "nativePC/plugins/CSharp/CrafterHunter/render";
 std::mutex gate;
@@ -105,13 +107,34 @@ bool previousCameraValid = false;
 ComPtr<ID3D11Buffer> cameraStaging;
 
 // Minecraft frame state. The texture holds the newest uploaded frame, and
-// lastFrameSequence is what makes the upload conditional: uploading 7.8 MB every
-// frame when the guest publishes at 20 Hz would cost more than the frame itself.
+// lastUploadedSequence is what makes the upload conditional: uploading 7.8 MB
+// every frame when the guest publishes at 20 Hz would cost more than the frame
+// itself.
 frames::Source frameSource;
 ComPtr<ID3D11Texture2D> minecraftTexture;
 ComPtr<ID3D11ShaderResourceView> minecraftView;
 UINT minecraftWidth = 0, minecraftHeight = 0;
-unsigned long long lastFrameSequence = 0;
+// The sequence whose pixels are already on the texture. Kept apart from
+// lastAdvanceSequence below because the two answer different questions: one
+// avoids re-uploading the same frame, the other says the guest is still alive.
+unsigned long long lastUploadedSequence = 0;
+unsigned long long lastAdvanceSequence = 0;
+// When the sequence last changed, on our own clock. This is what a frame's age is
+// measured from, because the two processes' clocks were measured 3,422,487 ms
+// apart and cannot be compared; frame_clock.hpp records why correcting for that
+// does not work either.
+unsigned long long lastAdvanceNanos = 0;
+// Which way this frame's age is judged, decided once from a measurement and
+// logged once so the log states which rule is in force rather than leaving it to
+// be inferred.
+ch::AgeSource ageSource = ch::AgeSource::LocalLiveness;
+bool ageSourceChosen = false;
+// Last time we re-opened the channel. The guest deletes and recreates its file
+// when the window changes size, which leaves us holding a mapping of a file
+// nothing writes to any more; the sequence then freezes, and only re-opening
+// recovers. Bounded so a genuinely stopped guest costs one failed open per
+// interval rather than one per frame.
+unsigned long long lastRemapNanos = 0;
 unsigned long long minecraftUploaded = 0;
 const char* lastFrameRefusal = nullptr;
 bool frameRefusalLogged = false;
@@ -691,17 +714,13 @@ bool uploadNewestFrame() {
         return false;
     }
 
-    // The two processes do not share a clock: the guest stamps frames with
-    // System.nanoTime() and this process reads GetTickCount64. Rather than assume
-    // they agree, the offset is measured once against the first frame seen, and
-    // every later age is computed against that. Same machine, so the drift is
-    // negligible; different machines would need a real handshake.
-    static bool offsetKnown = false;
-    static unsigned long long guestOffset = 0;
-    const unsigned long long now = GetTickCount64() * 1'000'000ull / 10'000ull;
+    // Our own clock, in nanoseconds. GetTickCount64 counts milliseconds and the
+    // conversion is a multiplication by a million - an earlier version divided as
+    // well and produced a number ten thousand times too small, which made every
+    // frame look like it had been captured in the future.
+    const unsigned long long now = ch::millisToNanos(GetTickCount64());
     const char* reason = nullptr;
-    const frameio::FrameView view =
-        frameSource.newestFrame(width, height, offsetKnown ? now - guestOffset : now, &reason);
+    const frameio::FrameView view = frameSource.newestFrame(width, height, now, &reason);
     if (!view.pixels) {
         if (reason && (!lastFrameRefusal || std::strcmp(lastFrameRefusal, reason) != 0)) {
             lastFrameRefusal = reason;
@@ -710,11 +729,50 @@ bool uploadNewestFrame() {
         return false;
     }
 
-    if (!offsetKnown) {
-        guestOffset = now > view.capturedNanos ? now - view.capturedNanos : 0;
-        offsetKnown = true;
+    // Decide once, from a measurement, how this frame's age will be judged, and
+    // say so in the log. The guest's stamp and ours were measured 3,422,487 ms
+    // apart, so the transport's own 50 ms freshness rule cannot apply here.
+    if (!ageSourceChosen) {
+        const std::int64_t divergence = ch::divergenceNanos(now, view.capturedNanos);
+        ageSource = ch::chooseAgeSource(divergence, frameio::MaxAgeNanos);
+        ageSourceChosen = true;
+        log("frame age source=%s (guest stamp is %.3f s from ours, tolerance %.0f ms)",
+            ageSource == ch::AgeSource::GuestStamp ? "guest-stamp" : "local-liveness",
+            static_cast<double>(divergence) / 1e9,
+            static_cast<double>(frameio::MaxAgeNanos) / 1e6);
     }
-    if (view.sequence == lastFrameSequence && minecraftView) return true;
+
+    // Liveness is measured here, on our own clock, because nothing else can be.
+    if (view.sequence != lastAdvanceSequence) {
+        lastAdvanceSequence = view.sequence;
+        lastAdvanceNanos = now;
+    }
+
+    if (!ch::frameIsFresh(ageSource, now, view.capturedNanos, lastAdvanceNanos,
+                          ch::StallBoundNanos, frameio::MaxAgeNanos)) {
+        // The sequence has stopped advancing. Either the guest stopped
+        // publishing, or it deleted and recreated the channel at a new size and we
+        // are still holding a mapping of a file nothing writes to. Re-opening
+        // tells the two apart in practice and is the only thing that recovers the
+        // second case, so it is tried at a bounded rate rather than once.
+        if (now - lastRemapNanos >= ch::StallBoundNanos / 3) {
+            lastRemapNanos = now;
+            frameSource.close();
+            if (frameSource.open()) log("re-opened the Minecraft frame channel (seq=%llu)",
+                                        static_cast<unsigned long long>(view.sequence));
+        }
+        if (!frameRefusalLogged || std::strcmp(lastFrameRefusal, "frame is not being published") != 0) {
+            frameRefusalLogged = true;
+            lastFrameRefusal = "frame is not being published";
+            log("Minecraft frame refused: %s (seq=%llu lastAdvance=%llu ms ago)",
+                lastFrameRefusal, static_cast<unsigned long long>(view.sequence),
+                lastAdvanceNanos ? (now - lastAdvanceNanos) / 1'000'000ull : 0ull);
+        }
+        return false;
+    }
+    frameRefusalLogged = false;
+
+    if (view.sequence == lastUploadedSequence && minecraftView) return true;
     if (view.width != minecraftWidth || view.height != minecraftHeight) {
         D3D11_TEXTURE2D_DESC td{};
         td.Width = view.width; td.Height = view.height;
@@ -736,7 +794,7 @@ bool uploadNewestFrame() {
     // no repacking is needed. Pitch is read back rather than assumed.
     context->UpdateSubresource(minecraftTexture.Get(), 0, nullptr, view.pixels,
         static_cast<UINT>(staged.Width * 4), static_cast<UINT>(staged.Height));
-    lastFrameSequence = view.sequence;
+    lastUploadedSequence = view.sequence;
     ++minecraftUploaded;
     if (minecraftUploaded == 1) {
         log("First Minecraft frame uploaded: seq=%llu %ux%u",
@@ -1003,7 +1061,9 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     sharedReady = false; framePipelineFailed = false; depthSelectionFrame = 0;
     sceneDepthView.Reset(); minecraftView.Reset(); minecraftTexture.Reset();
     frameVertexShader.Reset(); framePixelShader.Reset(); frameConstants.Reset();
-    lastFrameSequence = 0; minecraftUploaded = 0; minecraftWidth = 0; minecraftHeight = 0;
+    lastUploadedSequence = 0; lastAdvanceSequence = 0; lastAdvanceNanos = 0;
+    ageSourceChosen = false; lastRemapNanos = 0;
+    minecraftUploaded = 0; minecraftWidth = 0; minecraftHeight = 0;
     frameSource.close();
     initialized = false; swapchain = nullptr;
 }

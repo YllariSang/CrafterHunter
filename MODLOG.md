@@ -1521,3 +1521,70 @@ assertions by name, and weakening the length rule fails the boundary check.
 
 **Build passes; nothing here has been seen in-game yet.** That distinction is the
 subject of the next entries.
+
+## 2026-10-05 — the timestamp conversion, and why the clocks cannot be compared
+
+The second fault, and the one that had been hiding behind the first.
+
+The conversion was wrong by a factor of ten thousand:
+
+```cpp
+GetTickCount64() * 1'000'000ull / 10'000ull   // milliseconds -> ?
+```
+
+GetTickCount64 counts **milliseconds**, so milliseconds to nanoseconds is a
+multiplication by one million. That expression divides as well and yields
+milliseconds times one hundred — a number far too small to compare against
+anything. `fresh()` opens with `if (capturedNanos == 0 || nowNanos < capturedNanos)
+return false;`, so every frame looked like it had been captured in the future and
+every frame was refused.
+
+Worse, the offset that was supposed to rescue this could not be learned: it was
+measured only *after* a frame passed the freshness gate. With clocks that genuinely
+disagree, no frame passes the gate, so the offset is never learned and no frame is
+ever accepted. The two requirements are contradictory.
+
+**Measured rather than assumed.** The guest stamps frames with `System.nanoTime()`
+and this process reads `GetTickCount64`. Reading a live channel:
+
+```
+guest stamp is 3422486.7 ms behind CLOCK_MONOTONIC
+```
+
+Fifty-seven minutes, which is what a JVM that counts suspend time and a kernel
+whose monotonic clock stops during suspend will disagree by after a laptop has
+been closed once. Not a constant, and not calibratable.
+
+That killed the plan of correcting for the difference, and not only because of the
+deadlock. Fitting an offset to a single sample makes `local - guest` equal that
+offset *by construction*, so the age it reports is identically zero — for every
+frame, forever. Both approaches were implemented, both were wrong, and the tests
+that caught them are in `frame_clock.hpp`'s header comment so the next person does
+not try them again.
+
+**What runs instead.** Age is measured on the reader's own clock, from whether the
+guest's sequence number advanced recently. That needs no agreement between the
+processes and answers the question that matters — whether the world in the frame
+has moved on.
+
+The bound is deliberately loose, and the reason is measured too. The transport's
+`MaxAgeNanos` is 50 ms, but publication is gated on a GPU read-back returning, and
+the measured interval is **140 ms when Minecraft is busy and 1000 ms when it is
+not** (`ageMillis=1000.5`, one sequence per second). A 50 ms bound would refuse
+every frame ever published. `StallBoundNanos` is 3 s: it clears the slowest
+observed rate with room to spare and still notices a stopped guest quickly. A test
+asserts the bound exceeds both measured rates, so it cannot be quietly tightened
+back to a number that refuses everything.
+
+`chooseAgeSource()` keeps the transport's own rule for the case where clocks *do*
+agree, so this is a decision made from a measurement rather than a replacement of
+the contract. The chosen source is logged once with the divergence, so the log
+states which rule is in force instead of leaving it to be inferred. One test
+asserts the branches do not rescue each other: a fresh-looking guest stamp must not
+rescue a frame that has stopped publishing.
+
+`lastUploadedSequence` and `lastAdvanceSequence` were separated, because the upload
+dedup and the liveness check are different questions and sharing one counter made
+the second unaskable.
+
+**Still unverified in-game.** This is the state of the code, not the state of MHW.
