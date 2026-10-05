@@ -64,6 +64,32 @@ int main() {
     check(decide(pixel(0.0f, false, 0.0f, true, false)) == Decision::Skip,
           "Minecraft colour with no depth is refused rather than pasted");
 
+    // The interim rule used against the current transport, which carries colour
+    // and no depth. It must draw against MHW's sky and refuse everywhere MHW has
+    // geometry of its own, and the two halves are checked separately: a rule that
+    // simply returned Draw would satisfy the first and cover the hunter with the
+    // second.
+    check(decideSkyOnly(pixel(0.0f, false, 0.0f, true, false)) == Decision::Draw,
+          "sky-only draws Minecraft where MHW has no geometry");
+    check(decideSkyOnly(pixel(0.9f, true, 0.9f, true, false)) == Decision::Skip,
+          "sky-only refuses where MHW has geometry, whatever Minecraft's depth");
+    check(decideSkyOnly(pixel(0.0f, true, 0.0f, true, false)) == Decision::Skip,
+          "sky-only refuses even at the far plane rather than covering the host");
+    check(decideSkyOnly(pixel(0.0f, false, 0.0f, false, false)) == Decision::Unusable,
+          "sky-only still refuses a frame with no Minecraft pixel at all");
+    // The interim rule must be strictly more conservative than the full one
+    // wherever the full rule would skip, or it would paper over the occlusion
+    // the full rule exists to provide. Minecraft behind MHW: both refuse.
+    check(decide(pixel(0.9f, true, 0.2f, true, true)) == Decision::Skip &&
+              decideSkyOnly(pixel(0.9f, true, 0.2f, true, true)) == Decision::Skip,
+          "sky-only skips everything the full rule skips");
+    // The gap, stated as a test: a nearer Minecraft pixel over MHW's geometry is
+    // exactly the case that needs Minecraft's own depth, and the interim rule
+    // cannot reach it. If this ever starts passing, depth has arrived.
+    check(decide(pixel(0.2f, true, 0.8f, true, true)) == Decision::Draw &&
+              decideSkyOnly(pixel(0.2f, true, 0.8f, true, true)) == Decision::Skip,
+          "the full rule draws a nearer Minecraft pixel that sky-only cannot");
+
     // Coverage: a frame that is almost entirely Minecraft's own sky carries
     // nothing worth compositing.
     check(!worthCompositing(0.0f), "an empty frame is not worth compositing");

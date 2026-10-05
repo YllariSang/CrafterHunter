@@ -61,6 +61,26 @@ inline Decision decide(const PixelView& pixel) {
     return pixel.minecraftDepth + DepthEpsilon > pixel.hostDepth ? Decision::Draw : Decision::Skip;
 }
 
+// The interim rule, for a transport that carries Minecraft colour but no depth.
+//
+// `decide()` refuses colour-without-depth because pasting it unconditionally
+// would cover MHW's hunter with a rectangle. That objection is about
+// *unconditional* pasting. Restricted to host pixels holding no geometry at all,
+// the same frame draws only where MHW drew nothing and covers nothing, so this is
+// the pinned rule with the depth comparison unavailable rather than a loosened
+// version of it.
+//
+// What this costs, stated plainly: Minecraft is visible against MHW's sky and
+// is NOT occluded by MHW's terrain. A tree between Steve and the camera will not
+// hide him. Full occlusion needs Minecraft's own depth in the transport, which
+// means a second attachment and a linearisation, and is its own piece of work
+// rather than a shader tweak.
+inline Decision decideSkyOnly(const PixelView& pixel) {
+    if (!pixel.minecraftHasPixel) return Decision::Unusable;
+    if (pixel.hostHasDepth) return Decision::Skip;
+    return Decision::Draw;
+}
+
 // Fraction of the frame worth uploading at all, given a coverage measurement.
 // Minecraft's own sky is a large fraction of most frames and carries no
 // information for MHW: it is Minecraft's sky, not the world's, and drawing it

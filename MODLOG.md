@@ -1422,3 +1422,55 @@ Mutation-tested both ways, since a gate that does not fail is worse than none:
 Exit codes were checked directly rather than through a pipe, having first been
 masked by `tail` in the mutation run — a gate whose failure is invisible in a log
 is a gate nobody trusts.
+
+## 2026-10-05 — X4500, and the depth the transport does not carry
+
+Third deployment, third distinct failure, and the sharpest one yet:
+
+```
+FramePS compile: CrafterHunter(26,18-31): error X4500: overlapping register semantics not yet implemented 't1'
+```
+
+**The stone and the frame both bound `t0`/`t1` inside one source string.** `D3DCompile` parses the entire unit and rejects the file; glslang compiles each entry point in isolation and had happily accepted it. So the gate added an hour earlier did not catch this, and the honest conclusion is that it is a floor rather than proof — now stated in the script's own comment.
+
+The two shaders are now separate string literals, `Shader` and `FrameShader`, each declaring `t0`/`t1` once.
+
+**The deeper problem was hiding behind the compile error.** `FramePS` sampled
+`minecraftDepth` at `t1` while `drawFrame` bound *MHW's* `sceneDepth` there. So
+the shader wanted Minecraft's depth and would have been handed MHW's, comparing a
+surface against itself and producing an image that looked plausible and was
+meaningless. The pinned rule in `frame_composite.hpp` wants Minecraft's own
+**linear eye depth** plus a flag for "Minecraft drew nothing here".
+
+None of that exists. The transport is `rgba8-topdown`, `BytesPerPixel = 4`: colour
+and nothing else. Per-pixel occlusion between the two games cannot be implemented
+against this transport, and pretending otherwise is how a plausible-looking image
+gets mistaken for a working one.
+
+So the shipped rule is the interim one, `decideSkyOnly()`: draw Minecraft where
+MHW holds no geometry, refuse everywhere else. That is the pinned rule with the
+depth comparison unavailable, not a loosened version of it — `decide()` refused
+colour-without-depth because *unconditional* pasting would cover the hunter, and
+restricted to the host's own empty pixels nothing is covered.
+
+**What this costs, stated plainly:** Steve appears against MHW's sky and is *not*
+occluded by MHW's terrain. A tree between him and the camera will not hide him.
+Minecraft's sky is indistinguishable from its geometry without depth, so the
+letterbox carries Minecraft's sky with it. Full occlusion needs Minecraft's depth
+attachment published and linearised — a transport change and a guest change, not a
+shader tweak — and it is now written down as its own piece of work rather than
+left as a comment promising it will arrive.
+
+`decideSkyOnly()` is unit-tested with four assertions, including one that states
+the gap as a test: a nearer Minecraft pixel over host geometry is `Draw` under the
+full rule and `Skip` under the interim one. If that ever starts passing, depth has
+arrived. Deleting the rule's refusal fails all four.
+
+Two of my own test expectations were wrong on the way in, both caught by running
+them: `DepthEpsilon` makes *equal* depths draw rather than skip, and I had the
+reversed-Z direction backwards in the "nearer Minecraft" case. The rule was right
+both times.
+
+The 1x1 `minecraftDepthProbe` texture is gone. It existed only to stand in for a
+binding the shader no longer reads, and leaving it would have suggested depth was
+on its way without saying what it would cost.

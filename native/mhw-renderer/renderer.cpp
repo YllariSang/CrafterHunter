@@ -125,8 +125,6 @@ ComPtr<ID3D11ShaderResourceView> sceneDepthView;
 ComPtr<ID3D11VertexShader> frameVertexShader;
 ComPtr<ID3D11PixelShader> framePixelShader;
 ComPtr<ID3D11Buffer> frameConstants;
-ComPtr<ID3D11Texture2D> minecraftDepthProbe;
-ComPtr<ID3D11ShaderResourceView> minecraftDepthProbeView;
 
 // Maps Minecraft's frame onto MHW's backbuffer. Minecraft's window and MHW's
 // are almost never the same size, and the two disagreeing is the normal case
@@ -415,13 +413,6 @@ Texture2D<float4> stone : register(t0);
 Texture2D<float> sceneDepth : register(t1);
 SamplerState nearest : register(s0);
 
-// The Minecraft frame and its own depth, as separate entry points in the same
-// source string. They could branch one shared pixel shader, but then every stone
-// draw would carry the frame's bindings and vice versa, and which resource a
-// draw actually read would stop being obvious.
-Texture2D<float4> minecraftColour : register(t0);
-Texture2D<float> minecraftDepth : register(t1);
-cbuffer FrameMapping : register(b3) { float4 uvRect; };
 
 // The stone's vertex shader. Kept distinct from FrameVS rather than shared: they
 // differ only in name today, but one generates a full-screen triangle for the
@@ -432,46 +423,7 @@ float4 VS(uint id : SV_VertexID) : SV_Position {
     return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
 }
 
-float4 FrameVS(uint id : SV_VertexID) : SV_Position {
-    float2 uv = float2((id << 1) & 2, id & 2);
-    return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
-}
 
-// One Minecraft pixel against MHW's depth at the same place.
-//
-// The rule lives in frame_composite.hpp and is unit-tested there; this is the
-// same decision in a shader, and the comments here point at the test rather than
-// restating the reasoning. The three facts that matter:
-//   - reversed Z: nearer is the LARGER value, so Minecraft draws when its depth
-//     is greater than the host's;
-//   - a host pixel the host pass never touched holds the clear value 0, which
-//     under reversed Z is the far end, so depth 0 is sky and Minecraft draws
-//     there rather than being discarded;
-//   - Minecraft's own sky is alpha 0 and is never drawn, because it is
-//     Minecraft's sky rather than the world's.
-float4 FramePS(float4 pixel : SV_Position) : SV_Target {
-    float2 hostUv = pixel.xy / screen.xy;
-    float2 uv = hostUv * uvRect.xy + uvRect.zw;
-    if (any(uv < 0.0) || any(uv > 1.0)) discard;
-
-    float4 colour = minecraftColour.SampleLevel(nearest, uv, 0);
-    // Minecraft leaves its sky at zero alpha; drawing it would replace MHW's
-    // sky with a flat gradient.
-    if (colour.a < 0.01) discard;
-
-    float minecraftZ = minecraftDepth.SampleLevel(nearest, uv, 0).r;
-    if (minecraftZ <= 0.0) discard;   // no depth to compare: refuse rather than paste
-
-    float hostZ = sceneDepth.Load(int3(int2(pixel.xy), 0));
-    if (hostZ > 0.0) {
-        // Reversed Z, so nearer is larger. Coplanar surfaces stay inside the
-        // epsilon so they do not flicker between drawn and discarded.
-        if (minecraftZ + 0.000001 <= hostZ) discard;
-    }
-    // hostZ == 0 means the host pass wrote nothing here: MHW's sky. Minecraft
-    // draws over it, or a building against the sky punches a hole in the world.
-    return float4(colour.rgb, 1);
-}
 float4 PS(float4 pixel : SV_Position) : SV_Target {
     float2 ndc = pixel.xy / screen.xy * float2(2, -2) + float2(-1, 1);
     if (any(abs(uiScale.xy - float2(2, -2) / screen.xy) > 0.000001)) discard;
@@ -507,6 +459,64 @@ float4 PS(float4 pixel : SV_Position) : SV_Target {
     return float4(color.rgb * shade, 1);
 }
 )hlsl";
+// The Minecraft frame's shaders, in a source string of their own.
+//
+// Separate from the stone's because both pixel shaders bind t0 and t1 to
+// different resources. Sharing one compilation unit makes those two
+// declarations overlap, and D3DCompile rejects the whole file with X4500
+// "overlapping register semantics". Only Microsoft's compiler sees it: glslang
+// compiles each entry point in isolation and accepts this happily, so
+// tools/test-shader-source.sh is a floor rather than proof.
+constexpr char FrameShader[] = R"hlsl(
+cbuffer Parameters : register(b0) {
+    row_major float4x4 inverseVP;
+    row_major float4x4 vp;
+    float4 centre;
+    float4 screen;
+};
+cbuffer FrameMapping : register(b3) { float4 uvRect; };
+Texture2D<float4> minecraftColour : register(t0);
+Texture2D<float> sceneDepth : register(t1);
+SamplerState nearest : register(s0);
+float4 FrameVS(uint id : SV_VertexID) : SV_Position {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
+}
+
+// One Minecraft pixel, drawn only where MHW has nothing of its own.
+//
+// This is the interim rule from frame_composite.hpp, decideSkyOnly(). The full
+// rule compares Minecraft's depth against MHW's and is unit-tested there; it is
+// not implemented here because the transport carries colour and no depth, so
+// there is no Minecraft depth to sample. Rather than bind MHW's depth texture
+// where Minecraft's was expected and silently compare a surface with itself,
+// this draws only against the host's sky.
+//
+// What that means on screen: Steve appears against MHW's sky and is NOT
+// occluded by MHW's terrain. A tree between him and the camera will not hide
+// him. Full occlusion needs Minecraft's own depth in the transport, which is a
+// second attachment and a linearisation, not a shader change.
+//
+// The host fact this relies on is confirmed by the resource trace: MHW clears
+// scene depth to 0 under reversed Z, so 0 is the far end and means the host pass
+// wrote nothing here.
+float4 FramePS(float4 pixel : SV_Position) : SV_Target {
+    float2 hostUv = pixel.xy / screen.xy;
+    float2 uv = hostUv * uvRect.xy + uvRect.zw;
+    if (any(uv < 0.0) || any(uv > 1.0)) discard;
+
+    float hostZ = sceneDepth.Load(int3(int2(pixel.xy), 0));
+    // Any host geometry here wins. This is the check that keeps the frame from
+    // covering the hunter or a monster.
+    if (hostZ > 0.0) discard;
+
+    // Minecraft's sky is indistinguishable from its geometry without depth, so
+    // the letterbox carries Minecraft's sky with it. Stated rather than hidden:
+    // it is the visible cost of not having depth.
+    return minecraftColour.SampleLevel(nearest, uv, 0);
+}
+)hlsl";
+
 
 // The fixed-function objects both draw paths bind: the context-state slot that
 // makes a draw invisible to the game, the screen-size constant buffer, and three
@@ -567,13 +577,13 @@ bool createPipeline() {
 bool createFramePipeline() {
     if (!ensureSharedState()) return false;
     ComPtr<ID3DBlob> vs, ps, error;
-    if (FAILED(D3DCompile(Shader, sizeof(Shader) - 1, "CrafterHunter", nullptr, nullptr,
+    if (FAILED(D3DCompile(FrameShader, sizeof(FrameShader) - 1, "CrafterHunter", nullptr, nullptr,
             "FrameVS", "vs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &vs, &error))) {
         log("FrameVS compile: %s", error ? static_cast<char*>(error->GetBufferPointer()) : "failed");
         return false;
     }
     error.Reset();
-    if (FAILED(D3DCompile(Shader, sizeof(Shader) - 1, "CrafterHunter", nullptr, nullptr,
+    if (FAILED(D3DCompile(FrameShader, sizeof(FrameShader) - 1, "CrafterHunter", nullptr, nullptr,
             "FramePS", "ps_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &ps, &error))) {
         log("FramePS compile: %s", error ? static_cast<char*>(error->GetBufferPointer()) : "failed");
         return false;
@@ -588,16 +598,11 @@ bool createFramePipeline() {
     bd.Usage = D3D11_USAGE_DEFAULT; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     if (FAILED(device->CreateBuffer(&bd, nullptr, &frameConstants))) return false;
 
-    // A staging texture for reading Minecraft's depth out of its own buffer, and
-    // a shader-readable default texture for the frame itself.
-    D3D11_TEXTURE2D_DESC td{};
-    td.Width = td.Height = 1; td.MipLevels = td.ArraySize = td.SampleDesc.Count = 1;
-    td.Format = DXGI_FORMAT_R32_FLOAT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-    if (FAILED(device->CreateTexture2D(&td, nullptr, &minecraftDepthProbe)) ||
-        FAILED(device->CreateShaderResourceView(minecraftDepthProbe.Get(), nullptr, &minecraftDepthProbeView))) {
-        return false;
-    }
-    log("Minecraft frame pipeline ready");
+    // No Minecraft depth texture is created, because the transport carries none.
+    // The one that used to sit here was a 1x1 placeholder for a binding the
+    // shader no longer reads; leaving it would suggest depth arrives someday
+    // without saying what it would cost.
+    log("Minecraft frame pipeline ready (colour only: sky-against composite, no depth channel)");
     return true;
 }
 
@@ -998,7 +1003,6 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     sharedReady = false; framePipelineFailed = false; depthSelectionFrame = 0;
     sceneDepthView.Reset(); minecraftView.Reset(); minecraftTexture.Reset();
     frameVertexShader.Reset(); framePixelShader.Reset(); frameConstants.Reset();
-    minecraftDepthProbe.Reset(); minecraftDepthProbeView.Reset();
     lastFrameSequence = 0; minecraftUploaded = 0; minecraftWidth = 0; minecraftHeight = 0;
     frameSource.close();
     initialized = false; swapchain = nullptr;
