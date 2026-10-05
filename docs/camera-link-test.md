@@ -141,10 +141,23 @@ invalidation since `anchored` at 04:46:10, so the stone survived the bridge
 outage, the world unload and the reload
 (`11-stone-still-rendered-after-rejoin.png`).
 
-Steps 5 and 6 are now closed. Still open from step 9: the fifteen-minute
-expedition (HUD rate, exceptions, placement stability) and the dimension change.
-Both were part of the person-driven run's script but were not reported
-separately, so they stay open until they have their own readout.
+Steps 5 and 6 are now closed.
+
+**Step 9, expedition and dimension change, verified — all nine steps closed.**
+The expedition's placement held for the whole run: `CrafterHunter.runtime.log`
+anchors at 11:04:54 and records no invalidation for twenty-seven minutes, until
+the camp teleport at 11:32:25 produced `Native placement invalidated: camera
+jumped over 25 m in a single frame`. That is the specified explicit
+invalidation for an area transition — the stone disappears and nothing
+re-anchors it automatically; F8 starts a fresh anchor. Minecraft's log carries
+no CrafterHunter exception in that window: the only error lines are the
+pre-run bridge outage at 60/min from 11:00 until the restart at 11:04:32, and
+none after, with no further bridge retries through 11:36
+(`~/.minecraft/logs/latest.log`). The Nether change was reported flawless,
+corroborated by `Saving chunks ... minecraft:the_nether` autosaves and the
+teleports at 11:33:21, 11:33:52 and 11:34:02 in the same log.
+
+**Camera acceptance, milestone 1 of `MODDING_PLAN.md`, is a pass.**
 
 This milestone renders the status and camera in Minecraft. Steve replacement,
 Minecraft HUD inside MHW, and rendering Minecraft blocks in MHW are later work.

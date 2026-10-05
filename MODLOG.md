@@ -261,3 +261,26 @@ and fifteen-minute expedition still open. Next milestone is 2, composition: one
 Minecraft block inside an MHW expedition, hidden by MHW terrain at different
 camera angles, after verifying the actual DXVK color/depth resources and frame
 synchronization.
+
+## 2026-10-05 — step 9 closed, camera acceptance passes
+
+The person ran the expedition and the dimension change. `CrafterHunter.runtime.log`
+anchors the placement at 11:04:54 and holds it for twenty-seven minutes with no
+invalidation, then logs `Native placement invalidated: camera jumped over 25 m
+in a single frame` at 11:32:25 — the camp teleport. That is the specified
+explicit invalidation for an area transition rather than a loss: the stone goes
+away and nothing re-anchors it on its own, so F8 is required to start again.
+The Nether change was reported flawless.
+
+The corroborating counts matter as much as the report. `latest.log` contains no
+CrafterHunter exception anywhere in the run window; the only error lines are
+the bridge outage at 60 per minute from 11:00 to the 11:04:32 restart, and none
+after it, with no further `PortUnreachableException` through 11:36. So the link
+ran the whole expedition without a single retry, and the outage recorded
+earlier in this journal was confined to before the run.
+
+Milestone 1 in `MODDING_PLAN.md` is now a pass: all nine steps of
+`docs/camera-link-test.md` are recorded, with the live-game halves driven by the
+person. Next is milestone 2, composition — the occlusion acceptance scene is
+the gap, since the native depth-tested renderer, the identified scene depth
+resource and the placement lifecycle already exist.
