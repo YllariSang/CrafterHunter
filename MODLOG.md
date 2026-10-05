@@ -515,3 +515,59 @@ gitignored). Both milestone 2 follow-ups are closed; `docs/depth-renderer.md`
 carries the full table and `MODDING_PLAN.md` the updated status. The trace is
 bounded — once disarmed, `frameSyncRemaining` hits zero and no further GPU
 read-backs happen.
+
+## 2026-10-05 — milestone 3 reconnaissance: what the host actually offers
+
+Started milestone 3 by finding out what the pinned build will and will not do,
+before writing any of the query path. Findings are recorded in
+`docs/host-queries.md`.
+
+**The player side needs no reverse engineering.** Reflecting the installed
+`SharpPluginLoader.Core.dll` (2.0.0) in a scratch process — metadata only,
+nothing executed inside the game — confirmed `IPlugin.OnUpdate(float)` as a
+game-thread tick, `Entities.Player.MainPlayer` carrying `Model.Position`,
+`Rotation`, `Forward`, and `CollisionPosition`, `SingletonManager.GetSingleton`,
+and `Memory.PatternScanner.FindFirst(pattern, cache)` with `NativeFunction<..>`
+for typed calls. Camera sampling already runs on that same tick.
+
+**There is no loader API for a terrain raycast.** SPL's
+`SharpPluginLoader.Core.Collision` namespace turned out to be attack and
+hit-detection data (`AttackParam`, `CollGeomResource`, `HitZoneResource`), and
+`MtGeometry` describes shapes attached to a model. Stage terrain has to be
+queried through the game's own collision routine.
+
+**The executable's code section is encrypted on disk.** `.text` is 48,304,640
+bytes at entropy 8.00/8.00 with zero `48 89 5C 24` prologues — about eleven
+would appear by chance in random data of that size — and `40 53`, `E8`, and `C3`
+counts exactly at their chance expectation. The section has no instruction
+structure at all.
+
+This is worth recording honestly because it cost a wrong turn: the first tool I
+wrote, `tools/inspect-mhw-signatures.py`, scanned the file for the seven
+terrain-ray signatures and reported all seven MISSING in 0.8 seconds. I assumed
+my matcher was broken and went to debug it. The matcher was fine; the bytes
+really are not code. Offline signature verification is impossible on this build,
+so the tool was replaced by `tools/verify-host-build.py`, which verifies what
+can be verified and exits non-zero when any of it fails:
+
+- the installed executable is the SHA-256 pinned in `MODDING_PLAN.md`;
+- `.text` is opaque, which is the reason the scan happens in the loaded image;
+- SharpPluginLoader's runtime address cache resolves `Player:FindMasterPlayer`
+  to `0x141B42010`, identical to the address the MIT-licensed
+  `justbustin/minecraft-crossover-bridge` published for build 421810, inside
+  `.text` — the runtime layout of this executable matches the build those
+  terrain signatures were written against;
+- SharpPluginLoader's pattern cache already holds two plugin signatures it
+  resolved in the loaded image on this build, both inside `.text`, so the scan
+  path the adapter depends on demonstrably works here.
+
+The adapter rules that follow are stricter than "call the same function":
+signatures in one adapter type as byte patterns, fingerprint before resolving,
+any miss disables terrain queries for the session, game-thread execution only,
+a fixed query budget per tick with dropped-and-reported overflow, and "no
+terrain" published instead of a stale answer while the singleton, player, or
+stage is missing. The player proxy maps by relative displacement for the same
+reason the camera link does: MHW world coordinates sit hundreds of metres from
+Minecraft's origin.
+
+No game file was modified and nothing was executed inside the game process.

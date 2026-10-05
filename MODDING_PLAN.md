@@ -71,6 +71,13 @@ playable mode is a later feature and must not have both games drive the player.
 3. **Terrain and player:** bounded host terrain queries feed Minecraft collision;
    align a host player proxy with the Minecraft player; verify ground, slopes,
    movement, loading screens, chunk streaming, and immediate control fallback.
+   Design and host reconnaissance are recorded in `docs/host-queries.md`: the
+   loader exposes `Player.MainPlayer` and a game-thread `OnUpdate` tick with no
+   reverse engineering at all, but no terrain-raycast API, so the ray goes
+   through the game's own routine resolved from byte signatures at runtime —
+   necessary anyway because the executable's `.text` section is encrypted on
+   disk and `tools/verify-host-build.py` confirms it can only be scanned in the
+   loaded image.
 4. **One monster:** export a stable session entity ID, transform, hit volumes,
    and health. One Minecraft attack produces one validated host combat action;
    one monster attack produces one player hit. MHW executes its normal death
