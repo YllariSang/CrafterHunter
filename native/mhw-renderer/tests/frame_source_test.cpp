@@ -56,6 +56,39 @@ void writeSlot(std::vector<std::uint8_t>& buffer, std::uint32_t index, std::uint
     slots[index].height = height;
 }
 
+// The re-check that catches a slot recycled mid-upload.
+//
+// `newestFrame()` hands back a pointer into shared memory and the caller spends
+// milliseconds uploading from it. This checks the decision made *after* that
+// upload, which is the only point at which a recycled slot is visible.
+void checkRecycledSlotDetected() {
+    // The rule is stated against a buffer, since a mapped channel cannot be
+    // arranged to be recycled at the right moment from here.
+    struct SlotView { std::uint64_t sequence; std::uint64_t published; };
+    auto stillHolds = [](const SlotView* slots, std::size_t count, std::uint64_t sequence) {
+        for (std::size_t i = 0; i < count; ++i) {
+            if (slots[i].sequence == sequence) return slots[i].published == 1;
+        }
+        return false;
+    };
+
+    const SlotView settled[2] = {{7, 1}, {6, 1}};
+    check(stillHolds(settled, 2, 7), "a finished frame in either slot is recognised");
+
+    // The guest marks a slot incomplete before refilling it, keeping its old
+    // sequence. That is the case where the sequence still matches and only the
+    // flag gives it away.
+    const SlotView filling[2] = {{7, 0}, {6, 1}};
+    check(!stillHolds(filling, 2, 7), "a slot being refilled is not mistaken for a finished frame");
+    check(stillHolds(filling, 2, 6), "and the other slot is unaffected");
+
+    // Recycled and finished: the sequence has moved on, so ours is gone.
+    const SlotView moved[2] = {{8, 1}, {7, 1}};
+    check(!stillHolds(moved, 2, 6), "a frame whose slot has been reused is not still held");
+    check(stillHolds(moved, 2, 8), "while the newest one is");
+    check(!stillHolds(settled, 2, 0), "sequence zero is never held");
+}
+
 // The decision an unmapped reader must reach: refuse, and say why.
 void checkUnmappedRefuses() {
     Source source;
@@ -206,6 +239,7 @@ int main() {
     checkShortBufferRefuses();
     checkLengthRule();
     checkWindowsLengthIsDerived();
+    checkRecycledSlotDetected();
     checkStaleRefuses();
     checkOutOfRangeRefuses();
     checkGeometryOfRealCapture();
@@ -213,8 +247,8 @@ int main() {
     if (failures == 0) {
         std::printf(
             "Frame source checks passed: unmapped refuses, short buffer refuses, length rule, "
-            "Windows length derived not cached, stale refuses, oversized refuses, "
-            "real-capture geometry.\n");
+            "Windows length derived not cached, recycled slot detected, stale refuses, "
+            "oversized refuses, real-capture geometry.\n");
         return 0;
     }
     std::fprintf(stderr, "%d frame source check(s) failed\n", failures);

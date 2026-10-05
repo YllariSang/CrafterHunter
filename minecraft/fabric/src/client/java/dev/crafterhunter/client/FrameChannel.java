@@ -117,9 +117,29 @@ public final class FrameChannel implements AutoCloseable {
     /**
      * Publish a frame into the slot that is not being read.
      *
-     * Pixels first, barrier, header last. The order is the whole contract: the
-     * header is what makes a slot look complete, so writing it before the
-     * pixels would hand a reader a frame that is still arriving.
+     * Three writes, and the order is the whole contract:
+     *
+     * <ol>
+     *   <li>mark the slot incomplete, keeping the sequence it already had;
+     *   <li>write the pixels;
+     *   <li>write the header with {@code published = 1}.
+     * </ol>
+     *
+     * The first write is the one that was missing. Without it a slot being
+     * refilled still carries {@code published = 1} from the frame before it, so a
+     * reader that decided to upload from this slot - perfectly legal, since the
+     * header looks complete - would be reading pixels that are being overwritten
+     * underneath it, and would composite a frame half old and half new. With it,
+     * a reader can tell the difference between a finished frame and one in
+     * flight, and skip the second.
+     *
+     * Nothing above step 3 may be reordered below it: the pixels have to be
+     * visible before the header that claims they are complete. Every write here
+     * goes through {@code FileChannel.write}, so the ordering is the kernel's to
+     * preserve rather than the compiler's, and a reader mapping the same file
+     * sees the same pages. No {@code force} is issued: both processes are on this
+     * host and share one page cache, so a flush would cost a 7.8 MB round trip
+     * per frame to achieve nothing.
      *
      * @return the sequence this frame was published under
      */
@@ -133,30 +153,57 @@ public final class FrameChannel implements AutoCloseable {
         int slot = (int) ((nextSequence - 1) % SLOT_COUNT);
         int pixelsAt = pixelsOffsetFor(slot, width, height);
 
+        // Step 1: incomplete, sequence unchanged so a reader can still tell which
+        // frame this slot used to hold.
+        writeFully(slotHeader(nextSequence, capturedNanos, 0), slotOffset(slot));
+
+        // Step 2: the pixels, which may take several writes.
         java.nio.ByteBuffer pixels = java.nio.ByteBuffer.wrap(rgbaTopDown);
         while (pixels.hasRemaining()) {
             channel.write(pixels, pixelsAt + pixels.position());
         }
 
-        // Nothing above this line may be reordered below it: the pixels have to
-        // be visible before the header that claims they are complete.
-        java.nio.ByteBuffer header = java.nio.ByteBuffer.allocate(SLOT_HEADER_BYTES)
-            .order(java.nio.ByteOrder.LITTLE_ENDIAN);
-        header.putInt(FORMAT_VERSION).putInt(0).putInt(0).putInt(0);
-        header.putLong(nextSequence).putLong(capturedNanos).putLong(1);
-        header.putInt(width).putInt(height);
-        // The tail of the slot header is padding out to the cache line the
-        // native struct is aligned to; zero it so a reader never sees stale
-        // bytes from an earlier frame.
-        while (header.position() < SLOT_HEADER_BYTES) {
-            header.put((byte) 0);
-        }
-        header.flip();
-        channel.write(header, slotOffset(slot));
+        // Step 3: complete.
+        writeFully(slotHeader(nextSequence, capturedNanos, 1), slotOffset(slot));
 
         long published = nextSequence;
         nextSequence++;
         return published;
+    }
+
+    /**
+     * One slot header, padded out to the cache line the native struct is aligned
+     * to. The padding is zeroed so a reader never sees bytes left over from an
+     * earlier frame.
+     */
+    private java.nio.ByteBuffer slotHeader(long sequence, long capturedNanos,
+            long publishedFlag) {
+        java.nio.ByteBuffer header = java.nio.ByteBuffer.allocate(SLOT_HEADER_BYTES)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN);
+        header.putInt(FORMAT_VERSION).putInt(0).putInt(0).putInt(0);
+        header.putLong(sequence).putLong(capturedNanos).putLong(publishedFlag);
+        header.putInt(width).putInt(height);
+        while (header.position() < SLOT_HEADER_BYTES) {
+            header.put((byte) 0);
+        }
+        header.flip();
+        return header;
+    }
+
+    /**
+     * Writes the whole buffer, looping until it is out.
+     *
+     * {@code FileChannel.write} is permitted to write fewer bytes than it was
+     * given and to write none at all. The pixel loop always checked; the header
+     * write did not, and a partial header would leave the reader looking at a
+     * mixture of this frame's fields and the previous one's - which, for a 64-byte
+     * header, means a plausible sequence number beside a stale {@code published}
+     * flag.
+     */
+    private void writeFully(java.nio.ByteBuffer buffer, long position) throws java.io.IOException {
+        while (buffer.hasRemaining()) {
+            channel.write(buffer, position + buffer.position());
+        }
     }
 
     /** Remove the channel's file, so a reader stops trusting it. */

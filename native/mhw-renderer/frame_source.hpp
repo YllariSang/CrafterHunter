@@ -119,7 +119,43 @@ public:
         mapped_ = false;
     }
 
+    // Is the frame we were just handed still the frame in that slot?
+    //
+    // `newestFrame()` returns a pointer into shared memory, and the caller then
+    // spends milliseconds uploading several megabytes out of it. Two frames later
+    // the guest recycles that same slot and starts overwriting those bytes. The
+    // upload would then composite a frame half old and half new, which looks like
+    // a rendering fault and is not one.
+    //
+    // So this is asked again *after* the upload. A false answer means the slot was
+    // recycled mid-read and the texture must not be drawn; the caller drops the
+    // frame and the next one uploads afresh. Dropping is the right outcome: a
+    // whole frame late is invisible, a torn one is not.
+    //
+    // The guest marks a slot incomplete before refilling it, so a slot being
+    // written is detectable here as well as by its sequence.
     bool mapped() const { return mapped_; }
+
+    bool stillHolds(std::uint64_t sequence) const {
+        if (!mapped_ || !channelLongEnough(length()) || sequence == 0) return false;
+        const auto* bytes = static_cast<const std::uint8_t*>(view_);
+        const auto* header = reinterpret_cast<const crafterhunter::frame::BufferHeader*>(bytes);
+        const auto* slots = reinterpret_cast<const crafterhunter::frame::SlotHeader*>(
+            bytes + crafterhunter::frame::headerBytes());
+        if (header->magic != crafterhunter::frame::Magic
+            || header->formatVersion != crafterhunter::frame::FormatVersion) {
+            return false;
+        }
+        for (std::uint32_t slot = 0; slot < crafterhunter::frame::SlotCount; ++slot) {
+            if (slots[slot].sequence == sequence) {
+                // Found it. Now check it is still a complete frame: a slot being
+                // refilled keeps its old sequence but drops its published flag.
+                return slots[slot].published == 1;
+            }
+        }
+        // No slot claims this sequence any more, so it was recycled and finished.
+        return false;
+    }
 
     // How many bytes are actually readable through this mapping.
     //

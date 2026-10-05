@@ -1588,3 +1588,71 @@ dedup and the liveness check are different questions and sharing one counter mad
 the second unaskable.
 
 **Still unverified in-game.** This is the state of the code, not the state of MHW.
+
+## 2026-10-05 — safe frame publication, and a test that could not fail
+
+The third fault. `FrameChannel.publish()` wrote pixels, then a header, and never
+marked the slot incomplete in between:
+
+```java
+channel.write(pixels, ...);            // slot still says published = 1
+channel.write(header, ...);            // from the frame before this one
+```
+
+With two slots the *newest complete* header always names the slot that is not
+being written, so a reader choosing by sequence was safe. The exposure is the
+other end: `newestFrame()` hands back a pointer into shared memory and the caller
+then spends milliseconds uploading 7.8 MB out of it, while the guest recycles
+that same slot two frames later. Nothing re-checked, so the upload could composite
+half of one frame and half of another — an artefact indistinguishable from a
+rendering fault.
+
+Publication is now three writes: mark incomplete (keeping the sequence, so a
+reader can still tell what the slot used to hold), write pixels, mark complete.
+The header write also loops until it is out; `FileChannel.write` may write fewer
+bytes than asked and the header write was the one call that never checked. No
+`force` is issued: both processes share this host's page cache, so a flush would
+cost a 7.8 MB round trip per frame to achieve nothing, and every write goes
+through `write(2)` so the ordering is the kernel's to keep.
+
+On the native side `Source::stillHolds()` is asked *after* the upload whether
+that is still the frame just uploaded, and a false answer drops the frame. One
+frame of latency is invisible; a torn frame is not.
+
+**The test for this took four attempts and the first three were theatre.**
+
+- It watched a 16 KB frame and never caught the window. Too small to observe.
+- It read the whole 8 MB buffer per sample, so one sample took longer than forty
+  publishes and the run reported "the reader never ran".
+- It waited for that reader with `Thread.onSpinWait()`, which starved the thread
+  it was waiting for. On twelve cores.
+- With the reader fixed it still **passed with the fix deleted**. 5430 samples,
+  22 caught mid-refill, and every one of those was from the *first* publish,
+  where `published` is 0 simply because the file was zeroed — not the state under
+  test.
+
+A test that passes when the bug is present is worse than no test, because it is
+taken as evidence. What made it real:
+
+- the reader now settles both slots *before* starting, so the zeroed-file state
+  cannot be mistaken for the incomplete state;
+- it samples the header, the first and last pixel bytes, then the header again.
+  Tearing is not "pixels changed" but "looked finished, changed underneath, still
+  looks finished" — which is also exactly what `stillHolds()` checks in the
+  renderer, so the test and the fix assert the same condition;
+- the frame is 16 MB. The window is only as wide as the pixel write, and at
+  949×1028 that is microseconds — rare enough that the bug survived. A write
+  lasting milliseconds makes it impossible to miss.
+
+Deleting the incomplete write now fails with the tearing assertion. Restored, five
+consecutive runs pass with 124–169 mid-refill samples, **all** of them marked
+incomplete.
+
+Two incidental finds: `FileInputStream.seek` **no longer exists in JDK 27** (the
+legacy channel methods were removed), so the sampler uses positional
+`FileChannel.read`. And an array element incremented by one thread and polled by
+another is not guaranteed visible — the spin loop read a hoisted value forever.
+Atomics, and a yielding wait.
+
+**Build passes. Not yet seen in-game** — that is the next entry, and it is the
+only one that can close this.

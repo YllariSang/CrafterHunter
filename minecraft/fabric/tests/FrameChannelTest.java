@@ -3,6 +3,7 @@ package dev.crafterhunter.client;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 
 /**
@@ -15,20 +16,22 @@ import java.util.Arrays;
  * truncated into a picture of something else.
  */
 public final class FrameChannelTest {
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, InterruptedException {
         Path directory = Files.createTempDirectory("crafterhunter-channel");
         Path file = directory.resolve("frame.channel");
         try {
             roundTrip(file);
             refusesWrongSize(file);
             alternateSlots(file);
+            slotIsNeverObservedTorn(file);
             reopensOnTheSamePath(file);
         } finally {
             Files.deleteIfExists(file);
             Files.deleteIfExists(directory);
         }
         System.out.println(
-            "Frame channel checks passed: round trip, wrong size refused, slot alternation, reopen.");
+            "Frame channel checks passed: round trip, wrong size refused, slot alternation, "
+                + "slot never observed torn, reopen.");
     }
 
     private static void roundTrip(Path file) throws IOException {
@@ -132,6 +135,178 @@ public final class FrameChannelTest {
         }
     }
 
+    /**
+     * A slot being refilled must never look like a finished frame.
+     *
+     * <p>This is the ordering {@code publish()} exists to get right, and it cannot
+     * be checked by inspecting a settled channel: every completed frame looks the
+     * same whichever order the writes happened in. It has to be watched while
+     * writes are in flight, with a reader sampling continuously.
+     *
+     * <p>Two properties, in order of importance:
+     *
+     * <ol>
+     *   <li><b>Never torn.</b> No sample may show {@code published = 1} while the
+     *       pixels belong to two different frames. This is the assertion that
+     *       matters, and it is a "never", so it does not depend on winning a race.
+     *   <li><b>Visibly incomplete.</b> A sample must show {@code published = 0}
+     *       with mixed pixels - the state that tells a reader the slot is being
+     *       refilled. This does depend on sampling inside the window, so the frame
+     *       is made large (4 MB) and published many times to make the window wide
+     *       rather than to make the test lenient.
+     * </ol>
+     *
+     * <p>Without the incomplete write, property 1 fails: the slot carries
+     * {@code published = 1} from the frame before it while its pixels are being
+     * replaced, which is precisely the torn read the native side now re-checks for.
+     */
+    private static void slotIsNeverObservedTorn(Path file)
+            throws IOException, InterruptedException {
+        // 16 MB per frame, deliberately. The window in which a slot is half-written
+        // is only as wide as the pixel write takes, and at a realistic frame size
+        // that is microseconds - a reader sampling every few tens of microseconds
+        // lands in it rarely enough that this test passed with the fix deleted. A
+        // write lasting milliseconds makes the window impossible to miss, which is
+        // what turns a test that cannot fail into one that can.
+        int width = 2048;
+        int height = 2048;
+        int slotBytes = (int) FrameLayout.frameBytes(width, height);
+        int total = FrameChannel.bufferBytes(width, height);
+
+        byte[] alpha = new byte[slotBytes];
+        byte[] beta = new byte[slotBytes];
+        Arrays.fill(alpha, (byte) 0x11);
+        Arrays.fill(beta, (byte) 0x22);
+
+        // Atomics, not arrays. A reader incrementing samples[0] in a plain array
+        // is not guaranteed to be visible to a thread spinning on it: the read can
+        // be hoisted out of the loop and the spin never ends. That happened, and it
+        // looked exactly like a reader that had stopped.
+        final java.util.concurrent.atomic.AtomicBoolean stop =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        final java.util.concurrent.atomic.AtomicBoolean sawFlagDown =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        final java.util.concurrent.atomic.AtomicBoolean sawTorn =
+                new java.util.concurrent.atomic.AtomicBoolean();
+        final java.util.concurrent.atomic.AtomicLong samples =
+                new java.util.concurrent.atomic.AtomicLong();
+        final java.util.concurrent.atomic.AtomicLong mixedSamples =
+                new java.util.concurrent.atomic.AtomicLong();
+        final java.util.concurrent.atomic.AtomicLong incompleteSamples =
+                new java.util.concurrent.atomic.AtomicLong();
+
+        try (FrameChannel channel = new FrameChannel(file, width, height)) {
+            // Settle both slots before the reader starts. Until the first header is
+            // written a slot reads published=0 simply because the file was zeroed,
+            // which is not the state under test; mixing those samples in is what
+            // let the run below pass with the incomplete write removed.
+            channel.publish(alpha, 1L);
+            channel.publish(beta, 2L);
+
+            // The reader samples the few bytes it needs rather than the whole
+            // buffer. Reading 8 MB per sample is slower than forty publishes, so
+            // the loop finished with one sample and proved nothing; three small
+            // reads give thousands. Reading the header and the pixels at separate
+            // moments is also the honest shape of the problem - a real reader
+            // validates a header and then uploads pixels some microseconds later.
+            Thread reader = new Thread(() -> {
+                byte[] header = new byte[FrameChannel.SLOT_HEADER_BYTES];
+                int pixelsAt = FrameChannel.pixelsOffsetFor(0, width, height);
+                int lastPixelAt = pixelsAt + slotBytes - 1;
+                // Positional reads on a FileChannel, not FileInputStream: JDK 27
+                // removed seek() and the other legacy channel methods from
+                // FileInputStream, and a positional read is the honest shape of the
+                // problem anyway - a real reader validates a header and then reads
+                // pixels from wherever it has got to.
+                try (java.nio.channels.FileChannel in =
+                        java.nio.channels.FileChannel.open(file, StandardOpenOption.READ)) {
+                    while (!stop.get()) {
+                        // Header, pixels, header again. The second header read is
+                        // the whole test: tearing is not "pixels changed at some
+                        // point" but "the slot looked finished, changed underneath,
+                        // and still looked finished afterwards". Sampling the header
+                        // once on either side of the pixels is also exactly what the
+                        // native reader now does with stillHolds().
+                        if (readFullyAt(in, header, FrameChannel.slotOffset(0)) < header.length) {
+                            continue;
+                        }
+                        long publishedBefore = readLong(header, 32);
+                        byte[] firstPixel = new byte[1];
+                        byte[] lastPixel = new byte[1];
+                        if (readFullyAt(in, firstPixel, pixelsAt) != 1
+                                || readFullyAt(in, lastPixel, lastPixelAt) != 1) {
+                            continue;
+                        }
+                        byte[] after = new byte[FrameChannel.SLOT_HEADER_BYTES];
+                        if (readFullyAt(in, after, FrameChannel.slotOffset(0)) < after.length) {
+                            continue;
+                        }
+                        long publishedAfter = readLong(after, 32);
+                        samples.incrementAndGet();
+                        boolean mixed = firstPixel[0] != lastPixel[0];
+                        if (mixed) {
+                            mixedSamples.incrementAndGet();
+                            if (publishedBefore == 0 || publishedAfter == 0) {
+                                incompleteSamples.incrementAndGet();
+                            }
+                        }
+                        if (publishedBefore == 1 && publishedAfter == 1 && mixed) {
+                            // The slot looked complete, its pixels changed while it
+                            // was being read, and it still looks complete: a reader
+                            // would have composited half of one frame and half of
+                            // another and had no way to tell.
+                            sawTorn.set(true);
+                        }
+                        if (publishedBefore == 0 || publishedAfter == 0) {
+                            // Proof that the slot is marked incomplete while it is
+                            // being refilled. With the fix this is true for the whole
+                            // of the pixel write, so it is a wide window rather than
+                            // a lucky sample.
+                            sawFlagDown.set(true);
+                        }
+                    }
+                } catch (IOException ignored) {
+                    // The assertions below report whatever was collected.
+                }
+            });
+            reader.start();
+
+            // Wait for the reader to actually be sampling, yielding rather than
+            // spinning: Thread.onSpinWait() starved the very thread being waited
+            // on, and the run reported that it had never run at all.
+            long readyDeadline = System.nanoTime() + 10_000_000_000L;
+            while (samples.get() < 3 && System.nanoTime() < readyDeadline) {
+                java.util.concurrent.locks.LockSupport.parkNanos(200_000L);
+            }
+
+            for (int i = 0; i < 8; i++) {
+                channel.publish((i % 2 == 0) ? beta : alpha, 1_000L + i);
+            }
+            stop.set(true);
+            reader.join();
+
+            if (sawTorn.get()) {
+                throw new AssertionError(
+                    "a slot was observed with published=1 and pixels from two frames:"
+                        + " a reader would have composited a torn frame");
+            }
+            if (!sawFlagDown.get()) {
+                throw new AssertionError(
+                    "published was never observed as 0, so the slot is never marked"
+                        + " incomplete: a reader cannot distinguish a frame in flight"
+                        + " from a finished one");
+            }
+            if (samples.get() < 100) {
+                throw new AssertionError(
+                    "only " + samples.get() + " samples were taken; the reader never really"
+                        + " ran, so the other two results mean nothing");
+            }
+            System.out.println("  (publication: " + samples.get() + " samples, "
+                + mixedSamples.get() + " caught pixels mid-refill, "
+                + incompleteSamples.get() + " of them marked incomplete)");
+        }
+    }
+
     private static void reopensOnTheSamePath(Path file) throws IOException {
         // The capture reopens the channel when the window resizes, which happens
         // every time someone moves the game between monitors. Reopening must not
@@ -156,6 +331,21 @@ public final class FrameChannelTest {
             }
             resized.publish(new byte[(int) FrameLayout.frameBytes(16, 8)], 1L);
         }
+    }
+
+    /** Positional read that loops until the buffer is full or the file ends. */
+    private static int readFullyAt(java.nio.channels.FileChannel channel, byte[] into,
+            int position) throws IOException {
+        java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(into);
+        int total = 0;
+        while (buffer.hasRemaining()) {
+            int n = channel.read(buffer, position + total);
+            if (n < 0) {
+                break;
+            }
+            total += n;
+        }
+        return total;
     }
 
     /** Little-endian, matching the transport's byte order. */

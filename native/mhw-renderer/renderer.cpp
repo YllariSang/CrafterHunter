@@ -794,6 +794,20 @@ bool uploadNewestFrame() {
     // no repacking is needed. Pitch is read back rather than assumed.
     context->UpdateSubresource(minecraftTexture.Get(), 0, nullptr, view.pixels,
         static_cast<UINT>(staged.Width * 4), static_cast<UINT>(staged.Height));
+
+    // Ask again whether that is still the frame we just uploaded. The upload
+    // copied from shared memory the guest may already be refilling, and a torn
+    // frame is indistinguishable from a rendering fault. Dropping it costs one
+    // frame of latency, which nothing can see.
+    if (!frameSource.stillHolds(view.sequence)) {
+        if (!frameRefusalLogged) {
+            frameRefusalLogged = true;
+            log("Minecraft frame seq=%llu recycled during upload; dropped",
+                static_cast<unsigned long long>(view.sequence));
+        }
+        return false;
+    }
+    frameRefusalLogged = false;
     lastUploadedSequence = view.sequence;
     ++minecraftUploaded;
     if (minecraftUploaded == 1) {
