@@ -98,7 +98,7 @@ void checkUnmappedRefuses() {
 
     const char* reason = nullptr;
     // Even if a caller ignored `open()` and asked anyway, the answer is a refusal.
-    FrameView view = source.newestFrame(1920, 1080, 1'000'000, &reason);
+    FrameView view = source.newestFrame(1'000'000, &reason);
     check(view.pixels == nullptr, "an unmapped source yields no pixels");
     check(reason != nullptr, "an unmapped source says why");
 }

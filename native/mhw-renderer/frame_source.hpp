@@ -182,16 +182,20 @@ public:
 
     // The newest complete frame, or a frame with null pixels when there is
     // nothing to draw. Never guesses: every refusal returns a null pointer and a
-    // reason the caller can log once.
+    // reason the caller can log.
+    //
+    // The host's resolution is deliberately absent. An earlier version took it and
+    // required the slot's geometry to match, which refused every frame: the guest
+    // is 1908x1028 and the host is 1920x1080, and they are never going to be equal.
+    // The frame is validated against its own declared geometry and against how much
+    // of this mapping is actually there.
     //
     // `nowNanos` is accepted but deliberately unused for the age decision. This
-    // function cannot judge freshness: the guest stamps frames with a clock
-    // measured 3,422,487 ms away from ours, so comparing the two here would
-    // refuse every frame that was ever published. The caller decides, using
-    // frame_clock.hpp, which is where the measurement behind that decision is
-    // recorded.
-    crafterhunter::frame::FrameView newestFrame(std::uint32_t hostWidth,
-        std::uint32_t hostHeight, std::uint64_t nowNanos, const char** reason) const {
+    // function cannot judge freshness: the guest stamps frames with a clock measured
+    // 3,422,487 ms from ours, so comparing the two here would refuse every frame that
+    // was ever published. The caller decides, using frame_clock.hpp.
+    crafterhunter::frame::FrameView newestFrame(std::uint64_t nowNanos,
+        const char** reason) const {
         (void)nowNanos;
         crafterhunter::frame::FrameView view{0, 0, 0, 0, nullptr};
         if (!mapped_) { *reason = "channel not mapped"; return view; }
@@ -209,10 +213,11 @@ public:
             bytes + crafterhunter::frame::headerBytes());
         // Qualified: the member and this free function share a name, and an
         // unqualified call inside the class would resolve to the member.
+        const char* why = nullptr;
         const std::uint32_t pick = crafterhunter::frame::newest(header->magic,
-            header->formatVersion, slots, hostWidth, hostHeight);
+            header->formatVersion, slots, length(), &why);
         if (pick == crafterhunter::frame::NotNewest) {
-            *reason = "no complete frame";
+            *reason = why ? why : "no complete frame";
             return view;
         }
 

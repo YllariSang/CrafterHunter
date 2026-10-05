@@ -1694,3 +1694,49 @@ evidence" while the capture itself had worked.
 
 Not yet a composite on screen. Next: recreate the channel, re-run, and read the
 upload line.
+
+## 2026-10-05 — the transport rejected the host's resolution, not the frame's
+
+The refusal the live run reported was not the clock or the mapping. It was this,
+in `usable()`:
+
+```cpp
+if (slot.width != width || slot.height != height) return false;   // width/height = the HOST's
+```
+
+`width` and `height` were the *host's* 1920×1080. The guest publishes 1908×1028.
+The two are never going to be equal — that is precisely why there is a letterbox —
+so the check refused every frame the transport has ever been asked to carry. The
+"no complete frame" line was accurate and completely misleading.
+
+A frame's dimensions are the guest's to declare. They are now validated two ways
+instead:
+
+- **`usable()`** keeps only self-consistency: magic, both versions, a non-zero
+  sequence, `published == 1`, and non-zero dimensions. A zero dimension is refused
+  before any offset is computed from it.
+- **`within()`** is new, and checks a slot's own geometry against the size of the
+  mapping. The *sum* is tested, not either term: a slot can claim a size whose
+  offset is comfortably inside the buffer while its pixels run past the end, which
+  is exactly what a half-finished resize leaves behind.
+
+Two more refusals came out of writing the tests:
+
+- **Slots disagreeing about geometry are refused rather than resolved.** A slot's
+  pixel offset depends on the buffer's declared geometry, so using one slot's
+  dimensions to locate the other's pixels reads the right number of bytes from the
+  wrong place. The next frame settles it.
+- **Refusals carry a reason.** `newest()` now says which of the five ways it
+  declined. A reader that refuses silently is indistinguishable from one that
+  stopped being called, which is a distinction that has now cost this project two
+  debugging rounds.
+
+Regression-tested against the real numbers, and the mutation is behavioural rather
+than cosmetic: putting the host-dimension rule back *inside* the new signature, so
+the API is unchanged and only the behaviour differs, fails eight checks including
+`a 1908x1028 frame is chosen by a transport that has never heard of 1920x1080`. An
+earlier attempt at that mutation only changed a function signature and produced a
+compile error, which proves the API moved and proves nothing about behaviour.
+
+`newestFrame()` lost its host-resolution parameters entirely. The renderer change
+is one line; the stone renderer and depth selection are untouched.

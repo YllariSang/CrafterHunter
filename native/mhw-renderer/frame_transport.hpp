@@ -103,17 +103,49 @@ constexpr std::size_t bufferBytes(std::uint32_t width, std::uint32_t height) {
 // A frame is usable only if every one of these holds. Each is a separate rule
 // because each has been a separate failure: the wrong magic is another program,
 // the wrong version is another layout, an empty slot is a frame that was never
-// written, an unfinished one is a writer caught mid-copy, and a geometry change
-// means the pixel offsets in this buffer no longer describe its own contents.
-inline bool usable(std::uint32_t magic, std::uint32_t version, const SlotHeader& slot,
-                   std::uint32_t width, std::uint32_t height) {
+// written, an unfinished one is a writer caught mid-copy, and a zero dimension
+// would make every offset below meaningless.
+//
+// Note what is *not* here: any comparison against the host's resolution. The
+// frame's dimensions are the guest's to declare and are checked against the
+// mapping in `within()` instead. An earlier version took the host's width and
+// height and demanded the slot match them, which meant a 1908x1028 guest could
+// never be read by a 1920x1080 host. The two will essentially never be equal, so
+// that check refused every frame the transport has ever been asked to carry, and
+// the letterbox exists precisely because the sizes differ.
+inline bool usable(std::uint32_t magic, std::uint32_t version, const SlotHeader& slot) {
     if (magic != Magic) return false;
     if (version != FormatVersion) return false;
     if (slot.formatVersion != FormatVersion) return false;
     if (slot.sequence == 0) return false;
     if (slot.published != 1) return false;
-    if (slot.width != width || slot.height != height) return false;
+    if (slot.width == 0 || slot.height == 0) return false;
     return true;
+}
+
+// Does a slot's own geometry fit inside a mapping of `bytes`?
+//
+// This replaces the host-resolution comparison and is strictly better at catching
+// what that one was reaching for: a slot claiming a size the mapping cannot hold is
+// a writer caught mid-resize or a corrupt header, and reading its pixels would walk
+// off the end of the mapping. The *sum* is tested rather than either term, because a
+// slot can claim a size whose offset is inside the buffer while its pixels are not.
+inline bool within(std::uint32_t index, std::uint32_t width, std::uint32_t height,
+                   std::size_t bytes) {
+    if (width == 0 || height == 0) return false;
+    if (index >= SlotCount) return false;
+    return pixelsOffset(index, width, height) + frameBytes(width, height) <= bytes;
+}
+
+// Do two slots describe the same geometry?
+//
+// A resize rewrites the slots one at a time, so a reader can arrive while they
+// disagree. That is refused rather than resolved: a slot's pixel offset depends on
+// the buffer's declared geometry, so using one slot's dimensions to locate the
+// other's pixels reads the right number of bytes from the wrong place. The next
+// frame settles it.
+inline bool sameGeometry(const SlotHeader& a, const SlotHeader& b) {
+    return a.width == b.width && a.height == b.height;
 }
 
 // Is a frame still young enough to be worth composing?
@@ -123,16 +155,53 @@ inline bool fresh(std::uint64_t capturedNanos, std::uint64_t nowNanos) {
 }
 
 // The newer of two slots, or NotNewest when neither holds a usable frame.
-// Ties are impossible in practice (sequences increase) but resolve to `b`
-// deterministically rather than depending on argument order.
+//
+// `bytes` is the size of the mapping, and it is what the slots' own geometry is
+// checked against. The host's resolution is not an input and cannot be: the guest's
+// frame is a different size by construction, and that is the case the letterbox
+// handles rather than a reason to refuse the frame.
+//
+// `reason`, when given, receives why the answer is NotNewest. A reader that refuses
+// without saying why is indistinguishable from one that stopped being called.
 inline constexpr std::uint32_t NotNewest = static_cast<std::uint32_t>(-1);
 inline std::uint32_t newest(std::uint32_t magic, std::uint32_t version,
-                           const SlotHeader* slots, std::uint32_t width, std::uint32_t height) {
-    const bool a = usable(magic, version, slots[0], width, height);
-    const bool b = usable(magic, version, slots[1], width, height);
-    if (!a && !b) return NotNewest;
+                           const SlotHeader* slots, std::size_t bytes,
+                           const char** reason = nullptr) {
+    if (reason) *reason = nullptr;
+    if (magic != Magic) {
+        if (reason) *reason = "not one of our channels (bad magic)";
+        return NotNewest;
+    }
+    if (version != FormatVersion) {
+        if (reason) *reason = "channel format version does not match";
+        return NotNewest;
+    }
+
+    const bool selfA = usable(magic, version, slots[0]);
+    const bool selfB = usable(magic, version, slots[1]);
+    // Bounds are judged against each slot's own geometry, because that is the
+    // geometry its pixel offset is computed from.
+    const bool a = selfA && within(0, slots[0].width, slots[0].height, bytes);
+    const bool b = selfB && within(1, slots[1].width, slots[1].height, bytes);
+
+    if (!a && !b) {
+        if (reason) {
+            *reason = (selfA || selfB) ? "frame geometry does not fit the mapping"
+                                       : "no complete frame";
+        }
+        return NotNewest;
+    }
     if (a && !b) return 0;
     if (b && !a) return 1;
+
+    // Both complete. If they disagree about geometry the buffer is mid-resize, and
+    // either choice would locate one slot's pixels by the other's arithmetic.
+    if (!sameGeometry(slots[0], slots[1])) {
+        if (reason) *reason = "slots disagree on frame size (resize in progress)";
+        return NotNewest;
+    }
+    // Ties are impossible in practice (sequences increase) but resolve to slot b
+    // deterministically rather than depending on argument order.
     return slots[1].sequence >= slots[0].sequence ? 1u : 0u;
 }
 

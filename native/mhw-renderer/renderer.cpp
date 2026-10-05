@@ -741,7 +741,7 @@ bool uploadNewestFrame() {
     // frame look like it had been captured in the future.
     const unsigned long long now = ch::millisToNanos(GetTickCount64());
     const char* reason = nullptr;
-    const frameio::FrameView view = frameSource.newestFrame(width, height, now, &reason);
+    const frameio::FrameView view = frameSource.newestFrame(now, &reason);
     if (!view.pixels) {
         if (reason) refuse(reason);
         return false;
