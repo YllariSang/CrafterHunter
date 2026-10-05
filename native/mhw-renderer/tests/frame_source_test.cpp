@@ -89,6 +89,49 @@ void checkRecycledSlotDetected() {
     check(!stillHolds(settled, 2, 0), "sequence zero is never held");
 }
 
+// Regression: recovery from a channel that has stopped yielding frames.
+//
+// The reader used to return on "no complete frame" without re-opening anything, so
+// once its mapping described something the guest was no longer writing - an unlinked
+// file, a recreated one, or one from before a restart - it kept describing it
+// forever. Nothing observable from inside that mapping would ever have said so,
+// which is why this had to be a policy rather than a condition.
+void checkBoundedRecovery() {
+    // The first attempt is always allowed: a reader that has never tried must not
+    // wait out an interval before its first try.
+    check(mayRemap(1'000'000'000ull, 0), "a reader that has never re-opened may do so now");
+
+    // And then it is bounded, which is the property that stops a closed Minecraft
+    // costing one remap per frame.
+    // An attempt at T sets the clock, so the next is due at T + interval and not
+    // before. Written as a boundary on both sides, because getting this wrong in the
+    // permissive direction is one remap per frame.
+    const std::uint64_t attempt = 5'000'000'000ull;
+    check(!mayRemap(attempt, attempt), "the instant of the last attempt is not due again");
+    check(!mayRemap(attempt + 1, attempt), "a nanosecond later it is not");
+    check(!mayRemap(attempt + RemapIntervalNanos - 1, attempt),
+          "one nanosecond before the interval it is not");
+    check(mayRemap(attempt + RemapIntervalNanos, attempt),
+          "exactly at the interval it is allowed again");
+    check(mayRemap(attempt + 10 * RemapIntervalNanos, attempt),
+          "well past the interval it is allowed");
+
+    // A clock that went backwards must not deadlock recovery: the subtraction would
+    // never reach the interval again.
+    check(mayRemap(1'000, 5'000'000'000ull), "a backwards clock is treated as due");
+
+    // A frame in hand means there is nothing to recover from.
+    check(!shouldRemap(true, attempt + 10 * RemapIntervalNanos, attempt),
+          "a channel yielding frames is never re-opened, however long since the last attempt");
+    // No frame means the mapping may be describing the past - but still rate-limited.
+    check(shouldRemap(false, attempt + 10 * RemapIntervalNanos, attempt),
+          "no frame and the interval elapsed: re-open");
+    check(!shouldRemap(false, attempt + 1, attempt),
+          "no frame but inside the interval: wait rather than re-open every frame");
+    check(shouldRemap(false, attempt + 1, 0),
+          "no frame and never tried: re-open immediately");
+}
+
 // The decision an unmapped reader must reach: refuse, and say why.
 void checkUnmappedRefuses() {
     Source source;
@@ -240,6 +283,7 @@ int main() {
     checkLengthRule();
     checkWindowsLengthIsDerived();
     checkRecycledSlotDetected();
+    checkBoundedRecovery();
     checkStaleRefuses();
     checkOutOfRangeRefuses();
     checkGeometryOfRealCapture();
@@ -247,7 +291,8 @@ int main() {
     if (failures == 0) {
         std::printf(
             "Frame source checks passed: unmapped refuses, short buffer refuses, length rule, "
-            "Windows length derived not cached, recycled slot detected, stale refuses, "
+            "Windows length derived not cached, recycled slot detected, bounded recovery, "
+            "stale refuses, "
             "oversized refuses, real-capture geometry.\n");
         return 0;
     }

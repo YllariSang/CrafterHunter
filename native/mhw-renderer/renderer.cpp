@@ -726,12 +726,45 @@ void serviceContentChecks() {
 // publishes at 20-60 Hz, and uploading 7.8 MB on every MHW frame would cost more
 // than the frame itself. A frame whose geometry changed means the guest resized
 // its window, and the texture is rebuilt rather than stretched.
+// Re-opens the channel, at most once per RemapIntervalNanos.
+//
+// Every way of losing the channel ends the same way - no frame arrives - and none of
+// them is visible from inside the mapping. The file can be unlinked while we hold it
+// (a verification script did exactly that), recreated at a new size after a window
+// change, or replaced by a restarted guest whose sequence numbers begin again at one.
+// In each case the mapping still describes something real and something *past*, and
+// only re-opening tells us so.
+//
+// Returns whether a frame is available afterwards, which is what the callers want to
+// know and what keeps the retry loop in one place.
+bool recoverChannel(bool haveFrame) {
+    const unsigned long long now = ch::millisToNanos(GetTickCount64());
+    if (!frames::shouldRemap(haveFrame, now, lastRemapNanos)) return false;
+    lastRemapNanos = now;
+
+    // Forget what we were holding before dropping the mapping. A channel that comes
+    // back at a different size must not be compared against the old geometry, and a
+    // restarted guest's sequence of 1 must not be mistaken for the frame already on
+    // the texture. Both are handled by forgetting, and forgetting is cheap.
+    const bool wasMapped = frameSource.mapped();
+    frameSource.close();
+    if (frameSource.open()) {
+        log("re-opened the Minecraft frame channel (%s, size %zu)",
+            wasMapped ? "was mapped" : "was absent", frameSource.length());
+        lastUploadedSequence = 0;
+        lastAdvanceSequence = 0;
+        lastAdvanceNanos = 0;
+        ageSourceChosen = false;
+        const char* why = nullptr;
+        return frameSource.newestFrame(now, &why).pixels != nullptr;
+    }
+    log("Minecraft frame channel still absent after re-opening it");
+    return false;
+}
+
 bool uploadNewestFrame() {
-    if (!frameSource.mapped() && !frameSource.open()) {
-        if (!frameRefusalLogged) {
-            frameRefusalLogged = true;
-            log("Minecraft frame channel not present yet (guest not publishing)");
-        }
+    if (!frameSource.mapped() && !recoverChannel(false)) {
+        refuse("channel not present (guest not publishing)");
         return false;
     }
 
@@ -741,10 +774,17 @@ bool uploadNewestFrame() {
     // frame look like it had been captured in the future.
     const unsigned long long now = ch::millisToNanos(GetTickCount64());
     const char* reason = nullptr;
-    const frameio::FrameView view = frameSource.newestFrame(now, &reason);
+    frameio::FrameView view = frameSource.newestFrame(now, &reason);
     if (!view.pixels) {
-        if (reason) refuse(reason);
-        return false;
+        // Recover before refusing. Returning here is what left the reader holding a
+        // mapping of a file nothing was writing to, for the rest of the session.
+        if (recoverChannel(false)) {
+            view = frameSource.newestFrame(now, &reason);
+        }
+        if (!view.pixels) {
+            if (reason) refuse(reason);
+            return false;
+        }
     }
 
     // Decide once, from a measurement, how this frame's age will be judged, and
@@ -768,17 +808,12 @@ bool uploadNewestFrame() {
 
     if (!ch::frameIsFresh(ageSource, now, view.capturedNanos, lastAdvanceNanos,
                           ch::StallBoundNanos, frameio::MaxAgeNanos)) {
-        // The sequence has stopped advancing. Either the guest stopped
-        // publishing, or it deleted and recreated the channel at a new size and we
-        // are still holding a mapping of a file nothing writes to. Re-opening
-        // tells the two apart in practice and is the only thing that recovers the
-        // second case, so it is tried at a bounded rate rather than once.
-        if (now - lastRemapNanos >= ch::StallBoundNanos / 3) {
-            lastRemapNanos = now;
-            frameSource.close();
-            if (frameSource.open()) log("re-opened the Minecraft frame channel (seq=%llu)",
-                                        static_cast<unsigned long long>(view.sequence));
-        }
+        // The sequence has stopped advancing on a mapping that may describe the
+        // past: an unlinked file, a recreated one, or one from before a guest
+        // restart. This used to carry its own remap under a different interval; it now
+        // goes through the same rate-limited routine as every other refusal, because
+        // two bounds for one remedy is one bound too many.
+        if (recoverChannel(false)) return uploadNewestFrame();
         refuse("frame is not being published");
         return false;
     }

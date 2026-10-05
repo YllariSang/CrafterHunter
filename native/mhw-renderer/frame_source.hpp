@@ -249,4 +249,44 @@ private:
     bool mapped_{false};
 };
 
+// How often the reader may re-open the channel.
+//
+// Bounded rather than eager because the reader is called every frame: re-opening
+// on every refusal would turn a missing channel into a syscall storm, and the
+// channel is missing for as long as Minecraft is closed. Once a second is enough
+// to recover from an unlinked or recreated file - the guest rewrites it in
+// milliseconds - while costing nothing when the guest is simply not running.
+inline constexpr std::uint64_t RemapIntervalNanos = 1'000'000'000ull;
+
+// May the channel be re-opened right now?
+//
+// The clock going backwards counts as due, and so does never having tried: a reader
+// whose own time source jumped should not then refuse to recover forever because
+// its subtraction never reaches the interval.
+inline bool mayRemap(std::uint64_t nowNanos, std::uint64_t lastAttemptNanos) {
+    if (lastAttemptNanos == 0) return true;
+    if (nowNanos < lastAttemptNanos) return true;
+    return nowNanos - lastAttemptNanos >= RemapIntervalNanos;
+}
+
+// What to do about a channel that is not yielding a frame.
+//
+// Re-opening is the only way back from three states, and all three end in the same
+// symptom - no frame arrives - while needing the same remedy:
+//
+//   - the file was unlinked while the mapping was held, so the mapping describes an
+//     inode nothing writes to any more. This is not hypothetical: a verification
+//     script deleted the live channel and the guest carried on publishing to it.
+//   - the guest recreated the file, at a new size after a window change.
+//   - the guest restarted, so the sequence numbers began again from one.
+//
+// None of them is visible from inside the mapping. `haveFrame` false therefore means
+// "the mapping may be describing the past", and the answer is to re-open it - but
+// only once per interval, or a closed Minecraft would cost a remap per frame.
+inline bool shouldRemap(bool haveFrame, std::uint64_t nowNanos,
+                        std::uint64_t lastAttemptNanos) {
+    if (haveFrame) return false;
+    return mayRemap(nowNanos, lastAttemptNanos);
+}
+
 }  // namespace crafterhunter::frames

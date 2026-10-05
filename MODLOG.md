@@ -1740,3 +1740,42 @@ compile error, which proves the API moved and proves nothing about behaviour.
 
 `newestFrame()` lost its host-resolution parameters entirely. The renderer change
 is one line; the stone renderer and depth selection are untouched.
+
+## 2026-10-05 — bounded recovery, so a stale mapping cannot outlive the channel
+
+`uploadNewestFrame()` returned on "no complete frame" without re-opening anything.
+So once its mapping described something the guest was no longer writing, it kept
+describing it for the rest of the session — and nothing observable *from inside that
+mapping* would ever have said otherwise. Three ways in, all with the same symptom and
+the same remedy:
+
+- the file is unlinked while the mapping is held. Not hypothetical: a verification
+  script of mine deleted the live channel, and the guest went on publishing to an
+  unlinked inode while reporting healthy sequence numbers.
+- the guest recreates the file, at a new size after a window change.
+- the guest restarts, so sequence numbers begin again at one.
+
+`recoverChannel()` now handles all three, rate-limited to once per second by
+`shouldRemap()` in `frame_source.hpp`. Bounded rather than eager because the reader
+runs every frame and the channel is legitimately absent for as long as Minecraft is
+closed — an unbounded retry would be a syscall storm in the most common case.
+
+On a successful re-open it **forgets what it was holding** before the mapping goes:
+`lastUploadedSequence`, `lastAdvanceSequence`, `lastAdvanceNanos` and the age-source
+decision. That is what makes a guest restart safe — a sequence of 1 must not be
+mistaken for the frame already on the texture — and a resized channel safe, since the
+new geometry must not be compared against the old one.
+
+The liveness path had its own remap under a different interval
+(`StallBoundNanos / 3`). Two bounds for one remedy is one bound too many, so it now
+calls the same routine. The recursion that introduces is bounded: recovery sets
+`lastRemapNanos`, so the nested call cannot remap again, capping the depth at one.
+
+`mayRemap()` treats a clock that has gone backwards as due, and a reader that has
+never tried as due — otherwise the subtraction could never reach the interval and
+recovery would deadlock permanently.
+
+One test expectation of mine was wrong on the way in and the suite caught it: I
+asserted that re-opening *is* allowed at the instant of the last attempt. It is not —
+that attempt set the clock. Getting this wrong in the permissive direction is one
+remap per frame, so the boundary is now asserted from both sides.
