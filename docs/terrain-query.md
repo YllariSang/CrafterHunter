@@ -153,6 +153,34 @@ them shows up as a delta instead of a silent pass or fail. `agree` compares the
 ray with the collision point inside 0.5 m, which is the ground standing on a
 slope rather than a snapped grid.
 
+### What the first live cast showed
+
+Plugin 0.3.4 in the running game, 2026-10-05, hunter standing inside the Astera
+quest house on slanted wooden architecture:
+
+```
+15:51:18.231  Terrain adapter ready: all 7 signatures resolved against the pinned executable.
+15:51:18.783  Terrain state changed to Ready.
+15:51:59.803  Terrain self-check 1: hit=1 agree=True rayY=-3.821m collisionY=-3.471m delta=0.350m
+              positionY=-3.821m normal=(-0.33, 0.89, -0.32) attr=1048576
+```
+
+Four requests produced four identical lines, and the game kept running: the
+routine is callable, one ray per request, nothing cast on its own. Three things
+in that line are worth keeping.
+
+- `rayY` equals `positionY` to the millimetre. The ray lands exactly on the
+  surface the hunter stands on, and the hunter's model origin is on that
+  surface — the hunter's own height is the ground truth the guest will use.
+- `collisionY` sits **0.35 m above** the hit. `CollisionPosition` is not the
+  feet; on a slanted surface it behaves like a collision reference point above
+  the contact. Stage C must not read it as ground height.
+- The normal is a unit vector tilted about 27 degrees from vertical, which is
+  what a slanted plank looks like. The ray also hits man-made geometry, because
+  stage architecture, wooden platforms, and terrain all share one collision
+  system. A sample taken indoors is evidence about geometry, not about terrain:
+  the outdoor samples are still outstanding.
+
 ## Checks that run outside the game
 
 `tools/test-spl-plugin.sh` builds and runs

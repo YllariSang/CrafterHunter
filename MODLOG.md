@@ -785,3 +785,53 @@ request produces nothing, a pending request is taken exactly once, a cleared
 request never fires. The per-tick budget is unchanged in spirit and tighter in
 fact — one ray per one-second sample, requested — and stage B's guest queue will
 spend that same budget rather than a second, larger one.
+
+## 2026-10-05 — the terrain ray answered, live, on demand
+
+Plugin 0.3.4 was installed into the running game at 15:51 and the first native
+call into MHW's own collision routine went through without taking the game
+down. Everything below came from four requested casts and the log they wrote:
+
+```
+15:51:18.231  Terrain adapter ready: all 7 signatures resolved against the pinned executable.
+15:51:18.783  Terrain state changed to Ready.
+15:51:59.803  Terrain self-check 1: hit=1 agree=True rayY=-3.821m collisionY=-3.471m
+              delta=0.350m positionY=-3.821m normal=(-0.33, 0.89, -0.32) attr=1048576
+15:52:36.803  Terrain self-check 2: (identical)
+15:52:42.805  Terrain self-check 3: (identical)
+15:52:48.806  Terrain self-check 4: (identical)
+```
+
+**Resolution works as designed.** All seven patterns resolved in the loaded
+image in about a second, alongside the executable hash, with no address ever
+written to the log. `SingletonManager.GetSingleton("sMhCollision")` returned a
+live pointer on the first sample, so the state machine went straight to `Ready`
+— which matters more than it looks: had the singleton name been wrong, the
+adapter would have stayed `Unavailable` and never cast anything at all.
+
+**The ray hits what the hunter stands on.** `rayY` and `positionY` match to the
+millimetre, so the segment lands exactly on the surface under the hunter's feet
+and the model's origin is that surface. This is the question milestone 3 asked,
+answered on the host with no protocol and no Minecraft restart.
+
+**`CollisionPosition` is not ground height.** It sits 0.35 m above the hit —
+consistent with a collision reference point above the contact rather than the
+contact itself, and exactly the kind of assumption that would have quietly
+skewed the guest's ground height by a third of a metre in stage C. The adapter
+logged ray, collision point, and model origin as three separate numbers for
+this reason; had it logged only an `agree` verdict, the offset would have looked
+like a passing test.
+
+**The sample is indoors.** The screenshot put the hunter inside the Astera quest
+house, standing on slanted wooden architecture — the normal is a unit vector
+about 27 degrees off vertical, which is a plank, not terrain. Stage geometry,
+platforms, and terrain share one collision system, so the cast is valid
+evidence about the routine and not yet about terrain. Two outdoor samples, one
+flat and one on a slope, are still owed.
+
+**A note on how it went in.** Nothing cast on its own: the four rays came from
+`tools/control-mhw-terrain.py check`, one request at a time, and the game
+survived all of them with the bridge and both endpoints still registered. The
+periodic version that was committed first would have fired a native call the
+moment the world became ready, which is why it was replaced before it was ever
+loaded.
