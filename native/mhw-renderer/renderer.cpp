@@ -138,6 +138,7 @@ unsigned long long lastRemapNanos = 0;
 unsigned long long minecraftUploaded = 0;
 const char* lastFrameRefusal = nullptr;
 bool frameRefusalLogged = false;
+unsigned long long lastRefusalLogNanos = 0;
 
 // The scene-depth view drawBlock chose this frame, kept so the frame composite
 // compares against the same depth the stone did. Recomputing it would risk two
@@ -173,6 +174,26 @@ void log(const char* format, ...) {
     std::fprintf(f, "[%llu] ", GetTickCount64());
     va_list args; va_start(args, format); std::vfprintf(f, format, args); va_end(args);
     std::fputc('\n', f); std::fclose(f);
+}
+
+// Refusals are reported when they change and then once a second while they
+// persist.
+//
+// Logging only on change was a real gap and it cost a verification round: the
+// reader refused every frame with "no complete frame", said so once at startup,
+// and was then silent for the rest of the session. The log looked identical to a
+// reader that had stopped being called at all, which is a distinction nobody
+// should have to guess at from a log.
+void refuse(const char* why) {
+    const unsigned long long now = ch::millisToNanos(GetTickCount64());
+    const bool changed = !lastFrameRefusal || std::strcmp(lastFrameRefusal, why) != 0;
+    const bool heartbeat = now - lastRefusalLogNanos >= ch::millisToNanos(1000);
+    if (changed || heartbeat) {
+        log("Minecraft frame refused: %s", why);
+        lastFrameRefusal = why;
+        lastRefusalLogNanos = now;
+        frameRefusalLogged = true;
+    }
 }
 
 bool readPointer(const void* base, size_t offset, void** output) {
@@ -722,10 +743,7 @@ bool uploadNewestFrame() {
     const char* reason = nullptr;
     const frameio::FrameView view = frameSource.newestFrame(width, height, now, &reason);
     if (!view.pixels) {
-        if (reason && (!lastFrameRefusal || std::strcmp(lastFrameRefusal, reason) != 0)) {
-            lastFrameRefusal = reason;
-            log("Minecraft frame refused: %s", reason);
-        }
+        if (reason) refuse(reason);
         return false;
     }
 
@@ -761,13 +779,7 @@ bool uploadNewestFrame() {
             if (frameSource.open()) log("re-opened the Minecraft frame channel (seq=%llu)",
                                         static_cast<unsigned long long>(view.sequence));
         }
-        if (!frameRefusalLogged || std::strcmp(lastFrameRefusal, "frame is not being published") != 0) {
-            frameRefusalLogged = true;
-            lastFrameRefusal = "frame is not being published";
-            log("Minecraft frame refused: %s (seq=%llu lastAdvance=%llu ms ago)",
-                lastFrameRefusal, static_cast<unsigned long long>(view.sequence),
-                lastAdvanceNanos ? (now - lastAdvanceNanos) / 1'000'000ull : 0ull);
-        }
+        refuse("frame is not being published");
         return false;
     }
     frameRefusalLogged = false;
@@ -800,11 +812,7 @@ bool uploadNewestFrame() {
     // frame is indistinguishable from a rendering fault. Dropping it costs one
     // frame of latency, which nothing can see.
     if (!frameSource.stillHolds(view.sequence)) {
-        if (!frameRefusalLogged) {
-            frameRefusalLogged = true;
-            log("Minecraft frame seq=%llu recycled during upload; dropped",
-                static_cast<unsigned long long>(view.sequence));
-        }
+        refuse("slot recycled during upload; frame dropped");
         return false;
     }
     frameRefusalLogged = false;
@@ -816,6 +824,7 @@ bool uploadNewestFrame() {
     }
     lastFrameRefusal = nullptr;
     frameRefusalLogged = false;
+    lastRefusalLogNanos = 0;
     return true;
 }
 int drawFrame(ID3D11Texture2D* back, ID3D11ShaderResourceView* sceneDepth);

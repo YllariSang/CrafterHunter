@@ -23,9 +23,12 @@ plugin="$HOME/.local/share/Steam/steamapps/common/Monster Hunter World/nativePC/
 log="$plugin/render/renderer.log"
 channel="/dev/shm/crafterhunter/frame.channel"
 evidence="native/mhw-renderer/build/evidence/frame-composite"
-mkdir -p "$evidence"
 stamp="$(date +%Y%m%d-%H%M%S)"
+# The per-run directory, not just its parent: created only the parent, every tee
+# then failed with "No such file or directory" and the run reported no evidence
+# while the capture itself had worked.
 out="$evidence/$stamp"
+mkdir -p "$out"
 
 fail() { printf '%s\n' "$1" >&2; exit 1; }
 
@@ -40,6 +43,14 @@ printf 'MHW pid %s, renderer log marked at line %s\n' "$game" "$mark"
 
 # The channel before we ask for anything, so a stale file from an earlier session
 # cannot be mistaken for a live one.
+#
+# Deliberately NOT deleted. An earlier version removed it here, on the reasonable
+# assumption that a fresh capture makes a fresh file. It does not: the guest holds
+# the channel open for the life of the capture, so deleting the path leaves it
+# writing to an unlinked inode that no reader can ever see. The guest then reported
+# healthy publishing while the reader saw nothing, which is the worst possible
+# combination to debug. The channel is recreated when the guest reopens it - on a
+# size change, which is why a window nudge brings it back.
 {
     echo "=== before ==="
     date
@@ -50,7 +61,6 @@ printf 'MHW pid %s, renderer log marked at line %s\n' "$game" "$mark"
     fi
 } | tee "$out/before.txt"
 
-rm -f /dev/shm/crafterhunter/frame.channel
 
 printf 'requesting %s frames\n' "$frames"
 python3 tools/control-minecraft-frame.py capture --frames "$frames" >/dev/null 2>&1 || fail "capture request failed"

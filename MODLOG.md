@@ -1656,3 +1656,41 @@ Atomics, and a yielding wait.
 
 **Build passes. Not yet seen in-game** — that is the next entry, and it is the
 only one that can close this.
+
+## 2026-10-05 — first run of the fixed reader, and a mistake of mine
+
+The new DLL loaded and the frame path ran for the first time:
+
+```
+Shared draw state ready (context state, constants, sampler, rasterizer, no-depth)
+Minecraft frame pipeline ready (colour only: sky-against composite, no depth channel)
+Minecraft frame refused: no complete frame
+```
+
+Faults 1 and 2 are fixed — the length is derived, the conversion is right, and the
+reader got as far as *deciding* about a frame instead of refusing on arithmetic.
+
+**Then I broke it myself.** `verify-frame-composite.sh` deleted the channel before
+requesting a capture, on the reasonable assumption that a new capture means a new
+file. It does not: the guest holds the channel open for the life of the capture,
+so deleting the path left Minecraft writing to an unlinked inode. The guest kept
+reporting healthy publishing — `seq=30 published=1` — while no reader could ever
+see it. The worst combination to debug, and self-inflicted.
+
+The script no longer deletes it. The channel comes back when the guest reopens it,
+which `reopenChannel()` only does on a **size** change, so a nudge of the
+Minecraft window is enough and no restart is needed.
+
+**The second thing the run exposed is a real gap.** Refusals were logged only when
+the reason *changed*. The reader refused every frame with "no complete frame", said
+so once at startup, and was then silent for the rest of the session — a log
+identical to a reader that had stopped being called at all. Nobody should have to
+guess that distinction from a log, so refusals now report on change and then once a
+second while they persist.
+
+A third, smaller defect in my own script: it created the evidence *parent*
+directory but not the per-run one, so every `tee` failed and the run reported "no
+evidence" while the capture itself had worked.
+
+Not yet a composite on screen. Next: recreate the channel, re-run, and read the
+upload line.
