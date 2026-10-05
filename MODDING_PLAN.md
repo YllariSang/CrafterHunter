@@ -1,13 +1,36 @@
 # Minecraft inside Monster Hunter: World – Iceborne
 
-Recon date: 2026-10-04. This is an implementation plan, not a claim that
-gameplay integration works.
+Recon date: 2026-10-04. Direction corrected 2026-10-05. This is an
+implementation plan, not a claim that gameplay integration works.
+
+## Target
+
+**Minecraft is playable inside Monster Hunter: World.** You are Steve, standing
+in Astera or the Wildspire Wetlands, and Monster Hunter's world is the world
+around you.
+
+Concretely, and this is the contract the milestones below are written to satisfy:
+
+- You control Steve with Minecraft's own input, movement, and physics.
+- Steve's body, blocks, items, mobs, and particles are visible inside MHW's
+  frame, occluded correctly by MHW geometry.
+- Steve stands on MHW's ground and is stopped by MHW's cliffs, not on
+  Minecraft's flat world with Monster Hunter's mountains passing through him.
+- Minecraft's own verbs work against MHW's world: an iron sword damages a real
+  MHW monster, TNT damages a real MHW monster, a monster's claw damages Steve,
+  a Minecraft shield refuses that claw, elytra fly in MHW's sky.
+- MHW keeps its AI, monster health, quests, story, and area transitions. Nothing
+  is faked in Minecraft's direction; MHW does the bookkeeping.
+- **Both games never drive the player at the same time.** Control has exactly
+  one owner at every instant, and it is visible in the HUD which one.
+
+Everything Minecraft-related interacts with MHW, and nothing Minecraft-related
+overrides MHW's own logic.
 
 ## Target and current evidence
 
-Run real Minecraft Java alongside MHW, sharing a playable world with building,
-monster combat, and participation in MHW's existing quests and story.
-This matches the repository's existing separate-process architecture.
+Run real Minecraft Java alongside MHW. This matches the repository's existing
+separate-process architecture.
 
 - Host installation: `/home/yllaris/.local/share/Steam/steamapps/common/Monster Hunter World`.
 - Host executable: 84,225,952 bytes; SHA-256
@@ -19,13 +42,13 @@ This matches the repository's existing separate-process architecture.
 - Guest source target: Minecraft 26.2, Fabric Loader 0.19.5,
   Loom 1.18-SNAPSHOT. Launcher authentication and live guest compatibility
   remain to be confirmed.
-- Implemented: localhost transport, read-only MHW camera telemetry, Fabric
-  camera-follow code. Live camera acceptance passed on 2026-10-05 and is
-  recorded in `docs/camera-link-test.md`: axes, relative translation, F8
-  re-anchoring, the F7 toggle, disconnect recovery, world leave/rejoin, a
-  twenty-seven-minute expedition and the dimension change.
-- Missing: frame composition, terrain collision, shared player control,
-  monster proxies, damage exchange, quest and story integration.
+- Implemented and accepted live: localhost transport, read-only MHW camera
+  telemetry driving the Minecraft camera, Minecraft colour/depth composition into
+  MHW's renderer with validated occlusion and frame synchronization, a player
+  proxy, and host terrain queries answered from the game's own collision routine.
+- Missing: a visible, controllable Steve inside MHW, Minecraft collision on MHW
+  ground, monster combat in both directions, building, quest and story
+  integration.
 
 ## Route and ownership
 
@@ -33,12 +56,30 @@ Keep the Rust bridge and SPL lifecycle boundary. Add a separate native D3D11
 composition component, with bounded shared frame buffers for color/depth.
 UDP carries control and telemetry, never full video frames.
 
+**Ownership is the keystone of the new direction.** The camera-follow milestone
+built one mode: MHW owns the player, and Minecraft mirrors it. That mode stays —
+it is a working spectator view and the evidence base for everything else — but
+the playable goal needs the other mode: Minecraft owns input, movement and
+camera, and MHW renders from Steve's eye. The two are mutually exclusive by
+construction:
+
+| | MHW-owned (today) | Minecraft-owned (the goal) |
+| --- | --- | --- |
+| Input | MHW | Minecraft |
+| Movement | MHW | Minecraft |
+| Camera | MHW drives the guest | Minecraft drives the host |
+| Minecraft player | proxy mirroring the hunter | the player |
+| Entered by | default | guest requests, host acknowledges |
+
+The owner flag is negotiated, never inferred: the guest asks, the host
+acknowledges, and both sides refuse to drive until the handshake completes. A
+disconnect, a stale frame, or a scene change hands control back within the
+freshness window without a Minecraft restart. Scripted sequences in MHW take
+control back for their duration and return it with a fresh anchor.
+
 MHW owns monster AI, monster health, hit reactions, quest success/failure,
 story flags, NPC interactions, rewards, and area transitions. Minecraft owns
-blocks, block inventory, crafting, and Minecraft simulation. Player movement,
-input, camera, and player health need an explicitly negotiated owner: the
-current camera-follow milestone gives control to MHW; a Minecraft-controlled
-playable mode is a later feature and must not have both games drive the player.
+blocks, block inventory, crafting, and Minecraft simulation.
 
 ## Ordered acceptance milestones
 
@@ -67,42 +108,96 @@ playable mode is a later feature and must not have both games drive the player.
    measured candidate while refusing a fresh-but-empty one measured at
    `age=0`, and 958 traced frames each bound a same-frame depth with 0.000 px
    CPU/GPU projection agreement across 37 camera states. Yielding input and
-   camera, and the wider story flow, remain milestone 7's.*
-3. **Terrain and player:** bounded host terrain queries feed Minecraft collision;
-   align a host player proxy with the Minecraft player; verify ground, slopes,
-   movement, loading screens, chunk streaming, and immediate control fallback.
-   Design and host reconnaissance are recorded in `docs/host-queries.md`: the
-   loader exposes `Player.MainPlayer` and a game-thread `OnUpdate` tick with no
-   reverse engineering at all, but no terrain-raycast API, so the ray goes
-   through the game's own routine resolved from byte signatures at runtime —
-   necessary anyway because the executable's `.text` section is encrypted on
-   disk and `tools/verify-host-build.py` confirms it can only be scanned in the
-   loaded image. The player half is now implemented end to end — `PlayerState`
-   (kind 11), a 20 Hz game-thread sampler in the plugin, and a client mixin
-   that aligns the Minecraft player and releases it the instant the stream
-   ages out — with headless checks covering anchoring, the shared 25 m jump
-   rule, every release path, and camera/player feed independence. It still
-   needs live acceptance in the running games; the terrain half has not started.
-4. **One monster:** export a stable session entity ID, transform, hit volumes,
-   and health. One Minecraft attack produces one validated host combat action;
-   one monster attack produces one player hit. MHW executes its normal death
-   and quest logic. Verify duplicates, stale targets, disconnects, and despawns.
-5. **Building:** place and break blocks, persist them by host area/session,
-   and validate interaction with host creatures. Guest collision alone does
-   not make monsters collide with blocks; host collision or validated damage
-   queries require a separate adapter. Test a monster breaking one structure.
-6. **One assigned quest:** start, enter, complete, fail, abandon, and return
+   camera, and the wider story flow, remain milestone 8's.*
+3. **Playable Steve — a visible, controllable Minecraft player inside MHW.** The
+   milestone the whole project was aimed at, and the first one that can fail
+   outright, so it is derisked first:
+   - **Spike, before anything else:** composite a *full* Minecraft frame into
+     MHW's renderer at native resolution and 60 fps, with the player model
+     visible, instead of one depth-selected block. Everything after this depends
+     on it, and it is the only item here with an unknown cost.
+   - **Ownership handshake:** guest requests control, host acknowledges, the HUD
+     shows the owner, and no side drives the player until it completes.
+   - **Minecraft-driven camera:** Steve's eye and yaw become MHW's camera, using
+   the rotation conversion the camera link already proves, in the other
+   direction.
+   - **Acceptance, in the running games:** you stand in an expedition as Steve,
+   move with Minecraft input, MHW renders the world from your eyes, MHW input
+   does not move you, Minecraft is not overriding you, control returns to MHW and
+   back within the freshness window, and a scene change re-anchors instead of
+   teleporting.
+4. **Terrain under Steve:** MHW's ground is the ground Steve walks on. The host
+   side is already proven — see `docs/terrain-query.md`: the game's own
+   collision routine, resolved from byte signatures in the loaded image behind an
+   executable fingerprint, hit heights matching the hunter's own to within 11 cm
+   on five surfaces from flat ground to a 22-degree hillside. What remains is the
+   guest side and the live acceptance.
+   - Map column heights into Minecraft coordinates through the proxy anchor, and
+     pace requests on a bounded budget rather than per frame.
+   - Build slope from neighbouring column heights. **Not from the surface
+     normal:** three of five measured surfaces report the identical
+     `(-0.00, 0.01, 0.00)`, so a normal is either a direction or absent, and the
+     guest treats a sub-threshold one as absent.
+   - Use the ray's own hit as ground height. `CollisionPosition` sits
+     0.24–0.35 m above it depending on the surface and is a reference point, not
+     ground.
+   - *Acceptance:* walk MHW's slopes without clipping or floating, get stopped by
+     MHW geometry, see "no terrain" on loading screens rather than the last
+     answer, and survive chunk streaming and area transitions.
+5. **Combat exchange — Minecraft's verbs against MHW's monsters.** MHW executes
+   its normal death and quest logic; nothing writes monster health directly.
+   - Read side: stable session entity ID, transform, hit volumes, health.
+   - **Sword on monster:** one Minecraft attack produces one validated host
+     combat action. An iron sword must reduce a real monster's real health, and
+     the monster must die through MHW's own logic.
+   - **Monster on Steve:** one monster attack produces one Minecraft damage
+     event, so Steve is hurt, and a raised shield refuses it.
+   - **TNT** as the proof that the path carries arbitrary Minecraft damage
+     sources, not just melee.
+   - **Elytra** as the proof that Minecraft movement can exceed MHW's own.
+   - Verify duplicates, stale targets, disconnects, despawns, and death
+     semantics: what Steve's death means for an MHW quest, and the reverse.
+6. **Building:** place and break blocks, persist them by host area/session, and
+   validate interaction with host creatures. Guest collision alone does not make
+   monsters collide with blocks; host collision or validated damage queries
+   require a separate adapter. Test a monster breaking one structure. Built
+   geometry is Minecraft's, rendered into MHW's frame by milestone 3's composite.
+7. **One assigned quest:** start, enter, complete, fail, abandon, and return
    through normal MHW flow. Minecraft combat must satisfy the host objective;
    verify rewards and progression exactly once. Scene changes invalidate old
    entity IDs, commands, and coordinate anchors.
-7. **Story participation:** support one dialogue/cutscene sequence and its
-   following quest. Yield input and camera to MHW during scripted sequences,
-   hide the Minecraft layer when necessary, then resume with a fresh anchor.
-   Track compatibility per quest before expanding to the campaign.
-8. **Broader interaction:** monster parts, statuses, capture, gathering, NPCs,
+8. **Story participation:** support one dialogue/cutscene sequence and its
+   following quest. Yield input and camera to MHW during scripted sequences —
+   the ownership model's other half — hide the Minecraft layer when necessary,
+   then resume with a fresh anchor. Track compatibility per quest before expanding
+   to the campaign.
+9. **Broader interaction:** monster parts, statuses, capture, gathering, NPCs,
    crafting exchanges, and environmental effects each get a dedicated mapping
    and a real-game acceptance scene. Cross-game item conversions need a
    transaction identity to prevent duplicate rewards.
+
+## What retired from the old direction
+
+The player proxy stays, but as the **MHW-owned spectator mode** it was always
+good for: MHW drives, Minecraft shows the hunter. It is no longer the player's
+body, and the milestone-3 work that aligned them is not a step toward the goal —
+it is the opposite of it. Region-selected block placement is superseded by
+milestone 3's full-frame composite, which is why the spike comes first.
+
+## What could still kill this
+
+Named so nobody discovers them halfway through:
+
+- **Full-frame composite at 60 fps.** Everything in milestone 3 rests on it.
+  Region-selected blocks are cheap; a full frame is not, and it is the one item
+  whose cost is genuinely unknown today.
+- **Writing damage into MHW.** Reading monster state is inspection; making an
+  iron sword reduce real health needs the host's own combat entry point, resolved
+  the same way the terrain ray was, fail-closed. The prior art demonstrates it is
+  possible; it does not demonstrate it is safe on this build.
+- **Elytra against MHW's own camera and physics.** Two movement systems
+  disagreeing about gravity is a bug waiting to be found.
+- **Quest state.** Minecraft must satisfy MHW's objective, never write it.
 
 ## Quest and story boundary
 
@@ -129,6 +224,11 @@ game-thread command execution, bounded queues, duplicate-resistant gameplay
 commands, session/area epochs, and a disconnect watchdog. Unsupported features
 must disable themselves. Do not use raw health writes as a substitute for the
 host's combat and quest bookkeeping.
+
+Every protocol kind added later requires the bridge to be rebuilt **and
+restarted**: a running binary predating a kind discards those packets as
+`UnknownKind` while both game ends look healthy. Symptom and fix are recorded in
+`MODLOG.md`.
 
 ### Save backups (2026-10-05)
 
@@ -157,6 +257,6 @@ games are idle if a fully flushed snapshot is needed.
 - [SPL monster API](https://fexty12573.github.io/SharpPluginLoader/API/SharpPluginLoader.Core.Entities.Monster.html).
 - [Existing macOS crossover](https://github.com/justbustin/minecraft-crossover-bridge):
   demonstrates composition, terrain rays, monster proxies, and damage exchange;
-  does not establish Linux/DXVK or full story compatibility. Any reused source
-  must retain its license notices; see `docs/prior-art.md`.
+  does not establish Linux/DXVK or whole-campaign compatibility. Any reused
+  source must retain its license notices; see `docs/prior-art.md`.
 - Universal-modder's local knowledge index currently has no MHW-specific note.

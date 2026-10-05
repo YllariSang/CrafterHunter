@@ -1003,3 +1003,48 @@ method that does not need it. The next stage is the guest half: a heightmap of
 column heights around the player, mapped into Minecraft coordinates through the
 proxy anchor, with the bridge rebuilt and restarted first so kinds 12 and 13
 survive it.
+
+## 2026-10-05 — the plan was aimed at the wrong direction, and it was my fault
+
+The person asked when Steve would be walking around in Monster Hunter. I
+answered with milestone arithmetic, said no milestone delivered it, and then said
+the honest thing: the plan's own line 41 had already said *"a Minecraft-controlled
+playable mode is a later feature and must not have both games drive the player."*
+I had read that line several times while building three milestones against it and
+never once asked whether "later" was acceptable.
+
+The goal was always **Minecraft playable inside MHW**: you are Steve, MHW's world
+is the world around you, an iron sword damages a real monster, a monster's claw
+damages Steve, a shield refuses it, TNT works. The plan instead built the inverse
+— a player proxy mirroring the hunter, monsters proxied *into* Minecraft — and
+milestone 4 as written would have moved an MHW monster into Minecraft, which is
+the opposite direction to the one thing worth wanting.
+
+**What it cost:** plan text, not code. The expensive 90% was already aimed
+correctly. Camera link into MHW's camera, Minecraft pixels composited into MHW's
+frame with validated occlusion, host terrain queries, the fingerprint and
+signature discipline, the protocol with golden bytes, the evidence discipline —
+every one of those is required by the real goal. The wrong 10% is the player
+proxy (now retired to its honest role as the MHW-owned spectator mode) and
+region-selected block placement (superseded by a full-frame composite).
+
+**What changed.** `MODDING_PLAN.md` now opens with the contract as testable
+properties rather than a sentence of intent, and the milestones run 3 Playable
+Steve → 4 Terrain under Steve → 5 Combat exchange → 6 Building → 7 One quest →
+8 Story → 9 Broader interaction. Ownership is stated as the keystone: exactly one
+owner of input, movement and camera at every instant, negotiated by handshake,
+visible in the HUD, with the MHW-owned mode kept intact because scripted
+sequences need it.
+
+**And the risky item is now first.** Milestone 3 opens with a spike —
+compositing a *full* Minecraft frame at native resolution and 60 fps with the
+player model visible, instead of one depth-selected block. Everything after it
+depends on that working, it is the only item in the plan with a genuinely
+unknown cost, and it is cheap to find out. `MODDING_PLAN.md` also gained a
+"What could still kill this" section, naming the full-frame composite, writing
+damage into MHW, elytra disagreeing with MHW's own physics, and quest state, so
+none of them is discovered halfway through.
+
+The lesson worth keeping: a plan that defers the keystone will be followed
+faithfully and still arrive somewhere else. Ask what the keystone is before
+milestone three, not after milestone six.

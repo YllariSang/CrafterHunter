@@ -10,6 +10,16 @@ Mojang, or Microsoft.
 
 ## Direction
 
+**Minecraft is playable inside Monster Hunter: World.** You are Steve, standing
+in Astera or the Wildspire Wetlands, and Monster Hunter's world is the world
+around you: MHW owns the monsters, their AI and health, the quests and the story,
+and Minecraft owns your body, your items, your damage, your shield, your elytra.
+An iron sword damages a real MHW monster, a monster's claw hurts Steve, a raised
+shield refuses it, TNT works. Both games never drive the player at once.
+
+See [MODDING_PLAN.md](MODDING_PLAN.md) for the milestone list and the acceptance
+contract that "playable" is measured against.
+
 CrafterHunter is a Linux-first implementation for Steam Proton/DXVK. A prior
 MIT-licensed project already demonstrates this crossover on Apple Silicon with
 CrossOver/DXMT. CrafterHunter does not claim the original concept; its focus is
@@ -18,15 +28,23 @@ fail-closed version handling. See [docs/prior-art.md](docs/prior-art.md).
 
 ## Current milestone
 
-The transport and camera link work in user testing. The native DX11 renderer
-now displays Minecraft stone with a fixed world position, scene-depth occlusion,
-and drawing before MHW's HUD and cursor. It has been tested on MHW build 421810
-under Proton/DXVK in the Research Base and Ancient Forest. Live Fabric block-asset
-transfer has also been confirmed. Minecraft supplies its texture at runtime;
-no Minecraft asset is bundled. See [the rendering verification and setup](docs/depth-renderer.md).
+Milestones 1 and 2 are accepted in the real games: the transport and camera link
+work, and the native DX11 renderer displays Minecraft geometry with fixed world
+position, scene-depth occlusion, and drawing before MHW's HUD and cursor. The
+native depth renderer has been validated on MHW build 421810 under Proton/DXVK
+including across a loading transition and a dialogue cutscene, with 958 traced
+frames each binding a same-frame depth at 0.000 px CPU/GPU projection agreement.
+Live Fabric block-asset transfer is confirmed. Minecraft supplies its texture at
+runtime; no Minecraft asset is bundled. See
+[the rendering verification and setup](docs/depth-renderer.md).
 
-This is an experimental rendering prototype. Multiple-block placement/removal,
-collision, Steve's model, inventory integration, and cross-game combat are still
+Milestone 3 is the current work: **Playable Steve** — a visible, controllable
+Minecraft player inside MHW — and it starts by derisking the one item whose cost
+is unknown, compositing a full Minecraft frame at native resolution and 60 fps.
+Terrain queries are answered today from the game's own collision routine; see
+[docs/terrain-query.md](docs/terrain-query.md).
+
+Collision, Steve's model, inventory integration, and cross-game combat are still
 future work. The earlier [A/B/C comparison](docs/block-compare-test.md) remains
 documented as development history.
 
