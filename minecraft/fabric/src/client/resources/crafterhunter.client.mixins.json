@@ -5,9 +5,12 @@
   "client": [
     "CameraMixin",
     "FrameCaptureMixin",
+    "GameRendererProjectionAccessor",
     "HudMixin",
     "KeyboardMixin",
-    "PlayerMixin"
+    "LevelProjectionAccessor",
+    "PlayerMixin",
+    "WorldCaptureMixin"
   ],
   "injectors": {
     "defaultRequire": 1
