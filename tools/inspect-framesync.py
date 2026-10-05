@@ -17,8 +17,8 @@ from pathlib import Path
 LINE = re.compile(
     r"framesync frame=(?P<frame>\d+) depth=(?P<depth>-?\d+) covered=(?P<covered>[\d.]+)% "
     r"age=(?P<age>\d+) cam=(?P<cam>[0-9a-f]+) (?P<camera>changed|same|unread) "
-    r"gpu=\((?P<gx>-?[\d.]+), (?P<gy>-?[\d.]+)\) cpu=\((?P<cx>-?[\d.]+), (?P<cy>-?[\d.]+)\) "
-    r"delta=\((?P<dx>-?[\d.]+), (?P<dy>-?[\d.]+)\) left=(?P<left>\d+)"
+    r"gpu=\((?P<gx>-?[\d.]+),\s*(?P<gy>-?[\d.]+)\) cpu=\((?P<cx>-?[\d.]+),\s*(?P<cy>-?[\d.]+)\) "
+    r"delta=\((?P<dx>-?[\d.]+),\s*(?P<dy>-?[\d.]+)\) left=(?P<left>\d+)"
 )
 
 parser = argparse.ArgumentParser(description=__doc__)
