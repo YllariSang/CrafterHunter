@@ -384,3 +384,41 @@ depth-selection rule still needs its fresh-and-content design, and
 frame-synchronization evidence has not been traced. Composition reads MHW's own
 GPU camera constants each frame, so camera ownership is not the risk; the
 depth candidate is.
+
+## 2026-10-05 — the cube during a cutscene, finally observed
+
+The gap the previous entry left open is closed by
+`recording_2026-10-05_12.48.56.mp4`: 101.31 s of dialogue cutscene, subtitles
+at 10 s, 66 s and 86 s, with the stone live the whole time. Placement anchored
+at 12:48:52 and the only invalidation is a >25 m jump at 12:50:51 — fourteen
+seconds *after* the recording stopped — so `enabled=1` for every frame of it.
+
+Four sampled frames show the cube world-anchored inside the cutscene: behind a
+close-up character at 10 s, two faces behind the Handler at 34 s with her
+drawn in front of them, behind the white-fade shot at 50 s, and among three
+talking characters at 86 s with a foreground character occluding it. At 66 s it
+is simply out of frame, which is what a world-anchored block should do when the
+cutscene camera looks elsewhere.
+
+The occlusion is the part worth writing down. The cutscene's own characters
+draw *in front of* the cube, so the depth resource bound during the cutscene
+held the cutscene's geometry — the fresh-but-empty candidate that the morning's
+captures made the leading selection hazard did not fire here. Selection still
+needs its rule; this says the risk is real but not constant.
+
+Link quality through the sequence: `seq 14706 → 15217 → 15557` measures 16.0
+and 17.0 packets/s over the two intervals, agreeing with the `17–18 pkt/s` on
+screen, `age` between 7 and 57 ms, `LIVE` in every frame that has a HUD at all.
+A 101 s scripted sequence with no stall.
+
+Eight `Native placement anchored` lines span the recording 4–21 s apart.
+`render/place.request` has exactly one writer, `tools/control-mhw-renderer.py
+place`, and no request file was left behind, so each anchor came through that
+sanctioned path rather than from anything re-anchoring on its own.
+
+Milestone 2 is now recorded as passing **with the cutscene case included**;
+`MODDING_PLAN.md` and `docs/depth-renderer.md` updated. What remains on this
+milestone is design work rather than observation: the depth-selection rule
+(fresh *and* known content, re-checked periodically — `depth2` held content in
+one area and none in another) and the frame-synchronization trace. Next phase:
+terrain and player queries for milestone 3.

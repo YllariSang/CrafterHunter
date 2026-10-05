@@ -190,13 +190,14 @@ Minecraft client (`Received actual minecraft:stone pixels and PNG from
 Minecraft` in `CrafterHunter.runtime.log`), so this covers the live path that
 the 2026-10-04 session deliberately did not claim.
 
-The cutscene case is **untested** — not a failure, simply never driven. It
-stays open, along with the depth-selection rule and the frame-synchronization
-evidence below.
+The cutscene case was **untested** at that point — not a failure, simply never
+driven. It was driven later the same day; see "Cutscene, teleport, and recorded
+composition" below. The depth-selection rule and the frame-synchronization
+evidence remain open.
 
 ### Cutscene, teleport, and recorded composition (2026-10-05)
 
-Two person-recorded videos plus the runtime log cover the rest of this
+Three person-recorded videos plus the runtime log cover the rest of this
 milestone. Evidence frames live in
 `native/mhw-renderer/build/evidence/camera-link-acceptance/run/` (gitignored);
 the video files stay in `~/Videos/` and are never committed.
@@ -229,16 +230,38 @@ world-anchored block with two distinct faces over the camp while the HUD holds
 automatic re-anchor, which is the v0.3.3 placement lifecycle behaving as
 specified.
 
-**What is still not observed:** the cube on screen *during* a cutscene. In the
-first recording the placement was invalidated at 12:19:08 and never
-re-anchored, so `enabled=0` and the renderer did not compose at all — the
-session's `renderer.log` has no `Composing before MHW UI` line after its init
-until the later `place`. The camera half of that case is proven above, and the
-composition half is the same per-frame path whoever owns the camera:
-`Composing before MHW UI with current GPU camera constants` reads MHW's own
-GPU camera state rather than assuming a free camera. The residual risk is
-therefore concentrated in depth selection — a fresh-but-empty candidate during
-a cutscene — which is the tracked item above, not in camera ownership.
+**Cube during a cutscene — observed (recording 12:48:56).**
+`recording_2026-10-05_12.48.56.mp4` (101.31 s) is dialogue cutscene throughout,
+with subtitles at 10 s (`Actually…`), 66 s (`see what I can find.`) and 86 s
+(`we can compare notes, sound good?`). Placement was anchored at 12:48:52 and
+stayed armed — the only invalidation is a >25 m jump at 12:50:51, fourteen
+seconds *after* the recording ended — and the stone is visible as a
+world-anchored cube in four sampled frames:
+
+| t | scene | cube | HUD |
+| --- | --- | --- | --- |
+| 10 s | close-up, white fade | behind the character | `LIVE \| 18 pkt/s` |
+| 34 s | Handler close-up | two faces behind her; she draws in front | `LIVE \| 18 pkt/s \| seq 14706 \| age 7ms` |
+| 50 s | white-fade cutscene | behind the character | `LIVE \| 18 pkt/s \| seq 14980 \| age 35ms` |
+| 66 s | camp dialogue | out of frame — camera looked elsewhere | `LIVE \| 17 pkt/s \| seq 15217 \| age 57ms` |
+| 86 s | three-way dialogue | in shot, foreground character in front | `LIVE \| 18 pkt/s \| seq 15557 \| age 19ms` |
+
+`seq` advances 14706 → 15217 → 15557, i.e. 16.0 and 17.0 packets/s over the two
+intervals, matching the displayed rate: no stall across a 101 s scripted
+sequence, `age` never above 57 ms. A cube out of frame at 66 s is correct
+behaviour for a world-anchored block, not a failure.
+
+The occlusion in those frames is what matters for depth selection: the
+cutscene's own characters draw **in front of** the cube, which means the depth
+resource bound during the cutscene held the cutscene's geometry. The
+fresh-but-empty hazard measured above did not fire on this cutscene. Evidence:
+`20261005T1248-cutscene-cube-{occluded-by-character-1,occluded-by-character-2,dialogue-3,bright-fade-4}.png`.
+
+Eight `Native placement anchored` lines span the recording (12:48:52 → 12:50:14,
+4–21 s apart). `render/place.request` has exactly one writer —
+`tools/control-mhw-renderer.py place` — and no request file was left behind, so
+every anchor went through that sanctioned path; nothing re-anchored
+automatically, and the only invalidation is the jump after the recording.
 
 ### Remaining scope
 
