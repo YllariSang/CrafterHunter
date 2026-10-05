@@ -50,11 +50,17 @@ playable mode is a later feature and must not have both games drive the player.
 2. **Composition:** show one Minecraft block inside an MHW expedition,
    correctly hidden by MHW terrain at different camera angles. Verify the
    actual DXVK color/depth resources and frame synchronization first.
-   *Status 2026-10-05: the person reports orbit, occlusion and UI/cursor
+   *Status 2026-10-05: pass. The person reports orbit, occlusion and UI/cursor
    ordering passing against the live games, with the stone fed by the running
-   Minecraft client. Cutscene untested. Still open: the depth-resource
-   selection rule (currently discovery order) and frame-synchronization
-   evidence.*
+   Minecraft client. Recorded afterwards in `docs/depth-renderer.md`: the link
+   held 16–17 pkt/s at age ≤29 ms across a loading transition and two
+   cutscenes, a 13 s recording shows the stone composited during live play, and
+   three single-frame >25 m teleports invalidated placement as specified. Not
+   observed: the cube on screen *during* a cutscene — its placement was
+   invalidated for that recording — so the scripted-sequence half stays with
+   milestone 7. Follow-ups carried forward: the depth-resource selection rule
+   (fresh *and* known content, per the second-area capture) and
+   frame-synchronization evidence.*
 3. **Terrain and player:** bounded host terrain queries feed Minecraft collision;
    align a host player proxy with the Minecraft player; verify ground, slopes,
    movement, loading screens, chunk streaming, and immediate control fallback.

@@ -161,6 +161,19 @@ to prevent. Candidate 2 is the opposite hazard, stale with frozen content.
 (0.074314 / 0.085027 / 0.088576) taken in different views, which is what a
 frozen buffer looks like.
 
+A third capture in a **different area** answers the "capture another area" step
+above (`2089775`, 10-05 12:35, expedition camp rather than the morning's area):
+
+| capture | `depth0` | `depth1` | `depth2` |
+| --- | --- | --- | --- |
+| `2089775` (10-05 12:35, second area) | 99.75 % covered, median 0.00788 | 0.00 % covered, `age=1` | 0.00 %, `age=24924` |
+
+The fresh-but-empty hazard reproduces here exactly — `depth1` is again `age=1`
+and `0.00 %` — so it is a property of the resource, not of one area. `depth2`
+holds *no* content in this area (4.47 % in both morning captures), which also
+means "known to contain scene content" has to be re-established occasionally
+rather than decided once at discovery.
+
 The selection rule therefore needs two conditions, not one: **fresh this
 frame** *and* **known to contain scene content**, with content established by
 an occasional read-back rather than on every frame. Until that exists,
@@ -180,6 +193,52 @@ the 2026-10-04 session deliberately did not claim.
 The cutscene case is **untested** — not a failure, simply never driven. It
 stays open, along with the depth-selection rule and the frame-synchronization
 evidence below.
+
+### Cutscene, teleport, and recorded composition (2026-10-05)
+
+Two person-recorded videos plus the runtime log cover the rest of this
+milestone. Evidence frames live in
+`native/mhw-renderer/build/evidence/camera-link-acceptance/run/` (gitignored);
+the video files stay in `~/Videos/` and are never committed.
+
+**Camera link through a scripted sequence** — `recording_2026-10-05_12.21.00.mp4`
+(146.75 s, 1920×1080). HUD read from four frames across the recording:
+
+| t | scene | HUD |
+| --- | --- | --- |
+| 6 s | airship sequence | `LIVE \| 16 pkt/s \| seq 978 \| age 24ms` |
+| 42 s | white transition | `LIVE \| 17 pkt/s \| seq 1610 \| age 7ms` |
+| 54 s | handler cutscene | `LIVE \| 17 pkt/s \| seq 1834 \| age 29ms` |
+| 90 s | monster cutscene | `LIVE \| 17 pkt/s \| seq 2458 \| age 5ms` |
+
+1,480 packets across 84 s with no gap and no `WAITING`, age never above 29 ms,
+through a loading transition and two cinematics, with Minecraft's view tracking
+the cutscene camera the whole way. Frames:
+`20261005T1221-cameralink-through-cutscene-{transition,handler,monster}.png`.
+
+**Composition during live play** — `recording_2026-10-05_12.37.51.mp4` (13.16 s).
+Placement anchored at 12:37:34 and never invalidated during the recording, so
+the stone was live for every frame of it. The cube is visible as a
+world-anchored block with two distinct faces over the camp while the HUD holds
+`16–17 pkt/s`, `age 1–25 ms`, `seq 12245 → 12436`. Frames:
+`20261005T1237-stone-composited-in-game-{1,2,3}.png`.
+
+**Teleport invalidation** — `CrafterHunter.runtime.log` records three
+`camera jumped over 25 m in a single frame` invalidations that day (12:19:08,
+12:33:05, 12:37:23), each followed by a manual `place` and never by an
+automatic re-anchor, which is the v0.3.3 placement lifecycle behaving as
+specified.
+
+**What is still not observed:** the cube on screen *during* a cutscene. In the
+first recording the placement was invalidated at 12:19:08 and never
+re-anchored, so `enabled=0` and the renderer did not compose at all — the
+session's `renderer.log` has no `Composing before MHW UI` line after its init
+until the later `place`. The camera half of that case is proven above, and the
+composition half is the same per-frame path whoever owns the camera:
+`Composing before MHW UI with current GPU camera constants` reads MHW's own
+GPU camera state rather than assuming a free camera. The residual risk is
+therefore concentrated in depth selection — a fresh-but-empty candidate during
+a cutscene — which is the tracked item above, not in camera ownership.
 
 ### Remaining scope
 

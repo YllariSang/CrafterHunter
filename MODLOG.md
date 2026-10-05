@@ -340,3 +340,47 @@ every frame, since a per-frame read-back stalls the GPU. Until that exists
 `depths[0]` plus the staleness check stays, because it is the only candidate
 verified to hold geometry. Recorded in `docs/depth-renderer.md` next to the
 table it extends.
+
+## 2026-10-05 — recorded cutscene, teleport, and second-area evidence
+
+Two recordings from the person close the observable half of milestone 2, and
+one of them changes what was claimable about cutscenes.
+
+`recording_2026-10-05_12.21.00.mp4` (146.75 s) is a scripted sequence: a white
+transition at 42 s, a handler cutscene at 54 s, a monster cutscene at 90 s. The
+HUD reads `LIVE | 16–17 pkt/s` at `age 5–29 ms` with `seq 978 → 2458` over 84 s
+— no gap, no `WAITING`, Minecraft's view following the cutscene camera
+throughout. That is the camera half of the cutscene case, measured rather than
+argued.
+
+It is also the recording that shows why the *composition* half was never
+observed: `CrafterHunter.runtime.log` has placement anchored at 12:19:01 and
+invalidated seven seconds later by a >25 m jump, with no re-anchor before or
+during the recording. With `enabled=0` the renderer does not compose — the
+session's `renderer.log` has no `Composing before MHW UI` line after its init —
+and indeed no cube appears in any of the twelve frames sampled. So that video
+is evidence for the link and explicitly not evidence for composition during a
+cutscene. Recorded as such instead of being counted as a pass.
+
+`recording_2026-10-05_12.37.51.mp4` (13.16 s) supplies the other half in
+normal play: placement anchored at 12:37:34, never invalidated during the
+recording, and the stone visible as a world-anchored cube with two faces over
+the camp while the HUD holds `16–17 pkt/s`, `age 1–25 ms`, `seq 12245 → 12436`.
+Three frames saved to the gitignored evidence run directory. Separately, the
+log shows three single-frame >25 m invalidations that day (12:19:08, 12:33:05,
+12:37:23), each followed by a manual `place` and never by an automatic
+re-anchor.
+
+The capture taken at 12:35 in a second area is the "capture another area" step
+the depth table asked for, and it reproduces the morning's hazard exactly:
+`depth0` 99.75 % covered, `depth1` `age=1` and `0.00 %`, `depth2` `age=24924`
+and `0.00 %`. Fresh-but-empty is a property of the resource, not of one area,
+and `depth2` having no content here at all (4.47 % in the morning) means
+"known content" must be re-checked periodically rather than fixed at discovery.
+
+Milestone 2 is recorded as passing on these checks. What stays open is honest
+and small: the cube was never seen *on screen during* a cutscene, the
+depth-selection rule still needs its fresh-and-content design, and
+frame-synchronization evidence has not been traced. Composition reads MHW's own
+GPU camera constants each frame, so camera ownership is not the risk; the
+depth candidate is.
