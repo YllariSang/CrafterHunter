@@ -16,9 +16,15 @@
 #include <mutex>
 #include <vector>
 #include "selection.hpp"
+#include "frame_transport.hpp"
+#include "frame_source.hpp"
+#include "frame_composite.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace sel = crafterhunter::depth;
+namespace frameio = crafterhunter::frame;
+namespace frames = crafterhunter::frames;
+namespace cmp = crafterhunter::composite;
 namespace {
 constexpr char Dir[] = "nativePC/plugins/CSharp/CrafterHunter/render";
 std::mutex gate;
@@ -85,14 +91,45 @@ unsigned frameSyncRemaining = 0;
 unsigned long long previousCameraHash = 0;
 bool previousCameraValid = false;
 ComPtr<ID3D11Buffer> cameraStaging;
+
+// Minecraft frame state. The texture holds the newest uploaded frame, and
+// lastFrameSequence is what makes the upload conditional: uploading 7.8 MB every
+// frame when the guest publishes at 20 Hz would cost more than the frame itself.
+frames::Source frameSource;
+ComPtr<ID3D11Texture2D> minecraftTexture;
+ComPtr<ID3D11ShaderResourceView> minecraftView;
+UINT minecraftWidth = 0, minecraftHeight = 0;
+unsigned long long lastFrameSequence = 0;
+unsigned long long minecraftUploaded = 0;
+const char* lastFrameRefusal = nullptr;
+bool frameRefusalLogged = false;
+
+// The scene-depth view drawBlock chose this frame, kept so the frame composite
+// compares against the same depth the stone did. Recomputing it would risk two
+// different candidates and two different verdicts in one frame.
+ComPtr<ID3D11ShaderResourceView> sceneDepthView;
+
+// The Minecraft frame's own pipeline state, kept apart from the stone's.
+ComPtr<ID3D11VertexShader> frameVertexShader;
+ComPtr<ID3D11PixelShader> framePixelShader;
+ComPtr<ID3D11Buffer> frameConstants;
+ComPtr<ID3D11Texture2D> minecraftDepthProbe;
+ComPtr<ID3D11ShaderResourceView> minecraftDepthProbeView;
+
+// Maps Minecraft's frame onto MHW's backbuffer. Minecraft's window and MHW's
+// are almost never the same size, and the two disagreeing is the normal case
+// rather than an edge case, so the mapping is explicit and centred: a frame
+// narrower than the backbuffer is letterboxed rather than stretched, because
+// stretching would shear Steve and break the depth comparison with it.
+struct FrameMapping { float uvScale[4]; float unused[4]; };
+FrameMapping frameMapping{};
+
 int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui);
-void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count);
-void STDMETHODCALLTYPE observeDraw(ID3D11DeviceContext* ctx, UINT n, UINT start) {
-    traceDraw(ctx, "Draw", n); originalDraw(ctx, n, start);
-}
-void STDMETHODCALLTYPE observeIndexed(ID3D11DeviceContext* ctx, UINT n, UINT start, INT base) {
-    traceDraw(ctx, "Indexed", n); originalIndexed(ctx, n, start, base);
-}
+bool createFramePipeline();
+void STDMETHODCALLTYPE observeDraw(ID3D11DeviceContext* ctx, UINT n, UINT start);
+void STDMETHODCALLTYPE observeIndexed(ID3D11DeviceContext* ctx, UINT n, UINT start, INT base);
+bool uploadNewestFrame();
+int drawFrame(ID3D11Texture2D* back, ID3D11ShaderResourceView* sceneDepth);
 
 void log(const char* format, ...) {
     CreateDirectoryA(Dir, nullptr);
@@ -301,6 +338,14 @@ void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
             if (frameSyncRemaining) recordFrameSync(camera.Get(), bound);
         }
     }
+    // The Minecraft frame goes down after the stone, so a stone that lands
+    // inside Minecraft geometry stays visible rather than being buried: the two
+    // are independent and the order only decides who wins where both would draw.
+    if (!ownDraw && ctx == context.Get() && !traceDraws && sceneDepthView) {
+        if (uploadNewestFrame()) {
+            drawFrame(back.Get(), sceneDepthView.Get());
+        }
+    }
     if (!traceDraws || traceCount >= 80) return;
     log("color trace %u %s count=%u format=%u blend=%u target=%p", traceCount, kind, count, td.Format, bd.RenderTarget[0].BlendEnable, back.Get());
     if (traceCount < 6) {
@@ -355,10 +400,56 @@ cbuffer HostUI : register(b2) { float4 uiScale; };
 Texture2D<float4> stone : register(t0);
 Texture2D<float> sceneDepth : register(t1);
 SamplerState nearest : register(s0);
-float4 VS(uint id : SV_VertexID) : SV_Position {
+
+// The Minecraft frame and its own depth, as separate entry points in the same
+// source string. They could branch one shared pixel shader, but then every stone
+// draw would carry the frame's bindings and vice versa, and which resource a
+// draw actually read would stop being obvious.
+Texture2D<float4> minecraftColour : register(t0);
+Texture2D<float> minecraftDepth : register(t1);
+cbuffer FrameMapping : register(b3) { float4 uvRect; };
+
+float4 FrameVS(uint id : SV_VertexID) : SV_Position {
     float2 uv = float2((id << 1) & 2, id & 2);
     return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
 }
+
+// One Minecraft pixel against MHW's depth at the same place.
+//
+// The rule lives in frame_composite.hpp and is unit-tested there; this is the
+// same decision in a shader, and the comments here point at the test rather than
+// restating the reasoning. The three facts that matter:
+//   - reversed Z: nearer is the LARGER value, so Minecraft draws when its depth
+//     is greater than the host's;
+//   - a host pixel the host pass never touched holds the clear value 0, which
+//     under reversed Z is the far end, so depth 0 is sky and Minecraft draws
+//     there rather than being discarded;
+//   - Minecraft's own sky is alpha 0 and is never drawn, because it is
+//     Minecraft's sky rather than the world's.
+float4 FramePS(float4 pixel : SV_Position) : SV_Target {
+    float2 hostUv = pixel.xy / screen.xy;
+    float2 uv = hostUv * uvRect.xy + uvRect.zw;
+    if (any(uv < 0.0) || any(uv > 1.0)) discard;
+
+    float4 colour = minecraftColour.SampleLevel(nearest, uv, 0);
+    // Minecraft leaves its sky at zero alpha; drawing it would replace MHW's
+    // sky with a flat gradient.
+    if (colour.a < 0.01) discard;
+
+    float minecraftZ = minecraftDepth.SampleLevel(nearest, uv, 0).r;
+    if (minecraftZ <= 0.0) discard;   // no depth to compare: refuse rather than paste
+
+    float hostZ = sceneDepth.Load(int3(int2(pixel.xy), 0));
+    if (hostZ > 0.0) {
+        // Reversed Z, so nearer is larger. Coplanar surfaces stay inside the
+        // epsilon so they do not flicker between drawn and discarded.
+        if (minecraftZ + 0.000001 <= hostZ) discard;
+    }
+    // hostZ == 0 means the host pass wrote nothing here: MHW's sky. Minecraft
+    // draws over it, or a building against the sky punches a hole in the world.
+    return float4(colour.rgb, 1);
+}
+float4 PS(float4 pixel : SV_Position) : SV_Target {
 float4 PS(float4 pixel : SV_Position) : SV_Target {
     float2 ndc = pixel.xy / screen.xy * float2(2, -2) + float2(-1, 1);
     if (any(abs(uiScale.xy - float2(2, -2) / screen.xy) > 0.000001)) discard;
@@ -395,8 +486,7 @@ float4 PS(float4 pixel : SV_Position) : SV_Target {
 }
 )hlsl";
 
-bool createPipeline() {
-    ComPtr<ID3D11Device1> device1;
+bool createPipeline() {    ComPtr<ID3D11Device1> device1;
     if (FAILED(device.As(&device1)) || FAILED(context.As(&context1))) return false;
     const D3D_FEATURE_LEVEL level = device->GetFeatureLevel();
     D3D_FEATURE_LEVEL selected;
@@ -431,6 +521,46 @@ bool createPipeline() {
     if (FAILED(device->CreateDepthStencilState(&dd, &noDepth))) return false;
     pixelsDirty = true;
     log("Native stone pipeline ready (full context-state preservation)");
+    return createFramePipeline();
+}
+
+// The Minecraft frame's own pipeline. Separate shaders, sampler and constant
+// buffer from the stone's, because they are drawn at different times against
+// different bindings; sharing one set would mean rebinding both on every draw and
+// would hide which resource each draw actually read.
+bool createFramePipeline() {
+    ComPtr<ID3DBlob> vs, ps, error;
+    if (FAILED(D3DCompile(Shader, sizeof(Shader) - 1, "CrafterHunter", nullptr, nullptr,
+            "FrameVS", "vs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &vs, &error))) {
+        log("FrameVS compile: %s", error ? static_cast<char*>(error->GetBufferPointer()) : "failed");
+        return false;
+    }
+    error.Reset();
+    if (FAILED(D3DCompile(Shader, sizeof(Shader) - 1, "CrafterHunter", nullptr, nullptr,
+            "FramePS", "ps_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &ps, &error))) {
+        log("FramePS compile: %s", error ? static_cast<char*>(error->GetBufferPointer()) : "failed");
+        return false;
+    }
+    if (FAILED(device->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(),
+            nullptr, &frameVertexShader)) ||
+        FAILED(device->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(),
+            nullptr, &framePixelShader))) return false;
+
+    D3D11_BUFFER_DESC bd{};
+    bd.ByteWidth = sizeof(FrameMapping);
+    bd.Usage = D3D11_USAGE_DEFAULT; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    if (FAILED(device->CreateBuffer(&bd, nullptr, &frameConstants))) return false;
+
+    // A staging texture for reading Minecraft's depth out of its own buffer, and
+    // a shader-readable default texture for the frame itself.
+    D3D11_TEXTURE2D_DESC td{};
+    td.Width = td.Height = 1; td.MipLevels = td.ArraySize = td.SampleDesc.Count = 1;
+    td.Format = DXGI_FORMAT_R32_FLOAT; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    if (FAILED(device->CreateTexture2D(&td, nullptr, &minecraftDepthProbe)) ||
+        FAILED(device->CreateShaderResourceView(minecraftDepthProbe.Get(), nullptr, &minecraftDepthProbeView))) {
+        return false;
+    }
+    log("Minecraft frame pipeline ready");
     return true;
 }
 
@@ -503,8 +633,87 @@ void serviceContentChecks() {
 // Returns the index of the depth candidate bound for this frame, or -1 when the
 // frame is skipped. Selection never falls back to drawing without depth: an
 // unmeasured, stale or empty candidate means no composition, not draw-through.
-int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {
-    if (!drawEnabled || pipelineFailed) return -1;
+// Uploads the newest published Minecraft frame, if there is one. Returns true
+// only when a frame is on the texture and ready to draw.
+//
+// The upload is conditional on the sequence, not on the frame rate: the guest
+// publishes at 20-60 Hz, and uploading 7.8 MB on every MHW frame would cost more
+// than the frame itself. A frame whose geometry changed means the guest resized
+// its window, and the texture is rebuilt rather than stretched.
+bool uploadNewestFrame() {
+    if (!frameSource.mapped() && !frameSource.open()) {
+        if (!frameRefusalLogged) {
+            frameRefusalLogged = true;
+            log("Minecraft frame channel not present yet (guest not publishing)");
+        }
+        return false;
+    }
+
+    // The two processes do not share a clock: the guest stamps frames with
+    // System.nanoTime() and this process reads GetTickCount64. Rather than assume
+    // they agree, the offset is measured once against the first frame seen, and
+    // every later age is computed against that. Same machine, so the drift is
+    // negligible; different machines would need a real handshake.
+    static bool offsetKnown = false;
+    static unsigned long long guestOffset = 0;
+    const unsigned long long now = GetTickCount64() * 1'000'000ull / 10'000ull;
+    const char* reason = nullptr;
+    const frameio::FrameView view =
+        frameSource.newestFrame(width, height, offsetKnown ? now - guestOffset : now, &reason);
+    if (!view.pixels) {
+        if (reason && (!lastFrameRefusal || std::strcmp(lastFrameRefusal, reason) != 0)) {
+            lastFrameRefusal = reason;
+            log("Minecraft frame refused: %s", reason);
+        }
+        return false;
+    }
+
+    if (!offsetKnown) {
+        guestOffset = now > view.capturedNanos ? now - view.capturedNanos : 0;
+        offsetKnown = true;
+    }
+    if (view.sequence == lastFrameSequence && minecraftView) return true;
+    if (view.width != minecraftWidth || view.height != minecraftHeight) {
+        D3D11_TEXTURE2D_DESC td{};
+        td.Width = view.width; td.Height = view.height;
+        td.MipLevels = td.ArraySize = td.SampleDesc.Count = 1;
+        td.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+        td.CPUAccessFlags = 0;
+        minecraftTexture.Reset();
+        minecraftView.Reset();
+        if (FAILED(device->CreateTexture2D(&td, nullptr, &minecraftTexture))) return false;
+        if (FAILED(device->CreateShaderResourceView(minecraftTexture.Get(), nullptr, &minecraftView))) return false;
+        minecraftWidth = view.width; minecraftHeight = view.height;
+        log("Minecraft frame texture %ux%u", minecraftWidth, minecraftHeight);
+    }
+
+    D3D11_TEXTURE2D_DESC staged{};
+    minecraftTexture->GetDesc(&staged);
+    // The guest's rows are tight; D3D's default pitch is the row's own size, so
+    // no repacking is needed. Pitch is read back rather than assumed.
+    context->UpdateSubresource(minecraftTexture.Get(), 0, nullptr, view.pixels,
+        static_cast<UINT>(staged.Width * 4), static_cast<UINT>(staged.Height));
+    lastFrameSequence = view.sequence;
+    ++minecraftUploaded;
+    if (minecraftUploaded == 1) {
+        log("First Minecraft frame uploaded: seq=%llu %ux%u",
+            static_cast<unsigned long long>(view.sequence), view.width, view.height);
+    }
+    lastFrameRefusal = nullptr;
+    frameRefusalLogged = false;
+    return true;
+}
+int drawFrame(ID3D11Texture2D* back, ID3D11ShaderResourceView* sceneDepth);
+void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count);
+void STDMETHODCALLTYPE observeDraw(ID3D11DeviceContext* ctx, UINT n, UINT start) {
+    traceDraw(ctx, "Draw", n); originalDraw(ctx, n, start);
+}
+void STDMETHODCALLTYPE observeIndexed(ID3D11DeviceContext* ctx, UINT n, UINT start, INT base) {
+    traceDraw(ctx, "Indexed", n); originalIndexed(ctx, n, start, base);
+}
+
+int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {    if (!drawEnabled || pipelineFailed) return -1;
     if (!pixelShader && !createPipeline()) { pipelineFailed = true; log("Pipeline unavailable; drawing disabled"); return -1; }
     ComPtr<ID3D11ShaderResourceView> depthView;
     std::size_t chosen = sel::NotFound;
@@ -522,6 +731,7 @@ int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {
         chosen = sel::select(candidates.data(), count);
         if (chosen == sel::NotFound) {
             lastSelected = sel::NotFound;
+            sceneDepthView.Reset();
             if (!skipLogged) {
                 skipLogged = true;
                 log("no eligible depth candidate (%zu observed; unmeasured, stale or empty) - composition skipped",
@@ -538,6 +748,7 @@ int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {
         D3D11_SHADER_RESOURCE_VIEW_DESC desc{}; desc.Format = DXGI_FORMAT_R32_FLOAT;
         desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; desc.Texture2D.MipLevels = 1;
         if (FAILED(device->CreateShaderResourceView(depths[chosen].texture.Get(), &desc, &depthView))) return -1;
+        sceneDepthView = depthView;
     }
     ComPtr<ID3D11RenderTargetView> target;
     if (FAILED(device->CreateRenderTargetView(back, nullptr, &target))) return -1;
@@ -568,6 +779,60 @@ int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {
     context->OMSetRenderTargets(0, nullptr, nullptr);
     context1->SwapDeviceContextState(saved.Get(), nullptr);
     return static_cast<int>(chosen);
+}
+
+// The Minecraft frame, drawn through the per-pixel rule in frame_composite.hpp.
+//
+// At most one upload per published frame: the guest publishes at 20-60 Hz while
+// MHW renders at its own rate, so the cost here is bounded by the guest rather
+// than by MHW's frame count.
+int drawFrame(ID3D11Texture2D* back, ID3D11ShaderResourceView* sceneDepth) {
+    if (!minecraftView || !framePixelShader) return 0;
+
+    // Centre Minecraft's frame in MHW's backbuffer without stretching it. The
+    // two windows are almost never the same size, and scaling to fit would shear
+    // Steve and, worse, shear the depth that is compared against MHW's.
+    const float scaleX = static_cast<float>(width) / static_cast<float>(minecraftWidth);
+    const float scaleY = static_cast<float>(height) / static_cast<float>(minecraftHeight);
+    const float scale = scaleX < scaleY ? scaleX : scaleY;
+    frameMapping.uvScale[0] =
+        (static_cast<float>(minecraftWidth) * scale) / static_cast<float>(width);
+    frameMapping.uvScale[1] =
+        (static_cast<float>(minecraftHeight) * scale) / static_cast<float>(height);
+    frameMapping.uvScale[2] = (1.0f - frameMapping.uvScale[0]) * 0.5f;
+    frameMapping.uvScale[3] = (1.0f - frameMapping.uvScale[1]) * 0.5f;
+
+    ComPtr<ID3D11RenderTargetView> target;
+    if (FAILED(device->CreateRenderTargetView(back, nullptr, &target))) return 0;
+    ComPtr<ID3DDeviceContextState> saved;
+    context1->SwapDeviceContextState(drawState.Get(), &saved);
+
+    parameters.screen[0] = static_cast<float>(width);
+    parameters.screen[1] = static_cast<float>(height);
+    context->UpdateSubresource(constants.Get(), 0, nullptr, &parameters, 0, 0);
+    context->UpdateSubresource(frameConstants.Get(), 0, nullptr, &frameMapping, 0, 0);
+    context->OMSetRenderTargets(1, target.GetAddressOf(), nullptr);
+    context->OMSetDepthStencilState(noDepth.Get(), 0);
+    context->OMSetBlendState(nullptr, nullptr, 0xFFFFFFFF);
+    context->IASetInputLayout(nullptr);
+    context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->VSSetShader(frameVertexShader.Get(), nullptr, 0);
+    context->PSSetShader(framePixelShader.Get(), nullptr, 0);
+    context->HSSetShader(nullptr, nullptr, 0); context->DSSetShader(nullptr, nullptr, 0);
+    context->GSSetShader(nullptr, nullptr, 0);
+    context->PSSetConstantBuffers(0, 1, constants.GetAddressOf());
+    context->PSSetConstantBuffers(3, 1, frameConstants.GetAddressOf());
+    ID3D11ShaderResourceView* frameViews[] = {minecraftView.Get(), sceneDepth};
+    context->PSSetShaderResources(0, 2, frameViews);
+    context->PSSetSamplers(0, 1, sampler.GetAddressOf());
+    context->RSSetState(rasterizer.Get());
+    D3D11_VIEWPORT viewport{0, 0, static_cast<float>(width), static_cast<float>(height), 0, 1};
+    context->RSSetViewports(1, &viewport);
+    ownDraw = true; context->Draw(3, 0); ownDraw = false;
+    ID3D11ShaderResourceView* empty[2]{}; context->PSSetShaderResources(0, 2, empty);
+    context->OMSetRenderTargets(0, nullptr, nullptr);
+    context1->SwapDeviceContextState(saved.Get(), nullptr);
+    return 1;
 }
 }
 

@@ -1,0 +1,164 @@
+// Reading the guest's frames out of shared memory.
+//
+// Free of D3D types, like selection.hpp and frame_composite.hpp, so
+// tools/test-frame-source.sh can check the decision logic on the host. The
+// mmap itself is a thin wrapper over the same rules, and every reason to refuse a
+// frame is stated here rather than at the call site.
+//
+// Why mmap rather than reading the file each frame: the measured cost of reading
+// 7.8 MB out of /dev/shm is 1.41 ms median, which is affordable but is a copy of
+// the whole frame on the render thread every frame. Mapping once and reading
+// only the slot that changed turns that into a header read plus a texture upload,
+// which is what the GPU needs anyway.
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
+#include "frame_transport.hpp"
+
+namespace crafterhunter::frames {
+
+// Where the guest publishes frames. Fixed path: both processes need to agree
+// before either can exist, and a configured path would add a place for them to
+// disagree without removing anything.
+inline constexpr char ChannelPath[] = "/dev/shm/crafterhunter/frame.channel";
+
+#if defined(_WIN32)
+using MappingHandle = HANDLE;
+#else
+using MappingHandle = int;
+#endif
+
+// A mapped view of the guest's channel. Construction maps the file; nothing is
+// read until `newest` is called, because a mapping that failed and a frame that
+// is absent are different failures and should not look the same.
+class Source {
+public:
+    Source() = default;
+    ~Source() { close(); }
+
+    Source(const Source&) = delete;
+    Source& operator=(const Source&) = delete;
+
+    // Maps the channel. Returns false when the guest has never published, which
+    // is the normal state before Minecraft is loaded and must not be an error.
+    bool open() {
+        close();
+#if defined(_WIN32)
+        HANDLE file = CreateFileA(ChannelPath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE) return false;
+        LARGE_INTEGER size{};
+        if (!GetFileSizeEx(file, &size)) { CloseHandle(file); return false; }
+        // Map the file whole. Its length is written by the guest and bounds both
+        // slots, so this is the only size that can be trusted before a header has
+        // been read.
+        mapping_ = CreateFileMappingA(file, nullptr, PAGE_READONLY, 0, 0, nullptr);
+        CloseHandle(file);
+        if (mapping_ == nullptr) return false;
+        view_ = MapViewOfFile(mapping_, FILE_MAP_READ, 0, 0, 0);
+        if (view_ == nullptr) { CloseHandle(mapping_); mapping_ = nullptr; return false; }
+#else
+        const int fd = ::open(ChannelPath, O_RDONLY);
+        if (fd < 0) return false;
+        struct stat st{};
+        if (fstat(fd, &st) != 0 || st.st_size <= 0) { ::close(fd); return false; }
+        void* mapped = mmap(nullptr, static_cast<std::size_t>(st.st_size),
+            PROT_READ, MAP_SHARED, fd, 0);
+        ::close(fd);
+        if (mapped == MAP_FAILED) return false;
+        view_ = mapped;
+        length_ = static_cast<std::size_t>(st.st_size);
+#endif
+        mapped_ = true;
+        return true;
+    }
+
+    void close() {
+        if (!mapped_) return;
+#if defined(_WIN32)
+        UnmapViewOfFile(view_);
+        if (mapping_) CloseHandle(mapping_);
+        mapping_ = nullptr;
+#else
+        munmap(view_, length_);
+#endif
+        view_ = nullptr;
+        mapped_ = false;
+    }
+
+    bool mapped() const { return mapped_; }
+    std::size_t length() const { return length_; }
+
+    // The newest complete frame, or a frame with null pixels when there is
+    // nothing to draw. Never guesses: every refusal returns a null pointer and a
+    // reason the caller can log once.
+    crafterhunter::frame::FrameView newestFrame(std::uint32_t hostWidth,
+        std::uint32_t hostHeight, std::uint64_t nowNanos, const char** reason) const {
+        crafterhunter::frame::FrameView view{0, 0, 0, 0, nullptr};
+        if (!mapped_) { *reason = "channel not mapped"; return view; }
+        if (length() < crafterhunter::frame::headerBytes()
+            + crafterhunter::frame::SlotCount * crafterhunter::frame::slotHeaderBytes()) {
+            *reason = "channel shorter than its headers";
+            return view;
+        }
+
+        const auto* bytes = static_cast<const std::uint8_t*>(view_);
+        const auto* header = reinterpret_cast<const crafterhunter::frame::BufferHeader*>(bytes);
+        const auto* slots = reinterpret_cast<const crafterhunter::frame::SlotHeader*>(
+            bytes + crafterhunter::frame::headerBytes());
+        // Qualified: the member and this free function share a name, and an
+        // unqualified call inside the class would resolve to the member.
+        const std::uint32_t pick = crafterhunter::frame::newest(header->magic,
+            header->formatVersion, slots, hostWidth, hostHeight);
+        if (pick == crafterhunter::frame::NotNewest) {
+            *reason = "no complete frame";
+            return view;
+        }
+
+        const crafterhunter::frame::SlotHeader& slot = slots[pick];
+        // Freshness is the reader's call, not the writer's: only this side knows
+        // what time it is drawing at.
+        if (!crafterhunter::frame::fresh(slot.capturedNanos, nowNanos)) {
+            *reason = "frame is stale";
+            return view;
+        }
+
+        const std::size_t offset = crafterhunter::frame::pixelsOffset(pick, slot.width, slot.height);
+        if (offset + crafterhunter::frame::frameBytes(slot.width, slot.height) > length()) {
+            // The guest rewrote the file at a new size while we held the old
+            // mapping. Its own rules say a resized window gets a new buffer, so
+            // remap and let the next frame through rather than reading past the
+            // end of this one.
+            *reason = "frame lies outside the mapping; remap needed";
+            return view;
+        }
+
+        view.sequence = slot.sequence;
+        view.capturedNanos = slot.capturedNanos;
+        view.width = slot.width;
+        view.height = slot.height;
+        view.pixels = static_cast<const std::uint8_t*>(view_) + offset;
+        *reason = nullptr;
+        return view;
+    }
+
+private:
+    MappingHandle mapping_{};
+    void* view_{nullptr};
+    std::size_t length_{};
+    bool mapped_{false};
+};
+
+}  // namespace crafterhunter::frames

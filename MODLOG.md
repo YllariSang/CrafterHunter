@@ -1294,3 +1294,45 @@ missing Minecraft instead of a Steve standing in front of a Rathalos.
 Gate green, mutation test included. Next: the native reader that maps the shared
 channel, uploads the texture, and runs this rule in the shader — which is the
 first part of this that needs MHW running.
+
+## 2026-10-05 — the native reader and the frame draw
+
+`frame_source.hpp` maps the guest's channel once and hands out the newest
+complete frame; `renderer.cpp` uploads it and draws it through the rule already
+pinned in `frame_composite.hpp`. This is the piece that needs MHW running, and
+everything that could be checked without it was:
+
+- **Uploads are conditional on the sequence, not the frame rate.** The guest
+  publishes at 20-60 Hz and MHW renders at its own rate; uploading 7.8 MB per MHW
+  frame would cost more than the frame. A frame whose geometry changed means the
+  guest resized, and the texture is rebuilt rather than stretched.
+- **The two clocks are not assumed to agree.** The guest stamps frames with
+  `System.nanoTime()` and this side reads `GetTickCount64`. Rather than convert
+  and hope, the offset is measured once against the first frame seen and every
+  later age is computed against that. Same machine, so drift is negligible;
+  different machines would need a real handshake, which is stated in the code
+  rather than left as a trap.
+- **Minecraft's frame is centred, not stretched.** The two windows are almost
+  never the same size and that is the normal case. Scaling to fit would shear
+  Steve and, worse, shear the depth being compared against MHW's own, so a
+  letterbox keeps the comparison honest.
+- **The frame draws after the stone** and against the same depth candidate the
+  stone used, so the two never disagree about what is in front within one frame.
+
+`frame_source.hpp` is Windows-and-POSIX in one header, with the refusals stated
+rather than at the call site: not mapped, shorter than its headers, no complete
+frame, stale, or a frame claiming more space than the mapping holds. That last
+one is the half-finished-resize case, and walking off the end of a mapping is the
+sort of bug that reads as corruption somewhere else entirely.
+
+Compiling it needed three fixes that are worth recording because two were mine:
+`FrameView` and `SlotHeader` are in `crafterhunter::frame` and I wrote them
+unqualified inside `crafterhunter::frames`; `munmap` takes a mutable pointer and
+the view was declared `const void*`; and the member `newestFrame` shadowed the
+free function `newest`, so an unqualified call inside the class would have
+resolved to the member. The DLL builds at 20:11.
+
+**Not verified:** nothing here has run inside MHW. The upload path, the shader,
+and the letterbox mapping are all unexercised. Gate green across nine suites and
+the mingw64 cross-compile, but the first run of this in the game is the real
+test, and it is the step after this.
