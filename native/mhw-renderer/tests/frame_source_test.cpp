@@ -255,17 +255,18 @@ void checkLengthRule() {
           "a real 1908x1028 channel passes the length rule");
 }
 
-// The Windows branch must not store a mapping length.
+// The length must be assigned once, after the platform split.
 //
-// A host test cannot run the Windows code, so this asserts the *shape* of the fix
-// instead: on Windows the length is obtained from the mapping, and no assignment
-// to the stored length exists inside that branch. If someone reinstates a cached
-// length there, this fails and names the reason it mattered.
-void checkWindowsLengthIsDerived() {
+// This asserts the *shape* of the code rather than its behaviour, because a host test
+// cannot run the Windows branch and so cannot observe a zero length there. What it can
+// insist on is that there is only one place the length is set, that the place is not
+// inside a platform branch, and that length() has no per-platform variant - because a
+// platform-specific length() is exactly how the two came to disagree in the first place.
+void checkLengthAssignedOnceOutsidePlatformSplit() {
     const char* source = FRAME_SOURCE_PATH;
     std::FILE* file = std::fopen(source, "rb");
     if (!file) {
-        check(false, "frame_source.hpp could not be read for the Windows-length check");
+        check(false, "frame_source.hpp could not be read for the length-assignment check");
         return;
     }
     std::string text;
@@ -274,24 +275,69 @@ void checkWindowsLengthIsDerived() {
     while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0) text.append(buffer, read);
     std::fclose(file);
 
-    // Everything between the Windows branch of length() and its #else.
-    const std::size_t start = text.find("std::size_t length() const");
-    check(start != std::string::npos, "Source::length() exists");
-    if (start == std::string::npos) return;
-    const std::size_t windows = text.find("#if defined(_WIN32)", start);
-    const std::size_t end = text.find("#else", windows);
-    check(windows != std::string::npos && end != std::string::npos && windows < end,
-          "Source::length() has a Windows branch");
-    if (windows == std::string::npos || end == std::string::npos || windows >= end) return;
+    const std::size_t openStart = text.find("bool open() {");
+    check(openStart != std::string::npos, "Source::open() exists");
+    if (openStart == std::string::npos) return;
+    const std::size_t openEnd = text.find("void close() {", openStart);
+    check(openEnd != std::string::npos, "and ends before close()");
+    if (openEnd == std::string::npos) return;
+    const std::string body = text.substr(openStart, openEnd - openStart);
 
-    const std::string branch = text.substr(windows, end - windows);
-    check(branch.find("VirtualQuery") != std::string::npos,
-          "the Windows branch asks the mapping for its own length");
-    check(branch.find("length_ =") == std::string::npos
-              && branch.find("length_=") == std::string::npos,
-          "the Windows branch stores no length: that assignment is what went missing before");
+    std::size_t assignments = 0;
+    for (std::size_t at = body.find("length_ ="); at != std::string::npos;
+         at = body.find("length_ =", at + 1)) {
+        ++assignments;
+    }
+    const std::string howMany = std::to_string(assignments);
+    check(assignments == 1,
+          ("the mapping length is assigned exactly once inside open(), so a platform"
+           " branch cannot omit it; found " + howMany).c_str());
+
+    // The single assignment must come after both platform branches close, so neither
+    // can bypass it.
+    const std::size_t lastPlatformEnd = body.rfind("#endif");
+    const std::size_t assignmentAt = body.find("length_ =");
+    check(lastPlatformEnd != std::string::npos && assignmentAt != std::string::npos
+              && assignmentAt > lastPlatformEnd,
+          "and it comes after the platform split, not inside either branch");
+
+    // A platform-specific length() is what let the two disagree, and VirtualQuery's
+    // region size is page-rounded, so it is not the file length either.
+    const std::size_t lengthAt = text.find("std::size_t length() const");
+    check(lengthAt != std::string::npos, "Source::length() exists");
+    if (lengthAt != std::string::npos) {
+        const std::size_t implEnd = text.find("}", lengthAt);
+        const std::string impl = text.substr(lengthAt, implEnd - lengthAt);
+        check(impl.find("#if") == std::string::npos,
+              "length() has no platform-specific variant, so the platforms cannot disagree");
+        check(impl.find("VirtualQuery") == std::string::npos,
+              "and it does not use VirtualQuery, whose region size is page-rounded and so"
+              " is not the file length");
+    }
 }
 
+// The path spellings the Windows reader tries under Proton.
+void checkChannelPathSpellings() {
+    check(ChannelPathCandidates == 2, "two spellings are tried");
+    // The Unix spelling is the one the guest uses, byte for byte, or the two processes
+    // are writing and reading different files.
+    check(std::string(ChannelPathUnix) == std::string(ChannelPath),
+          "the Unix spelling is exactly the path the guest publishes to");
+    // The drive spelling is the same path as a Windows process under Proton sees it: Z:
+    // is the mapping of /, and Wine's path handling expects backslashes.
+    check(std::string(ChannelPathDrive).rfind("Z:", 0) == 0, "the drive spelling starts at Z:");
+    check(std::string(ChannelPathDrive).find('/') == std::string::npos,
+          "and uses backslashes throughout, as Wine expects");
+    check(std::string(ChannelPathDrive).find("shm") != std::string::npos,
+          "naming the same directory as the Unix spelling");
+    check(std::string(ChannelPathDrive).find("frame.channel") != std::string::npos,
+          "and the same file");
+    // Out-of-range indices fall back rather than reading past the list.
+    check(std::string(channelPathAt(0)) == std::string(ChannelPathUnix), "index 0 is the Unix path");
+    check(std::string(channelPathAt(1)) == std::string(ChannelPathDrive), "index 1 is the drive path");
+    check(std::string(channelPathAt(99)) == std::string(ChannelPathUnix),
+          "an out-of-range index falls back rather than reading past the list");
+}
 void checkStaleRefuses() {
     constexpr std::uint32_t width = 1908;
     constexpr std::uint32_t height = 1028;
@@ -357,7 +403,8 @@ int main() {
     checkUnmappedRefuses();
     checkShortBufferRefuses();
     checkLengthRule();
-    checkWindowsLengthIsDerived();
+    checkLengthAssignedOnceOutsidePlatformSplit();
+    checkChannelPathSpellings();
     checkRecycledSlotDetected();
     checkBoundedRecovery();
     checkFrozenFrameSurvivesRecovery();
@@ -368,7 +415,7 @@ int main() {
     if (failures == 0) {
         std::printf(
             "Frame source checks passed: unmapped refuses, short buffer refuses, length rule, "
-            "Windows length derived not cached, recycled slot detected, bounded recovery, "
+            "length assigned once, path spellings, recycled slot detected, bounded recovery, "
             "stale refuses, "
             "oversized refuses, frozen frame survives recovery, real-capture geometry.\n");
         return 0;

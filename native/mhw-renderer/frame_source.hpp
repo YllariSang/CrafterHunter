@@ -34,6 +34,23 @@ namespace crafterhunter::frames {
 // disagree without removing anything.
 inline constexpr char ChannelPath[] = "/dev/shm/crafterhunter/frame.channel";
 
+// The same path as a Windows drive letter, for the reader inside Proton.
+//
+// The reader is a Windows process, so it hands CreateFileA something Wine must resolve.
+// Wine accepts a Unix-style absolute path and maps it onto Z:, but relying on that alone
+// means a single unresolved spelling is indistinguishable from "the guest has not
+// published yet" - the same silent failure this file has already produced twice. Both
+// are tried, and which one worked is reported rather than guessed at. Z: is Proton's
+// mapping of /, so both name the same host file.
+inline constexpr char ChannelPathUnix[] = "/dev/shm/crafterhunter/frame.channel";
+inline constexpr char ChannelPathDrive[] = "Z:\\dev\\shm\\crafterhunter\\frame.channel";
+inline constexpr int ChannelPathCandidates = 2;
+
+// The spelling at `index`, or the Unix one when the index is out of range.
+inline constexpr char const* channelPathAt(int index) {
+    return index == 1 ? ChannelPathDrive : ChannelPathUnix;
+}
+
 // Is a mapping of this many bytes big enough to hold the channel's headers?
 //
 // Pulled out as a rule rather than left inline so the host can check it. The bug
@@ -74,17 +91,33 @@ public:
     // "not there yet".
     bool open() {
         close();
+        // Both platforms produce a byte count and a view. The length is assigned once,
+        // after the #if, so it cannot be forgotten on one of them.
+        //
+        // It was. Windows read the size with GetFileSizeEx and then discarded it, and
+        // `length_` was only ever assigned in the POSIX branch - so on Windows it stayed
+        // 0, every frame failed the "shorter than its headers" check, and Steve could
+        // never appear however many frames were published. No host test could see it,
+        // because Linux compiles the branch that was wrong.
+        std::uint64_t bytes = 0;
 #if defined(_WIN32)
-        HANDLE file = CreateFileA(ChannelPath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        HANDLE file = INVALID_HANDLE_VALUE;
+        pathSpelling_ = 0;
+        for (int attempt = 0; attempt < frames::ChannelPathCandidates; ++attempt) {
+            file = CreateFileA(frames::channelPathAt(attempt), GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file != INVALID_HANDLE_VALUE) {
+                pathSpelling_ = attempt;
+                break;
+            }
+        }
         if (file == INVALID_HANDLE_VALUE) return false;
         LARGE_INTEGER size{};
         if (!GetFileSizeEx(file, &size)) { CloseHandle(file); return false; }
         if (size.QuadPart <= 0) { CloseHandle(file); return false; }
-        // Map the file whole. Its length is written by the guest and bounds both
-        // slots, so this is the only size that can be trusted before a header has
-        // been read - which is why length() asks the mapping for its size rather
-        // than remembering this one.
+        // The real file length, not the mapping's. See the note after the #if.
+        bytes = static_cast<std::uint64_t>(size.QuadPart);
         mapping_ = CreateFileMappingA(file, nullptr, PAGE_READONLY, 0, 0, nullptr);
         CloseHandle(file);
         if (mapping_ == nullptr) return false;
@@ -94,14 +127,26 @@ public:
         const int fd = ::open(ChannelPath, O_RDONLY);
         if (fd < 0) return false;
         struct stat st{};
+        // An empty file is refused rather than mapped. The guest creates the channel and
+        // fills it in one constructor, so an empty one means we caught it mid-creation;
+        // mapping it yields a zero-length section whose every read fails, which is a far
+        // more confusing symptom than "not there yet".
         if (fstat(fd, &st) != 0 || st.st_size <= 0) { ::close(fd); return false; }
-        void* mapped = mmap(nullptr, static_cast<std::size_t>(st.st_size),
-            PROT_READ, MAP_SHARED, fd, 0);
+        bytes = static_cast<std::uint64_t>(st.st_size);
+        void* mapped = mmap(nullptr, static_cast<std::size_t>(bytes), PROT_READ, MAP_SHARED, fd, 0);
         ::close(fd);
         if (mapped == MAP_FAILED) return false;
         view_ = mapped;
-        length_ = static_cast<std::size_t>(st.st_size);
 #endif
+        // The one and only assignment, after the platform split.
+        //
+        // It is the file's length, not the mapping's. VirtualQuery would report the
+        // region size, which is rounded up to the allocation granularity - for a
+        // 15,691,648-byte channel that is thousands of bytes more than the file holds.
+        // `within()` uses this number to decide whether a frame's pixels fit, so a
+        // rounded-up length would accept a frame extending past the real end of the
+        // file: no crash, since the mapping is larger, but pixels of nothing.
+        length_ = static_cast<std::size_t>(bytes);
         mapped_ = true;
         return true;
     }
@@ -173,28 +218,19 @@ public:
         return false;
     }
 
-    // How many bytes are actually readable through this mapping.
+    // How many bytes the channel file actually contains.
     //
-    // On Windows this is asked of the mapping rather than remembered from open(),
-    // and that is the whole point. A stored length is a second copy of a fact the
-    // OS already knows, and the copy is exactly what went missing: length_ was
-    // assigned only in the POSIX branch, so on Windows it stayed 0, every frame
-    // failed the "shorter than its headers" check, and Steve could never appear
-    // no matter how many frames were published. No host test could see it either,
-    // because the branch that was wrong is the one Linux never compiles.
-    //
-    // Deriving it removes the assignment that could be forgotten, rather than
-    // restoring the one that was.
-    std::size_t length() const {
-        if (view_ == nullptr) return 0;
-#if defined(_WIN32)
-        MEMORY_BASIC_INFORMATION info{};
-        if (VirtualQuery(view_, &info, sizeof(info)) == 0) return 0;
-        return static_cast<std::size_t>(info.RegionSize);
-#else
-        return length_;
-#endif
-    }
+    // One implementation for both platforms, because a platform-specific version of this
+    // is what went missing before. It is deliberately the *file* length rather than the
+    // mapping's: VirtualQuery reports a region rounded up to the allocation granularity,
+    // and treating that as the file length would let `within()` accept a frame whose
+    // pixels run past the end of the file.
+    std::size_t length() const { return view_ == nullptr ? 0 : length_; }
+
+    // Which path spelling opened the channel: 0 for the Unix-style one, 1 for the drive
+    // letter. Reported in the log, because "which of these did Wine accept" is not
+    // something worth guessing at from a screenshot.
+    int pathSpelling() const { return pathSpelling_; }
 
     // The newest complete frame, or a frame with null pixels when there is
     // nothing to draw. Never guesses: every refusal returns a null pointer and a
@@ -263,6 +299,7 @@ private:
     void* view_{nullptr};
     std::size_t length_{};
     bool mapped_{false};
+    int pathSpelling_{0};
 };
 
 // How often the reader may re-open the channel.

@@ -134,6 +134,8 @@ bool ageSourceChosen = false;
 // recovers. Bounded so a genuinely stopped guest costs one failed open per
 // interval rather than one per frame.
 unsigned long long lastRemapNanos = 0;
+// Whether the accepted path spelling has been reported yet.
+bool channelPathReported = false;
 unsigned long long minecraftUploaded = 0;
 const char* lastFrameRefusal = nullptr;
 bool frameRefusalLogged = false;
@@ -801,6 +803,15 @@ bool uploadNewestFrame() {
         refuse("channel not present (guest not publishing)");
         return false;
     }
+    // Said once, because "which spelling did Wine accept" is not something to be guessed
+    // at from a screenshot, and getting it wrong is indistinguishable from the guest
+    // never having published.
+    if (!channelPathReported) {
+        channelPathReported = true;
+        log("frame channel opened via the %s spelling (%zu bytes)",
+            frameSource.pathSpelling() == 1 ? "Z: drive" : "Unix-style",
+            frameSource.length());
+    }
 
     // Our own clock, in nanoseconds. GetTickCount64 counts milliseconds and the
     // conversion is a multiplication by a million - an earlier version divided as
@@ -1164,7 +1175,7 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     sceneDepthView.Reset(); minecraftView.Reset(); minecraftTexture.Reset();
     frameVertexShader.Reset(); framePixelShader.Reset(); frameConstants.Reset();
     lastUploadedSequence = 0; frameMemory = frames::FrameMemory{};
-    ageSourceChosen = false; lastRemapNanos = 0;
+    ageSourceChosen = false; lastRemapNanos = 0; channelPathReported = false;
     minecraftUploaded = 0; minecraftWidth = 0; minecraftHeight = 0;
     frameSource.close();
     initialized = false; swapchain = nullptr;

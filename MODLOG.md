@@ -1871,3 +1871,40 @@ clock be cleared while the sequence was not.
 the header's validity from whether a frame happened to come back. That guess produces
 the wrong verdict exactly when it matters, since a valid header holding nothing
 publishable is the normal state before the guest's first frame.
+
+## 2026-10-06 — the Windows length was page-rounded, and the path was a guess
+
+Two claims about the Windows reader had never been checked, and both were wrong in a
+way a host test could not see.
+
+**The length was not the file length.** The previous fix replaced a missing assignment
+with `VirtualQuery`, reporting the mapping's `RegionSize`. That is the size of the
+*region*, rounded up to the allocation granularity — for a 15,691,648-byte channel it is
+thousands of bytes more than the file contains. `within()` uses that number to decide
+whether a frame's pixels fit, so a rounded-up length would accept a frame extending past
+the real end of the file: no crash, since the mapping is larger, but pixels of nothing.
+
+Now both platforms produce a byte count and a **single** assignment sits after the
+platform split, so neither branch can bypass or omit it. `length()` has no
+platform-specific variant at all, which is what removes the possibility rather than
+patching the instance.
+
+The test asserts the *shape* of the code, because a host test cannot run the Windows
+branch and so cannot observe a zero length there. What it can insist on: exactly one
+`length_ =` inside `open()`, positioned after the last `#endif`; no `#if` in `length()`;
+no `VirtualQuery` anywhere in it. Mutation-tested both ways — reintroducing
+`VirtualQuery` and dropping a path spelling each fail, exit 1.
+
+**The path was a single unverified spelling.** The reader is a Windows process under
+Proton handing `CreateFileA` a Unix-style path. Wine accepts those and maps them onto
+`Z:`, but if that ever stopped being true the symptom would be "no frame arrives" —
+identical to a guest that has not started. Both spellings are now tried, `Z:\dev\shm\...`
+second, and **which one worked is logged** rather than left to be inferred. The test
+pins that the Unix spelling is byte-for-byte the path the guest writes to (otherwise the
+two processes are using different files), that the drive spelling has no forward slashes,
+and that an out-of-range index falls back instead of reading past the list.
+
+What this cannot tell us: whether Wine actually accepts the Unix spelling on this host,
+or whether it needs the drive form. That is now a single log line rather than a
+hypothesis — `frame channel opened via the ... spelling` — and it will say so the first
+time the reader runs.
