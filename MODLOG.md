@@ -1048,3 +1048,61 @@ none of them is discovered halfway through.
 The lesson worth keeping: a plan that defers the keystone will be followed
 faithfully and still arrive somewhere else. Ask what the keystone is before
 milestone three, not after milestone six.
+
+## 2026-10-05 — the spike: can Minecraft's frame be read at all?
+
+Milestone 3 opens with the one item whose cost nobody could honestly estimate, so
+it goes first and alone: read a rendered frame out of Minecraft, on demand, and
+look at it.
+
+Minecraft 26.2 changed the shape of this. There is no `Minecraft.mainRenderTarget`
+any more and no `Framebuffer`; the game's own renderer moved to an abstract GPU
+layer — `com.mojang.blaze3d.textures.GpuTexture`, `RenderTarget.getColorTexture()`
+— behind `RenderSystem.getDevice()`, with a `GpuDeviceBackend` per backend. The
+old `glReadPixels` plan would have been written against an API that no longer
+exists.
+
+The good news is that the new layer has the right primitive built in:
+`CommandEncoder.copyTextureToBuffer(texture, buffer, offset, Runnable, mip, x, y,
+w, h)`, with a mapped-buffer read via `GpuBuffer.map`. That is an async
+texture-to-buffer copy with a completion callback, backend-agnostic, on the
+render thread — no PBO plumbing, no `glFlush` guesswork, and it does not care
+whether the backend turns out to be OpenGL or Vulkan. So the readback is queued
+on one frame and read on a later one, and the render thread never blocks on a
+full-frame download.
+
+`FrameCapture` polls `<gameDir>/crafterhunter/frame.request` four times a second
+and does nothing at all unless a request is there; the file is deleted *before*
+the copy runs, so one request means one run even if the game is busy. Requests
+are `capture [frames]` with the count capped at 600, parsed by `FrameRequest` —
+the same parser the Python tool's output has to satisfy, so the two cannot drift
+into a request that is silently ignored and looks like a failed capture.
+
+`FrameLayout` holds the contract the native side will trust, and it is where the
+one real subtlety lives: a GPU readback arrives with row zero at the **bottom**
+on an OpenGL backend and at the **top** on Vulkan. Published frames are therefore
+flipped to top-down once, in the guest, and the format is named in the meta line
+(`rgba8-topdown`) rather than assumed by whoever reads it next. A consumer that
+guessed would show MHW's sky at the bottom of Steve's world on one driver and
+the right way up on the other, which is the kind of bug that gets blamed on the
+renderer.
+
+Each capture also writes a PNG next to the timings, and that PNG is the actual
+acceptance: a frame that is upside down, from the wrong buffer, or missing its
+geometry is obvious in a way no assertion would catch. The hook is the tail of
+`GameRenderer.render` rather than the level renderer, deliberately — including
+the HUD makes the readback self-checking before any native code assumes anything.
+
+`tools/test-fabric-frame.sh` checks row order (including flip-twice-is-identity
+and the one-pixel case), frame byte counts, the meta line's fields, that a zero
+field does not read as absent, and every refusal in request parsing. Minecraft 26.2
+needed no Fabric API at all: loader and Mixin only, and the mixin compiled
+against the mapped jar.
+
+Mod 0.3.0 rebuilt and installed (50,526 bytes, previous jar backed up to
+`~/.local/share/crafterhunter-backups/minecraft-mod-20261005T172944/`). It needs
+a Minecraft restart before anyone can ask it for a frame.
+
+**Not done:** the native half. Nothing composites this yet — no shared-memory
+transport, no per-pixel depth compare, no frame in MHW. The next step after a
+human confirms the PNG is a correct frame is the transport, then the composite.

@@ -3,6 +3,7 @@ package dev.crafterhunter.client.mixin;
 import dev.crafterhunter.client.CameraFeed;
 import dev.crafterhunter.client.CameraLink;
 import dev.crafterhunter.client.BlockAssetFeed;
+import dev.crafterhunter.client.FrameCapture;
 import dev.crafterhunter.client.PlayerFeed;
 import dev.crafterhunter.client.PlayerLink;
 import java.util.Locale;
@@ -44,5 +45,7 @@ public abstract class HudMixin {
         graphics.text(minecraft.font, "PLAYER: " + playerState + " | age " + player.ageMillis()
             + "ms | proxy " + proxyPosition,
             8, 44, player.live() && playerEnabled ? 0xFF80FF80 : 0xFFFFCC80);
+        graphics.fill(4, 54, 460, 66, 0xB0000000);
+        graphics.text(minecraft.font, FrameCapture.instance().hudLine(), 8, 58, 0xFF80C0FF);
     }
 }
