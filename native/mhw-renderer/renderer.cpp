@@ -80,7 +80,19 @@ bool traceDraws = false;
 bool ownDraw = false;
 unsigned traceCount = 0;
 bool composed = false;
+// The frame composite has its own once-per-frame latch. It shares the stone's
+// draw point and depth candidate, but not its enablement: a placed stone is a
+// debug aid, and Minecraft must not require one to be visible.
+bool composedFrame = false;
 unsigned composedCount = 0;
+unsigned composedFrameCount = 0;
+// Fixed-function state shared by both draw paths, created once on first use
+// rather than when the stone happens to come up.
+bool sharedReady = false;
+// Depth selection is a GPU read-back in the worst case, so it is cached for the
+// frame: both paths need the same answer and only one call pays for it.
+unsigned long long depthSelectionFrame = 0;
+bool framePipelineFailed = false;
 // Content read-back state: at most one copy in flight, because Map stalls.
 int contentPending = -1;
 unsigned long long contentCopyFrame = 0;
@@ -130,6 +142,8 @@ void STDMETHODCALLTYPE observeDraw(ID3D11DeviceContext* ctx, UINT n, UINT start)
 void STDMETHODCALLTYPE observeIndexed(ID3D11DeviceContext* ctx, UINT n, UINT start, INT base);
 bool uploadNewestFrame();
 int drawFrame(ID3D11Texture2D* back, ID3D11ShaderResourceView* sceneDepth);
+bool drawFrameComposite(ID3D11Texture2D* back);
+int selectSceneDepth(ComPtr<ID3D11ShaderResourceView>& out);
 
 void log(const char* format, ...) {
     CreateDirectoryA(Dir, nullptr);
@@ -303,7 +317,10 @@ void recordFrameSync(ID3D11Buffer* camera, int bound) {
 }
 
 void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
-    if (ownDraw || ctx != context.Get() || (!traceDraws && (!drawEnabled || composed))) return;
+    // The stone's gate does not gate the frame. It used to, which meant a placed
+    // stone was a precondition for Minecraft being visible at all - a debug aid
+    // silently deciding whether the player could exist.
+    if (ownDraw || ctx != context.Get()) return;
     ComPtr<ID3D11RenderTargetView> rtv;
     ctx->OMGetRenderTargets(1, &rtv, nullptr);
     if (!rtv) return;
@@ -322,7 +339,7 @@ void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
     // Captured on pinned MHW 421810: UI begins on the final R11G11B10 scene
     // target, alpha blended, stride 32, camera b0=1072 and UI b3=400 bytes.
     // The shader also validates the UI's pixel-to-clip scale on the GPU.
-    if (!composed && drawEnabled && td.Format == DXGI_FORMAT_R11G11B10_FLOAT &&
+    if (td.Format == DXGI_FORMAT_R11G11B10_FLOAT &&
         bd.RenderTarget[0].SrcBlend == D3D11_BLEND_SRC_ALPHA &&
         bd.RenderTarget[0].DestBlend == D3D11_BLEND_INV_SRC_ALPHA) {
         UINT stride=0, offset=0; ComPtr<ID3D11Buffer> vertex, camera, ui;
@@ -331,20 +348,17 @@ void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
         D3D11_BUFFER_DESC cameraDesc{}, uiDesc{};
         if (camera) camera->GetDesc(&cameraDesc);
         if (ui) ui->GetDesc(&uiDesc);
-        if (stride == 32 && cameraDesc.ByteWidth == 1072 && uiDesc.ByteWidth == 400) {
+        if (!composed && drawEnabled && stride == 32 &&
+            cameraDesc.ByteWidth == 1072 && uiDesc.ByteWidth == 400) {
             const int bound = drawBlock(back.Get(), camera.Get(), ui.Get());
             composed = true;
             if (++composedCount == 1) log("Composing before MHW UI with current GPU camera constants");
             if (frameSyncRemaining) recordFrameSync(camera.Get(), bound);
         }
-    }
-    // The Minecraft frame goes down after the stone, so a stone that lands
-    // inside Minecraft geometry stays visible rather than being buried: the two
-    // are independent and the order only decides who wins where both would draw.
-    if (!ownDraw && ctx == context.Get() && !traceDraws && sceneDepthView) {
-        if (uploadNewestFrame()) {
-            drawFrame(back.Get(), sceneDepthView.Get());
-        }
+        // Minecraft draws after the stone, so a block placed inside Minecraft's
+        // geometry stays visible rather than being buried. The order only
+        // decides who wins where both would write; neither depends on the other.
+        if (!composedFrame) composedFrame = drawFrameComposite(back.Get());
     }
     if (!traceDraws || traceCount >= 80) return;
     log("color trace %u %s count=%u format=%u blend=%u target=%p", traceCount, kind, count, td.Format, bd.RenderTarget[0].BlendEnable, back.Get());
@@ -486,12 +500,38 @@ float4 PS(float4 pixel : SV_Position) : SV_Target {
 }
 )hlsl";
 
-bool createPipeline() {    ComPtr<ID3D11Device1> device1;
+// The fixed-function objects both draw paths bind: the context-state slot that
+// makes a draw invisible to the game, the screen-size constant buffer, and three
+// states whose parameters never vary. Split out of createPipeline because the
+// frame path needs all of it, and gating it on the stone would mean Minecraft
+// could not appear until a stone had been placed.
+bool ensureSharedState() {
+    if (sharedReady) return true;
+    ComPtr<ID3D11Device1> device1;
     if (FAILED(device.As(&device1)) || FAILED(context.As(&context1))) return false;
     const D3D_FEATURE_LEVEL level = device->GetFeatureLevel();
     D3D_FEATURE_LEVEL selected;
     if (FAILED(device1->CreateDeviceContextState(0, &level, 1, D3D11_SDK_VERSION,
         __uuidof(ID3D11Device), &selected, &drawState))) return false;
+    D3D11_BUFFER_DESC cbDesc{}; cbDesc.ByteWidth = sizeof(parameters);
+    cbDesc.Usage = D3D11_USAGE_DEFAULT; cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+    if (FAILED(device->CreateBuffer(&cbDesc, nullptr, &constants))) return false;
+    D3D11_SAMPLER_DESC sd{}; sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
+    sd.MaxLOD = D3D11_FLOAT32_MAX;
+    if (FAILED(device->CreateSamplerState(&sd, &sampler))) return false;
+    D3D11_RASTERIZER_DESC rd{}; rd.FillMode = D3D11_FILL_SOLID;
+    rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
+    if (FAILED(device->CreateRasterizerState(&rd, &rasterizer))) return false;
+    D3D11_DEPTH_STENCIL_DESC dd{}; dd.DepthEnable = FALSE;
+    if (FAILED(device->CreateDepthStencilState(&dd, &noDepth))) return false;
+    sharedReady = true;
+    log("Shared draw state ready (context state, constants, sampler, rasterizer, no-depth)");
+    return true;
+}
+
+bool createPipeline() {
+    if (!ensureSharedState()) return false;
     ComPtr<ID3DBlob> vs, ps, error;
     auto hr = D3DCompile(Shader, sizeof(Shader) - 1, "CrafterHunter", nullptr, nullptr,
         "VS", "vs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &vs, &error);
@@ -502,26 +542,14 @@ bool createPipeline() {    ComPtr<ID3D11Device1> device1;
     if (FAILED(hr)) { log("PS compile: %s", error ? static_cast<char*>(error->GetBufferPointer()) : "failed"); return false; }
     if (FAILED(device->CreateVertexShader(vs->GetBufferPointer(), vs->GetBufferSize(), nullptr, &vertexShader)) ||
         FAILED(device->CreatePixelShader(ps->GetBufferPointer(), ps->GetBufferSize(), nullptr, &pixelShader))) return false;
-    D3D11_BUFFER_DESC bd{}; bd.ByteWidth = sizeof(parameters);
-    bd.Usage = D3D11_USAGE_DEFAULT; bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-    if (FAILED(device->CreateBuffer(&bd, nullptr, &constants))) return false;
     D3D11_TEXTURE2D_DESC td{};
     td.Width = td.Height = 16; td.MipLevels = td.ArraySize = td.SampleDesc.Count = 1;
     td.Format = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB; td.BindFlags = D3D11_BIND_SHADER_RESOURCE;
     if (FAILED(device->CreateTexture2D(&td, nullptr, &stone)) ||
         FAILED(device->CreateShaderResourceView(stone.Get(), nullptr, &stoneView))) return false;
-    D3D11_SAMPLER_DESC sd{}; sd.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
-    sd.AddressU = sd.AddressV = sd.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-    sd.MaxLOD = D3D11_FLOAT32_MAX;
-    if (FAILED(device->CreateSamplerState(&sd, &sampler))) return false;
-    D3D11_RASTERIZER_DESC rd{}; rd.FillMode = D3D11_FILL_SOLID;
-    rd.CullMode = D3D11_CULL_NONE; rd.DepthClipEnable = TRUE;
-    if (FAILED(device->CreateRasterizerState(&rd, &rasterizer))) return false;
-    D3D11_DEPTH_STENCIL_DESC dd{}; dd.DepthEnable = FALSE;
-    if (FAILED(device->CreateDepthStencilState(&dd, &noDepth))) return false;
     pixelsDirty = true;
     log("Native stone pipeline ready (full context-state preservation)");
-    return createFramePipeline();
+    return true;
 }
 
 // The Minecraft frame's own pipeline. Separate shaders, sampler and constant
@@ -529,6 +557,7 @@ bool createPipeline() {    ComPtr<ID3D11Device1> device1;
 // different bindings; sharing one set would mean rebinding both on every draw and
 // would hide which resource each draw actually read.
 bool createFramePipeline() {
+    if (!ensureSharedState()) return false;
     ComPtr<ID3DBlob> vs, ps, error;
     if (FAILED(D3DCompile(Shader, sizeof(Shader) - 1, "CrafterHunter", nullptr, nullptr,
             "FrameVS", "vs_5_0", D3DCOMPILE_ENABLE_STRICTNESS, 0, &vs, &error))) {
@@ -713,8 +742,18 @@ void STDMETHODCALLTYPE observeIndexed(ID3D11DeviceContext* ctx, UINT n, UINT sta
     traceDraw(ctx, "Indexed", n); originalIndexed(ctx, n, start, base);
 }
 
-int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {    if (!drawEnabled || pipelineFailed) return -1;
-    if (!pixelShader && !createPipeline()) { pipelineFailed = true; log("Pipeline unavailable; drawing disabled"); return -1; }
+// The scene-depth candidate for this frame, as a shader-readable view, or -1
+// when none is eligible. Shared by both draw paths so that a stone and a Steve
+// in the same frame can never disagree about what is in front of them, and
+// cached per frame because the content measurement behind it can stall the GPU.
+//
+// Deliberately independent of the stone: occlusion is needed by both, and
+// neither is the reason the other may exist.
+int selectSceneDepth(ComPtr<ID3D11ShaderResourceView>& out) {
+    if (depthSelectionFrame == frame && sceneDepthView) {
+        out = sceneDepthView;
+        return static_cast<int>(lastSelected);
+    }
     ComPtr<ID3D11ShaderResourceView> depthView;
     std::size_t chosen = sel::NotFound;
     {
@@ -732,6 +771,7 @@ int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {  
         if (chosen == sel::NotFound) {
             lastSelected = sel::NotFound;
             sceneDepthView.Reset();
+            depthSelectionFrame = frame;
             if (!skipLogged) {
                 skipLogged = true;
                 log("no eligible depth candidate (%zu observed; unmeasured, stale or empty) - composition skipped",
@@ -749,7 +789,17 @@ int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {  
         desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; desc.Texture2D.MipLevels = 1;
         if (FAILED(device->CreateShaderResourceView(depths[chosen].texture.Get(), &desc, &depthView))) return -1;
         sceneDepthView = depthView;
+        depthSelectionFrame = frame;
     }
+    out = depthView;
+    return static_cast<int>(chosen);
+}
+
+int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {    if (!drawEnabled || pipelineFailed) return -1;
+    if (!pixelShader && !createPipeline()) { pipelineFailed = true; log("Pipeline unavailable; drawing disabled"); return -1; }
+    ComPtr<ID3D11ShaderResourceView> depthView;
+    const int chosen = selectSceneDepth(depthView);
+    if (chosen < 0) return -1;
     ComPtr<ID3D11RenderTargetView> target;
     if (FAILED(device->CreateRenderTargetView(back, nullptr, &target))) return -1;
     ComPtr<ID3DDeviceContextState> saved;
@@ -778,7 +828,36 @@ int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {  
     ID3D11ShaderResourceView* empty[2]{}; context->PSSetShaderResources(0, 2, empty);
     context->OMSetRenderTargets(0, nullptr, nullptr);
     context1->SwapDeviceContextState(saved.Get(), nullptr);
-    return static_cast<int>(chosen);
+    return chosen;
+}
+
+// Creates the frame pipeline on first use and reports failure once, so a
+// machine without shader model 5 sees one line rather than one per frame.
+bool ensureFramePipeline() {
+    if (framePixelShader) return true;
+    if (framePipelineFailed) return false;
+    if (!createFramePipeline()) {
+        framePipelineFailed = true;
+        log("Minecraft frame pipeline unavailable; frame composite disabled");
+        return false;
+    }
+    return true;
+}
+
+// Draws the guest's frame into the pre-UI target. Returns true only when a frame
+// was actually drawn, which is what the once-per-frame latch keys on.
+//
+// The order inside is deliberate: pipeline, then pixels, then depth. Uploading
+// before the depth is known means a frame arrives even in a frame where no
+// depth is usable, so the next one has something to show immediately.
+bool drawFrameComposite(ID3D11Texture2D* back) {
+    if (!ensureFramePipeline()) return false;
+    if (!uploadNewestFrame()) return false;
+    ComPtr<ID3D11ShaderResourceView> depthView;
+    if (selectSceneDepth(depthView) < 0) return false;
+    if (drawFrame(back, depthView.Get()) == 0) return false;
+    if (++composedFrameCount == 1) log("Compositing Minecraft frame with MHW scene depth");
+    return true;
 }
 
 // The Minecraft frame, drawn through the per-pixel rule in frame_composite.hpp.
@@ -860,6 +939,7 @@ extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* view
     }
     std::memcpy(parameters.projection, viewProjection, sizeof(parameters.projection));
     composed = false;
+    composedFrame = false;
     traceDraws = false;
     constexpr char TraceRequest[] = "nativePC/plugins/CSharp/CrafterHunter/render/trace.request";
     if (GetFileAttributesA(TraceRequest) != INVALID_FILE_ATTRIBUTES && DeleteFileA(TraceRequest)) {
@@ -906,5 +986,12 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     contentPending = -1; lastSelected = sel::NotFound;
     frameSyncRemaining = 0; previousCameraValid = false;
     drawEnabled = false; pipelineFailed = false;
+    composed = false; composedFrame = false; composedFrameCount = 0;
+    sharedReady = false; framePipelineFailed = false; depthSelectionFrame = 0;
+    sceneDepthView.Reset(); minecraftView.Reset(); minecraftTexture.Reset();
+    frameVertexShader.Reset(); framePixelShader.Reset(); frameConstants.Reset();
+    minecraftDepthProbe.Reset(); minecraftDepthProbeView.Reset();
+    lastFrameSequence = 0; minecraftUploaded = 0; minecraftWidth = 0; minecraftHeight = 0;
+    frameSource.close();
     initialized = false; swapchain = nullptr;
 }

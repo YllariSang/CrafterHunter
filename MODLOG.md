@@ -1336,3 +1336,52 @@ resolved to the member. The DLL builds at 20:11.
 and the letterbox mapping are all unexercised. Gate green across nine suites and
 the mingw64 cross-compile, but the first run of this in the game is the real
 test, and it is the step after this.
+
+## 2026-10-05 — the gate that made the frame path unreachable
+
+The first live attempt produced nothing, and the reason was mine rather than the
+platform's. The frame composite was called from inside the stone's draw path,
+which begins:
+
+```cpp
+if (ownDraw || ctx != context.Get() || (!traceDraws && (!drawEnabled || composed))) return;
+```
+
+`drawEnabled` only goes true once the plugin has a *placed anchor*. The MHW
+restart cleared it, so every draw returned immediately. The frame composite could
+not run without a stone placed — a debug aid silently deciding whether the player
+was allowed to exist. The log showed depth candidates discovered but never
+measured and no pipeline line at all, which is the signature of this and nothing
+else.
+
+Three changes, in the order they had to happen:
+
+- **`selectSceneDepth()` is now shared.** The stone and the frame ask the same
+  question and must get the same answer, or a block and a Steve in one frame
+  could disagree about what is in front of them. It is cached per frame because
+  the content measurement behind it can stall the GPU, and running it twice in
+  one frame would pay twice for the same number. It is also, deliberately, not
+  gated on the stone.
+- **`ensureSharedState()` owns the fixed-function objects** that both paths bind —
+  the context-state slot, the screen-size constants, the sampler, the rasterizer
+  and the no-depth state. They were created inside `createPipeline()`, which only
+  the stone calls, so the frame had nothing to bind even on the draw path that
+  worked. All five have identical parameters for both draws, so two sets would
+  only be two things to keep in step.
+- **`createFramePipeline()` is called on first use by `ensureFramePipeline()`**,
+  which fails once and reports once, instead of being chained off the stone's
+  creation. A machine without shader model 5 should see one line, not one per
+  frame.
+
+The order inside `drawFrameComposite()` is deliberate and worth stating: pipeline,
+then pixels, then depth. Uploading before the depth is known means a frame
+arrives even in a frame where no depth is usable, so the next one has something to
+show immediately. Minecraft still draws after the stone, so a block placed inside
+Minecraft's geometry stays visible rather than being buried — the order decides
+only who wins where both write.
+
+`CH_Stop()` now releases the frame objects and unmaps the channel, which it did
+not before; a reload would otherwise have left a stale mapping and a live texture.
+
+**Not verified:** still not run inside MHW. This is the second attempt, and the
+first failed for a reason that no host-side test could have caught.
