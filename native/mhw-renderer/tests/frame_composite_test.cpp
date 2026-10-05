@@ -25,6 +25,130 @@ PixelView pixel(float host, bool hasHost, float mine, bool hasMine, bool hasMine
     return PixelView{host, hasHost, mine, hasMine, hasMineDepth};
 }
 
+// Regression: the letterbox, checked against the live sizes.
+//
+// Minecraft publishes 1908x1028 and MHW renders 1920x1080. The frame is fitted inside
+// the host rather than stretched, so these properties are what make the placement
+// correct rather than merely plausible: one scale on both axes, inset and centred,
+// never larger than the host, and host pixels outside the rectangle mapping outside
+// [0,1] so the shader's discard catches them.
+//
+// The mapping direction is the part that was wrong. Scaling the screen coordinate -
+// `guest = host * scale + offset` - inverts the relationship and makes the drawn region
+// *larger* than the screen, so Minecraft was cropped and stretched to fill all
+// 1920x1080. Brought into the rectangle instead, `guest = (host - offset) / scale`, the
+// region's edges are the rectangle's own and the bars appear.
+//
+// The test lives here rather than beside the shader because the shader cannot be run
+// headlessly, and an unchecked letterbox produces an image that looks like a UV bug
+// whether or not it is one.
+void checkLetterbox() {
+    constexpr float hostW = 1920.0f;
+    constexpr float hostH = 1080.0f;
+    constexpr float guestW = 1908.0f;
+    constexpr float guestH = 1028.0f;
+
+    const Letterbox box = letterbox(hostW, hostH, guestW, guestH);
+
+    // 1908/1920 = 0.99375 against 1028/1080 = 0.95185, so height is the tight axis and
+    // the rectangle spans the host's full width.
+    check(guestH / hostH < guestW / hostW, "height is the tight axis for these sizes");
+    check(box.scaleX > box.scaleY, "so the rectangle is wider than it is tall");
+    check(box.offsetX > -0.0001f && box.offsetX < 0.0001f,
+          "with no horizontal bar, because the guest fills the width");
+    check(box.offsetY > 0.0f, "and a real vertical bar above");
+
+    // The bars are equal, which is what centred means.
+    const float barTop = box.offsetY;
+    const float barBottom = (1.0f - box.scaleY) - box.offsetY;
+    check(barTop > 0.02f && barTop < 0.03f,
+          "the vertical bar is about 23 px of 1080, which is what 1908x1028 gives");
+    check(barTop - barBottom > -0.0001f && barTop - barBottom < 0.0001f,
+          "and the same below, so the rectangle is centred");
+    check(barTop * hostH > 20.0f && barTop * hostH < 26.0f, "roughly 23 rows of bar");
+
+    // Never larger than the host on either axis.
+    check(box.scaleX <= 1.0f, "the rectangle never exceeds the host's width");
+    check(box.scaleY <= 1.0f, "and never exceeds its height");
+
+    // The rectangle's own corners map exactly onto the frame's corners.
+    float guestU = 0.0f;
+    float guestV = 0.0f;
+    mapToGuest(box, box.offsetX, box.offsetY, guestU, guestV);
+    check(guestU > -0.0001f && guestU < 0.0001f, "the rectangle's origin is the frame's (0,0)");
+    check(guestV > -0.0001f && guestV < 0.0001f, "on both axes");
+    mapToGuest(box, box.offsetX + box.scaleX, box.offsetY + box.scaleY, guestU, guestV);
+    check(guestU > 0.9999f && guestU < 1.0001f, "and its far corner is the frame's (1,1)");
+    check(guestV > 0.9999f && guestV < 1.0001f, "on both axes");
+
+    // The centre of the rectangle samples the centre of the frame, which is what a
+    // scaled-and-offset mapping gets wrong.
+    mapToGuest(box, box.offsetX + box.scaleX * 0.5f, box.offsetY + box.scaleY * 0.5f,
+               guestU, guestV);
+    check(guestU > 0.4999f && guestU < 0.5001f,
+          "the centre of the rectangle is the centre of the frame");
+    check(guestV > 0.4999f && guestV < 0.5001f, "on both axes");
+
+    // Everything outside the rectangle maps outside [0,1], which is what the shader's
+    // discard acts on. The host's own corners are outside - that is the whole point of
+    // a letterbox, and the assertion the inverted mapping failed.
+    check(!insideGuest(box, 0.0f, 0.0f), "the host's top-left corner is outside the rectangle");
+    check(!insideGuest(box, 1.0f, 1.0f), "and so is its bottom-right corner");
+    check(!insideGuest(box, 0.5f, box.offsetY * 0.5f), "the middle of the top bar is outside");
+    check(!insideGuest(box, 0.5f, 1.0f - box.offsetY * 0.5f), "and the middle of the bottom bar");
+
+    // The host's left and right edges are *inside*, because for these sizes there is no
+    // side bar: the guest is wider relative to the host than it is tall, so the frame
+    // spans the full width. Asserted because it is easy to get backwards - an earlier
+    // version of this test asserted they were outside, which holds only when a bar
+    // exists on that axis.
+    check(insideGuest(box, 0.0f, 0.5f), "the left edge is inside, since there is no side bar");
+    check(insideGuest(box, 1.0f, 0.5f), "and so is the right edge");
+    float leftU = 0.0f;
+    float leftV = 0.0f;
+    mapToGuest(box, 0.0f, 0.5f, leftU, leftV);
+    check(leftU > -0.0001f && leftU < 0.0001f,
+          "and the left edge samples the frame's own left column");
+
+    // The screen centre is inside, because the rectangle is centred on it.
+    check(insideGuest(box, 0.5f, 0.5f), "the middle of the screen is inside the rectangle");
+
+    // Just inside the rectangle's edges, and just outside them. These are the vertical
+    // edges, so the varying coordinate is the second one.
+    const float epsilon = 0.0005f;
+    check(insideGuest(box, 0.5f, box.offsetY + box.scaleY * 0.5f),
+          "the middle of the rectangle's height is inside");
+    check(!insideGuest(box, 0.5f, box.offsetY - epsilon), "a step above its top edge is outside");
+    check(!insideGuest(box, 0.5f, box.offsetY + box.scaleY + epsilon),
+          "and a step below its bottom edge");
+
+    // Aspect ratio preserved: one scale on both axes. This matters more than it looks,
+    // because a stretched Steve would also invalidate the depth comparison the
+    // composite depends on.
+    const float drawnRatio = (box.scaleX * hostW) / (box.scaleY * hostH);
+    const float guestRatio = guestW / guestH;
+    check(drawnRatio > guestRatio - 0.001f && drawnRatio < guestRatio + 0.001f,
+          "the drawn rectangle keeps the guest's aspect ratio");
+
+    // Degenerate inputs must not produce a NaN that reaches the shader.
+    const Letterbox noGuest = letterbox(hostW, hostH, 0.0f, guestH);
+    check(noGuest.scaleX == 0.0f && noGuest.offsetX == 0.0f,
+          "a zero guest width gives a degenerate rectangle, not a NaN");
+    check(!insideGuest(noGuest, 0.5f, 0.5f),
+          "which discards everything rather than drawing one stray texel");
+    mapToGuest(noGuest, 0.5f, 0.5f, guestU, guestV);
+    check(guestU == 0.0f && guestV == 0.0f, "and mapping it does not divide by zero");
+    const Letterbox noHost = letterbox(0.0f, hostH, guestW, guestH);
+    check(noHost.scaleX == 0.0f && noHost.scaleY == 0.0f, "a zero host dimension is handled too");
+
+    // Identical sizes fill the host exactly, with no bars and no offset.
+    const Letterbox identical = letterbox(guestW, guestH, guestW, guestH);
+    check(identical.scaleX > 0.9999f && identical.scaleX < 1.0001f,
+          "identical sizes fill the host exactly");
+    check(identical.scaleY > 0.9999f && identical.scaleY < 1.0001f, "on both axes");
+    check(identical.offsetX == 0.0f && identical.offsetY == 0.0f, "with no bars at all");
+}
+
 }  // namespace
 
 int main() {
@@ -98,10 +222,13 @@ int main() {
     check(worthCompositing(0.5f), "half a frame is worth compositing");
     check(worthCompositing(1.0f), "a full frame is worth compositing");
 
+    checkLetterbox();
+
     if (failures == 0) {
         std::printf(
             "Frame composite checks passed: sky, reversed-Z both directions, coplanar, extremes, "
-            "empty Minecraft sky, depthless colour, coverage threshold.\n");
+            "empty Minecraft sky, depthless colour, coverage threshold, letterbox placement, "
+            "aspect, discard bounds, degenerate sizes.\n");
         return 0;
     }
     std::fprintf(stderr, "%d frame composite check(s) failed\n", failures);

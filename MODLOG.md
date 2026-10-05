@@ -1779,3 +1779,55 @@ One test expectation of mine was wrong on the way in and the suite caught it: I
 asserted that re-opening *is* allowed at the instant of the last attempt. It is not —
 that attempt set the clock. Getting this wrong in the permissive direction is one
 remap per frame, so the boundary is now asserted from both sides.
+
+## 2026-10-05 — the letterbox was never letterboxing
+
+Extracted from `renderer.cpp` into `frame_composite.hpp` so it could be checked
+without a GPU, and immediately found to be **inverted**.
+
+```hlsl
+float2 uv = hostUv * uvRect.xy + uvRect.zw;   // what it did
+```
+
+That scales the *screen* coordinate. To draw a rectangle of relative size `scale`
+starting at `offset`, the screen coordinate has to be brought *into* the rectangle:
+
+```
+guest = (host - offset) / scale
+```
+
+Scaling instead inverts the relationship. The region drawn becomes
+`host ∈ [-offset/scale, (1-offset)/scale]`, and for 1908×1028 into 1920×1080 that is
+**[-0.022, 1.022] vertically** — larger than the screen at both ends. So Minecraft was
+not letterboxed at all. It was **cropped, about 2% lost off the top and the bottom,
+and stretched to fill all 1920×1080** — the single thing the letterbox exists to
+prevent, and the thing that would have silently invalidated the depth comparison the
+composite depends on.
+
+Extracting it also surfaced two smaller defects:
+
+- **`scaleX` came out as 1.0000003** on the tight axis, which made `offsetX` slightly
+  negative and mapped the host's own edge column to a uv below zero, discarding it.
+  The scale is now clamped to the host.
+- **A degenerate rectangle mapped everything to uv (0,0)** — which is *inside*
+  `[0,1]` — so a zero-sized guest would have drawn one stray texel at the centre of
+  the screen instead of nothing, contradicting the comment that claimed otherwise.
+  `insideGuest()` now rejects it, and the shader checks a `frameFlags.x` validity flag
+  because a NaN uv would sail past the discard (every comparison against NaN is false).
+
+Two of my own assertions were wrong before the code was:
+
+- I asserted the host's **left and right edges were outside** the rectangle. For these
+  sizes there is no side bar — the guest is wider relative to the host than it is tall —
+  so the frame spans the full width and those columns are correctly *inside*.
+- I passed `offsetY` as the **horizontal** argument in three places.
+
+Both were caught by the suite rather than by reading, which is the argument for
+extracting the arithmetic rather than trusting it.
+
+Mutation-tested: putting the scaling form back fails **eight** letterbox assertions,
+including `the host's top-left corner is outside the rectangle` — which is the
+assertion the bug itself made false, and which the old test asserted the other way.
+
+The shader and the host now both derive from the one tested function, so the mapping
+cannot drift between them again.

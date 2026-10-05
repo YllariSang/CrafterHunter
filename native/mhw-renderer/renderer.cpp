@@ -155,7 +155,7 @@ ComPtr<ID3D11Buffer> frameConstants;
 // rather than an edge case, so the mapping is explicit and centred: a frame
 // narrower than the backbuffer is letterboxed rather than stretched, because
 // stretching would shear Steve and break the depth comparison with it.
-struct FrameMapping { float uvScale[4]; float unused[4]; };
+struct FrameMapping { float uvRect[4]; float frameFlags[4]; };
 FrameMapping frameMapping{};
 
 int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui);
@@ -518,7 +518,10 @@ cbuffer Parameters : register(b0) {
     float4 centre;
     float4 screen;
 };
-cbuffer FrameMapping : register(b3) { float4 uvRect; };
+cbuffer FrameMapping : register(b3) {
+    float4 uvRect;      // xy = the rectangle's size as a fraction, zw = its origin
+    float4 frameFlags;  // x = 1 when the mapping is usable, 0 when it is degenerate
+};
 Texture2D<float4> minecraftColour : register(t0);
 Texture2D<float> sceneDepth : register(t1);
 SamplerState nearest : register(s0);
@@ -545,8 +548,18 @@ float4 FrameVS(uint id : SV_VertexID) : SV_Position {
 // scene depth to 0 under reversed Z, so 0 is the far end and means the host pass
 // wrote nothing here.
 float4 FramePS(float4 pixel : SV_Position) : SV_Target {
+    // A degenerate rectangle has no inverse. Checked here as well as on the host
+    // because a division by zero yields a NaN, and every comparison against NaN is
+    // false - so a NaN uv would sail past the discard below and sample whatever the
+    // hardware made of it.
+    if (frameFlags.x < 0.5) discard;
+
     float2 hostUv = pixel.xy / screen.xy;
-    float2 uv = hostUv * uvRect.xy + uvRect.zw;
+    // The screen coordinate is brought *into* the guest rectangle, not scaled. The
+    // other direction inverts the relationship and draws a region larger than the
+    // screen, cropping the frame and stretching it edge to edge instead of
+    // letterboxing it. See mapToGuest() in frame_composite.hpp, and its tests.
+    float2 uv = (hostUv - uvRect.zw) / uvRect.xy;
     if (any(uv < 0.0) || any(uv > 1.0)) discard;
 
     float hostZ = sceneDepth.Load(int3(int2(pixel.xy), 0));
@@ -997,18 +1010,23 @@ bool drawFrameComposite(ID3D11Texture2D* back) {
 int drawFrame(ID3D11Texture2D* back, ID3D11ShaderResourceView* sceneDepth) {
     if (!minecraftView || !framePixelShader) return 0;
 
-    // Centre Minecraft's frame in MHW's backbuffer without stretching it. The
-    // two windows are almost never the same size, and scaling to fit would shear
-    // Steve and, worse, shear the depth that is compared against MHW's.
-    const float scaleX = static_cast<float>(width) / static_cast<float>(minecraftWidth);
-    const float scaleY = static_cast<float>(height) / static_cast<float>(minecraftHeight);
-    const float scale = scaleX < scaleY ? scaleX : scaleY;
-    frameMapping.uvScale[0] =
-        (static_cast<float>(minecraftWidth) * scale) / static_cast<float>(width);
-    frameMapping.uvScale[1] =
-        (static_cast<float>(minecraftHeight) * scale) / static_cast<float>(height);
-    frameMapping.uvScale[2] = (1.0f - frameMapping.uvScale[0]) * 0.5f;
-    frameMapping.uvScale[3] = (1.0f - frameMapping.uvScale[1]) * 0.5f;
+    // The letterbox, computed by the function frame_composite.hpp's tests cover. The
+    // arithmetic used to live here untested, and was inverted: it scaled the screen
+    // coordinate instead of mapping it into the rectangle, so the region drawn was
+    // larger than the backbuffer and Minecraft was cropped and stretched rather than
+    // letterboxed. There is now nowhere for that mistake to hide.
+    const cmp::Letterbox box = cmp::letterbox(static_cast<float>(width),
+        static_cast<float>(height), static_cast<float>(minecraftWidth),
+        static_cast<float>(minecraftHeight));
+    frameMapping.uvRect[0] = box.scaleX;
+    frameMapping.uvRect[1] = box.scaleY;
+    frameMapping.uvRect[2] = box.offsetX;
+    frameMapping.uvRect[3] = box.offsetY;
+    // Zero when degenerate, so the shader discards instead of dividing by zero.
+    frameMapping.frameFlags[0] = (box.scaleX > 0.0f && box.scaleY > 0.0f) ? 1.0f : 0.0f;
+    frameMapping.frameFlags[1] = 0.0f;
+    frameMapping.frameFlags[2] = 0.0f;
+    frameMapping.frameFlags[3] = 0.0f;
 
     ComPtr<ID3D11RenderTargetView> target;
     if (FAILED(device->CreateRenderTargetView(back, nullptr, &target))) return 0;

@@ -81,6 +81,106 @@ inline Decision decideSkyOnly(const PixelView& pixel) {
     return Decision::Draw;
 }
 
+// Where the guest's frame sits inside the host's, in the uv the shader samples.
+//
+// Extracted from renderer.cpp so it can be checked without a GPU. Worth extracting
+// because a subtly wrong letterbox does not look wrong: it looks like Minecraft being
+// drawn in the wrong place, which is indistinguishable from the UV mapping being wrong
+// until it is measured.
+//
+// Minecraft is fitted inside MHW rather than stretched to fill it. Stretching to fit
+// would shear Steve and, worse, shear the depth being compared against MHW's own - a
+// comparison against a resampled depth is not a comparison at all. Fitting keeps both
+// axes at one scale and centres the result.
+struct Letterbox {
+    float scaleX;  // fraction of the host's width the guest occupies
+    float scaleY;  // fraction of the host's height it occupies
+    float offsetX; // where that fraction starts, from the left
+    float offsetY; // where it starts, from the top
+};
+
+// The shader's uv for a host pixel, given hostUv in [0,1] on both axes. SV_Position
+// has its origin at the top-left and the guest's frame is stored top-down, so the V
+// axis needs no flip here: the row flip is the guest's job, and doing it twice is how a
+// frame ends up mirrored.
+// Never larger than the whole host, and never negative.
+inline float clampToHost(float fraction) {
+    if (fraction < 0.0f) return 0.0f;
+    return fraction > 1.0f ? 1.0f : fraction;
+}
+
+inline Letterbox letterbox(float hostWidth, float hostHeight,
+                           float guestWidth, float guestHeight) {
+    Letterbox box{0.0f, 0.0f, 0.0f, 0.0f};
+    // A zero guest dimension would divide by zero and produce a NaN that reaches the
+    // shader as either a silently discarded or a fully-drawn frame. Reported as a
+    // degenerate zero rectangle, which discards everything - visibly absent rather
+    // than invisibly wrong.
+    if (hostWidth <= 0.0f || hostHeight <= 0.0f) return box;
+    if (guestWidth <= 0.0f || guestHeight <= 0.0f) return box;
+
+    const float fitX = hostWidth / guestWidth;
+    const float fitY = hostHeight / guestHeight;
+    // One scale for both axes: this is what keeps the aspect ratio.
+    const float fit = fitX < fitY ? fitX : fitY;
+    // Clamped to the host. On the tight axis the arithmetic lands just above 1 - for
+    // 1908 into 1920 it comes out at 1.0000003 - and an unclamped scale above 1 makes
+    // the offset negative, which maps the host's own edge column to a uv below zero and
+    // discards it. One pixel of nothing, but it means the rectangle is very slightly
+    // larger than the thing it is supposed to fit inside.
+    box.scaleX = clampToHost((guestWidth * fit) / hostWidth);
+    box.scaleY = clampToHost((guestHeight * fit) / hostHeight);
+    box.offsetX = (1.0f - box.scaleX) * 0.5f;
+    box.offsetY = (1.0f - box.scaleY) * 0.5f;
+    return box;
+}
+
+// The shader's uv for one host pixel.
+//
+// The direction of this mapping is the whole subtlety, and it was wrong once. To draw
+// a rectangle occupying `scale` of the screen and starting at `offset`, the screen
+// coordinate must be brought *into* that rectangle:
+//
+//     guest = (host - offset) / scale
+//
+// Scaling the screen coordinate instead - `guest = host * scale + offset` - inverts the
+// relationship. The region drawn becomes host in [-offset/scale, (1-offset)/scale],
+// which for 1908x1028 into 1920x1080 is [-0.022, 1.022] vertically: larger than the
+// screen at both ends. Minecraft was therefore not letterboxed at all. It was cropped -
+// about 2% lost off the top and the bottom - and stretched to fill all 1920x1080, which
+// is the single thing this function exists to prevent.
+//
+// SV_Position has its origin at the top-left and the guest's frame is stored top-down,
+// so the V axis needs no flip here: the row flip is the guest's job, and doing it twice
+// is how a frame ends up mirrored.
+inline void mapToGuest(const Letterbox& box, float hostU, float hostV,
+                       float& guestU, float& guestV) {
+    // A degenerate rectangle has no inverse. Reported as (0,0) rather than a division
+    // by zero; insideGuest rejects it before reaching here.
+    if (box.scaleX <= 0.0f || box.scaleY <= 0.0f) {
+        guestU = 0.0f;
+        guestV = 0.0f;
+        return;
+    }
+    guestU = (hostU - box.offsetX) / box.scaleX;
+    guestV = (hostV - box.offsetY) / box.scaleY;
+}
+
+// Is this host pixel inside the guest's rectangle? The shader discards anything
+// outside, and the test is on the mapped uv rather than on host coordinates so the two
+// can never disagree about where the edges are.
+inline bool insideGuest(const Letterbox& box, float hostU, float hostV) {
+    // A degenerate rectangle maps every host pixel to uv (0,0), which is *inside*
+    // [0,1] - so without this it would draw one stray texel from the corner of the
+    // frame at the centre of the screen rather than nothing. Caught by the test
+    // asserting that a zero-sized guest discards everything.
+    if (box.scaleX <= 0.0f || box.scaleY <= 0.0f) return false;
+    float guestU = 0.0f;
+    float guestV = 0.0f;
+    mapToGuest(box, hostU, hostV, guestU, guestV);
+    return !(guestU < 0.0f || guestU > 1.0f || guestV < 0.0f || guestV > 1.0f);
+}
+
 // Fraction of the frame worth uploading at all, given a coverage measurement.
 // Minecraft's own sky is a large fraction of most frames and carries no
 // information for MHW: it is Minecraft's sky, not the world's, and drawing it
