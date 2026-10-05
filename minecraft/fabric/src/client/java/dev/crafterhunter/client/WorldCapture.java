@@ -108,6 +108,10 @@ public final class WorldCapture {
     private String inFlightPerspective = "?";
     private long inFlightQueuedNanos;
     private boolean hookSeen;
+    private WorldCopyState copyState;
+    // Fail closed after uncertain GPU work. Retain this one buffer pair until
+    // process exit: no reuse, close, spin wait, or replacement allocation.
+    private boolean captureDisabled;
 
     private WorldCapture() {
     }
@@ -132,7 +136,14 @@ public final class WorldCapture {
      * @param nowNanos monotonic clock, for ageing the capture
      */
     public void onWorldRendered(long nowNanos) {
-        if (inFlight && colourLanded && depthLanded) {
+        if (captureDisabled) {
+            if (nowNanos >= nextSummaryNanos) {
+                nextSummaryNanos = nowNanos + SUMMARY_INTERVAL_NANOS;
+                writeSummary();
+            }
+            return;
+        }
+        if (inFlight && copyState != null && copyState.complete()) {
             publish(nowNanos);
         }
 
@@ -142,14 +153,16 @@ public final class WorldCapture {
         // GL_INVALID_FRAMEBUFFER_OPERATION, no callback ever fired, and the capture
         // sat in flight forever writing nothing. A stall that reports nothing is
         // indistinguishable from a stall that has not happened yet.
-        if (inFlight && !colourLanded && !depthLanded
+        if (inFlight && copyState != null && !copyState.complete()
                 && nowNanos - inFlightQueuedNanos > IN_FLIGHT_TIMEOUT_NANOS) {
             inFlight = false;
+            captureDisabled = true;
             remaining = 0;
-            status = "no half landed in " + (IN_FLIGHT_TIMEOUT_NANOS / 1_000_000L)
+            status = "capture disabled; buffers retained: incomplete copy after " + (IN_FLIGHT_TIMEOUT_NANOS / 1_000_000L)
                 + "ms - the copy was refused (colour=" + colourLanded
                 + " depth=" + depthLanded + ")";
             writeSummary();
+            return;
         }
 
         if (remaining == 0 && nowNanos >= nextPollNanos) {
@@ -206,8 +219,14 @@ public final class WorldCapture {
             if (!Files.exists(requestFile)) {
                 return;
             }
-            String line = Files.readString(requestFile, StandardCharsets.UTF_8).trim();
-            Files.deleteIfExists(requestFile);
+            Path claimed = requestFile.resolveSibling("world.claimed-" + java.util.UUID.randomUUID());
+            Files.move(requestFile, claimed, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            String line;
+            try {
+                line = Files.readString(claimed, StandardCharsets.UTF_8).trim();
+            } finally {
+                Files.deleteIfExists(claimed);
+            }
             if (line.isEmpty()) {
                 return;
             }
@@ -279,8 +298,10 @@ public final class WorldCapture {
             inFlightIdentity = identity;
             inFlight = true;
             inFlightQueuedNanos = nowNanos;
-            inFlightColourFormat = String.valueOf(colour.getFormat());
-            inFlightDepthFormat = String.valueOf(depth.getFormat());
+            inFlightColourFormat = wantColour ? String.valueOf(colour.getFormat()) : "not requested";
+            inFlightDepthFormat = wantDepth ? String.valueOf(depth.getFormat()) : "not requested";
+            final WorldCopyState completion = new WorldCopyState(wantColour, wantDepth);
+            copyState = completion;
 
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
             // Copies go into one submit, so the first cannot land while the second is
@@ -292,18 +313,25 @@ public final class WorldCapture {
             // that its flag never arrives. That is why the in-flight timeout exists.
             if (wantColour) {
                 encoder.copyTextureToBuffer(colour, colourBuffer, 0L,
-                    () -> colourLanded = true, 0, 0, 0, width, height);
+                    () -> {
+                        completion.colourCompleted();
+                        if (inFlightIdentity == identity) colourLanded = true;
+                    }, 0, 0, 0, width, height);
             }
             if (wantDepth) {
                 encoder.copyTextureToBuffer(depth, depthBuffer, 0L,
-                    () -> depthLanded = true, 0, 0, 0, width, height);
+                    () -> {
+                        completion.depthCompleted();
+                        if (inFlightIdentity == identity) depthLanded = true;
+                    }, 0, 0, 0, width, height);
             }
             encoder.submit();
             status = "copying " + width + "x" + height + " " + mode;
         } catch (RuntimeException problem) {
             inFlight = false;
+            captureDisabled = true;
             remaining = 0;
-            status = "copy failed: " + problem;
+            status = "capture disabled; buffers retained after copy/setup failure: " + problem;
         }
     }
 

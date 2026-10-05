@@ -2087,3 +2087,20 @@ format `allocateDepthAttachment` picks, the linearisation from that format plus
 Minecraft's projection, and the normalisation against MHW's reversed-Z — items 4 and 6,
 which are the parts where a wrong answer produces a plausible image rather than an
 error.
+# 2026-10-06 — bounded capture-lifecycle repair (headless)
+
+Single-attachment completion now uses a capture-owned completion object; format
+metadata no longer dereferences unrequested textures. Partial completion times
+out too. Timeout or setup/copy failure disables new capture until process restart,
+retaining the existing buffer pair rather than freeing/reusing uncertain GPU
+resources. This is a conservative diagnostic policy, not a depth-backend fix.
+
+The world verification script now emits `colour 1`, `depth 1`, or `capture 1`
+rather than the invalid `capture colour` command. Commands are atomically renamed
+into place and the consumer claims them before reading/deleting. AGENTS.md records
+the goal, actual Git directory, working checkpoint, and next acceptance gate.
+
+Verified: tools/test-fabric-frame.sh (including new completion checks), Fabric
+`./gradlew build`, and Git diff whitespace check. No games launched, no deployment,
+no runtime tests. GPU completion still does not establish valid copied pixels;
+D32_FLOAT readback, row layout and paired depth acceptance remain unresolved.

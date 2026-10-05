@@ -1,0 +1,52 @@
+# CrafterHunter agent contract
+
+## Goal and current checkpoint
+
+The goal is real Minecraft gameplay inside MHW on Linux/Proton: Minecraft owns
+Steve/items/building; MHW owns its monsters, quests and world. Exactly one game
+must own movement/input at a time. Combat and quest integration are NOT implemented.
+
+Verified checkpoint: Minecraft colour-frame transfer and diagnostic sky-only
+composition. This is not isolated Steve rendering or depth-correct guest geometry.
+Preserve the working stone renderer and its validated scene-depth selection.
+Read README.md, MODDING_PLAN.md, docs/depth-renderer.md and the latest MODLOG.md
+entries before changes; distinguish plans from measured evidence.
+
+## Next acceptance gate
+
+Validate same-frame Minecraft world colour/depth capture before changing native
+composition. WorldCapture currently fails closed permanently after a timeout or
+setup/copy exception, retaining at most its existing buffer pair until process exit.
+This deliberately prevents uncertain GPU work from causing buffer reuse/free or
+unbounded allocation. Restart is required to retry. Do not weaken this policy
+without verified backend completion and resource-lifetime semantics.
+
+Callbacks signal completion, not valid pixels. Investigate the actual OpenGL
+D32_FLOAT readback failure. Validate projection/depth/row packing against a real
+Minecraft block at known distances. Buffer capacity is not row stride. Match
+attachments and camera metadata by capture identity. Do not directly compare
+Minecraft linear depth to MHW reversed-Z depth.
+
+## Work discipline
+
+- One bounded change at a time; regression tests must expose the original bug.
+- No render-thread spin waits or pumping global tasks without verified semantics.
+- Request writers publish complete files by atomic same-directory rename; consumers
+  must claim a command before reading/deleting it. Never delete the live frame channel.
+- Builds prove compilation, not visible rendering, synchronization or valid depth.
+- Runtime acceptance requires screenshots plus fresh sequence/capture/log evidence.
+- Packet receipt age measures freshness, not end-to-end latency.
+- Do not expand into combat/inventory while capture is unverified.
+- Preserve user changes; no launcher/account tasks or deployment without current scope.
+- Publish original code, not game assets, saves, credentials or decompiled sources.
+
+## Git and verification
+
+Actual project history uses `.git-crafterhunter`, NOT the unrelated `.git`:
+`git --git-dir=.git-crafterhunter --work-tree=. <command>`.
+Commit isolated changes when authorized. Do not push unless requested.
+
+For Fabric: `cd minecraft/fabric && ./gradlew build`.
+Run relevant headless scripts in tools/ and `cargo test --workspace` for protocol
+changes. Avoid runtime verification scripts when working headless: they mutate
+request files and require live games. Record exact checks and unresolved gaps.

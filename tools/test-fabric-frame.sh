@@ -8,6 +8,8 @@ output_directory="$project_root/minecraft/fabric/build/headless-tests"
 mkdir -p "$output_directory"
 
 sources=(
+    "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/WorldCopyState.java"
+    "$project_root/minecraft/fabric/tests/WorldCopyStateTest.java"
     "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameLayout.java"
     "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameRequest.java"
     "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameCopyState.java"
@@ -19,3 +21,4 @@ sources=(
 javac --release 25 -Xlint:all -Werror -d "$output_directory" "${sources[@]}"
 java -cp "$output_directory" dev.crafterhunter.client.FrameLayoutTest
 java -cp "$output_directory" dev.crafterhunter.client.FrameChannelTest
+java -cp "$output_directory" dev.crafterhunter.client.WorldCopyStateTest

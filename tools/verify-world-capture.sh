@@ -48,7 +48,11 @@ run_mode() {
   gl_before=$(grep -ac "glReadPixels" "$log" 2>/dev/null || echo 0)
 
   rm -f "$meta"
-  printf 'capture %s\n' "$verb" > "$request"
+  # Publish a complete command by same-directory rename, never partial writes.
+  local temporary
+  temporary=$(mktemp "$game/world.request.XXXXXX")
+  printf '%s 1\n' "$verb" > "$temporary"
+  mv "$temporary" "$request"
 
   local waited=0
   while [ ! -f "$meta" ]; do
