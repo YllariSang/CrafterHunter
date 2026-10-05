@@ -86,7 +86,11 @@ else
                 ps_*) stage=frag ;;
                 *) note "unknown shader profile '$profile' for entry '$entry'"; continue ;;
             esac
-            if output="$(glslangValidator -D -S "$stage" -e "$entry" -V "$out/$literal.hlsl" 2>&1)" &&
+            # Run from the temporary directory. glslangValidator writes its SPIR-V
+            # output as vert.spv/frag.spv into the *current* directory, so running
+            # it from the repository root littered the working tree with two files
+            # per entry point - which is exactly what happened.
+            if output="$(cd "$out" && glslangValidator -D -S "$stage" -e "$entry" -V "$literal.hlsl" 2>&1)" &&
                ! grep -qiE "error|not found" <<<"$output"; then
                 printf '%-14s %-9s %-7s compiles\n' "$literal" "$entry" "$profile"
             else
