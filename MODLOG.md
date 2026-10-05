@@ -1255,3 +1255,42 @@ suites (three new), gradle, plugin, host verification.
 **Not done:** nothing reads the channel yet. The native side has the contract and
 its rules, but no code maps or draws from it — that is the next piece, and it is
 where the depth compare lives.
+
+## 2026-10-05 — the compositing rule, pinned before it is written in a shader
+
+The last piece of milestone 3's composite is the per-pixel question: given
+Minecraft's pixel and MHW's depth at the same screen position, does Minecraft
+draw? That is the whole difference between "Minecraft is inside MHW" and "a
+Minecraft screenshot pasted over MHW", and it is written as
+`frame_composite.hpp` with its tests *before* it goes into the pixel shader,
+because a shader cannot be tested without a GPU and a backwards depth test still
+produces a plausible-looking image.
+
+**The comparison is reversed Z and that is the whole trap.** MHW clears scene
+depth to 0 and nearer is the *larger* value, so "is Minecraft in front" is
+`minecraftDepth > hostDepth`. Written the conventional way it inverts, and Steve
+renders through walls — an image that looks fine in an open field and wrong in a
+canyon. Both directions are asserted, because only one of them fails if the
+comparison is flipped, and the mutation test confirms it: flipping the operator
+fails 5 of the checks and restoring it passes them.
+
+Two other rules came out of the same trace:
+
+- A host pixel the pass never touched still holds the clear value, which under
+  reversed Z is the *far* end. So depth 0 means sky, and Minecraft **must** be
+  drawn there — otherwise a Minecraft building against the sky punches a hole in
+  the world. This is the opposite instinct from "empty means discard", and it is
+  why `hostHasDepth` is a separate flag rather than inferred from the value.
+- Minecraft's own sky carries no information for MHW: it is Minecraft's sky, not
+  the world's, and drawing it would replace MHW's sky with a flat gradient. So
+  Minecraft pixels with no geometry behind them are `Unusable`, never drawn, and
+  the frame's Minecraft coverage is reported so a frame that is 99% Minecraft sky
+  can be refused before it costs any bandwidth.
+
+Colour-without-depth is refused rather than drawn. Pasting it would put Minecraft
+over MHW's characters; refusing it loses the frame. The failure is visible as
+missing Minecraft instead of a Steve standing in front of a Rathalos.
+
+Gate green, mutation test included. Next: the native reader that maps the shared
+channel, uploads the texture, and runs this rule in the shader — which is the
+first part of this that needs MHW running.
