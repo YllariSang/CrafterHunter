@@ -326,7 +326,12 @@ public final class FrameCapture {
      */
     private void writeShared(byte[] pixels, boolean alsoMeta) throws IOException {
         Files.createDirectories(sharedDirectory);
-        if (channel == null || channelSizeMismatched()) {
+        // Recreate on a lost or replaced channel as well as on a size change. Checking
+        // only the size meant a deleted channel left us writing to an unlinked inode: the
+        // guest reported healthy, rising sequence numbers and no reader could see any of
+        // it. The check costs two stat calls, so it is rate-limited rather than made per
+        // frame - a second is far faster than the failure it prevents.
+        if (channel == null || channelSizeMismatched() || channelPathLost()) {
             reopenChannel();
         }
 
@@ -344,6 +349,30 @@ public final class FrameCapture {
     private boolean channelSizeMismatched() {
         return channel == null
             || channelSize != bufferWidth * (long) bufferHeight;
+    }
+
+    /** Milliseconds between checks that the channel file is still there. */
+    private static final long CHANNEL_CHECK_INTERVAL_MILLIS = 1000L;
+
+    private long lastChannelCheckMillis = -1;
+    private boolean channelLostSinceCheck = false;
+
+    /**
+     * Whether the channel file has gone or been replaced, rate-limited.
+     *
+     * <p>Never assumes health before the first check: a channel that has not been
+     * examined yet is reported lost, so a stale handle is replaced on the first frame
+     * rather than trusted until the interval elapses.
+     */
+    private boolean channelPathLost() {
+        long now = System.currentTimeMillis();
+        if (lastChannelCheckMillis >= 0
+                && now - lastChannelCheckMillis < CHANNEL_CHECK_INTERVAL_MILLIS) {
+            return channelLostSinceCheck;
+        }
+        lastChannelCheckMillis = now;
+        channelLostSinceCheck = FrameChannel.channelLost(channelFile, bufferWidth, bufferHeight);
+        return channelLostSinceCheck;
     }
 
     private void reopenChannel() throws IOException {

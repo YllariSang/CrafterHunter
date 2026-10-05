@@ -1,5 +1,6 @@
 package dev.crafterhunter.client;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -95,6 +96,40 @@ public final class FrameChannel implements AutoCloseable {
         }
         preamble.flip();
         channel.write(preamble, 0);
+    }
+
+    /**
+     * Is the file at {@code file} still the channel we think we are writing?
+     *
+     * <p>True when it has gone, when it is there but is not the size this frame needs,
+     * or when it cannot be examined. False when it is present and the right size.
+     *
+     * <p>This exists because {@code reopenChannel()} used to be called only when the
+     * window's dimensions changed. A channel that was deleted - or replaced by another
+     * file of the same size - therefore left the guest holding an open handle to an
+     * unlinked inode: it carried on publishing, reported healthy and rising sequence
+     * numbers, and every byte went to a file no reader could open. From the guest's side
+     * everything looked perfect, which is the worst combination to debug; it happened
+     * here because a verification script deleted the live channel.
+     *
+     * <p>Presence alone is not sufficient and is not what is checked. A replaced file of
+     * the same size reads as present and correctly sized; what reveals that is the
+     * sequence numbers going backwards, which the native reader treats as a restarted
+     * writer.
+     */
+    public static boolean channelLost(Path file, int width, int height) {
+        if (file == null) {
+            return true;
+        }
+        if (!Files.exists(file)) {
+            return true;
+        }
+        try {
+            return Files.size(file) != bufferBytes(width, height);
+        } catch (IOException unreachable) {
+            // Cannot even be measured, so it is certainly not the channel we want.
+            return true;
+        }
     }
 
     /** Bytes a buffer of this size needs; must match bufferBytes in the header. */

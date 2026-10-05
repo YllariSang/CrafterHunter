@@ -1908,3 +1908,51 @@ What this cannot tell us: whether Wine actually accepts the Unix spelling on thi
 or whether it needs the drive form. That is now a single log line rather than a
 hypothesis — `frame channel opened via the ... spelling` — and it will say so the first
 time the reader runs.
+
+## 2026-10-06 — the guest and the reader, tested together
+
+Fabric recreated the channel only when the window's dimensions changed. A channel that
+was deleted — or replaced by another file of the same size — therefore left the guest
+holding an open handle to an **unlinked inode**. It kept publishing, reported healthy
+and rising sequence numbers, and every byte went to a file no reader could open. From
+the guest's side everything was perfect, which is the worst combination to debug, and it
+happened here because a verification script deleted the live channel.
+
+`FrameChannel.channelLost()` now answers whether the file at the path is still the one we
+are writing, and `writeShared()` recreates on a lost channel as well as a size change.
+The check costs two stat calls, so it is rate-limited to once a second rather than made
+per frame — a second is far faster than the failure it prevents.
+
+Presence alone is not what is checked, and cannot be: a replaced file of the same size
+reads as present and correctly sized. What reveals that is the sequence numbers going
+backwards, which the native reader treats as a restarted writer. The test asserts the
+recreated channel's sequence is *lower* than the one the reader last saw, because that
+inequality is the reader's only evidence.
+
+**The test that was missing is the integration one.** Each half had been tested alone,
+and the fault above is invisible from either side: a predicate that correctly reports
+"the file is gone" can coexist with a reader still serving a frame from an inode nothing
+writes to, and a guest can report a healthy channel while the reader sees nothing. So
+`tools/test-frame-recovery.sh` compiles a probe from the real headers
+(`frame_source.hpp`, `frame_transport.hpp`, `frame_clock.hpp`) and has the Java guest
+drive it across five stages — publish, unlink, recreate, resize, restart — asserting on
+what the **reader** reports at a path the guest really writes to.
+
+Two things came out of writing it:
+
+- **A page-rounded length is caught by the integration test and not by the unit test**,
+  because it makes the probe die rather than return a wrong number — `munmap` is then
+  called with a length that was never mapped. That the failure is a crash rather than a
+  clean assertion is itself worth knowing.
+- **`Source::open()` gained an optional path**, defaulting to the fixed channel path. It
+  is a parameter only so a test can point a reader at its own file; a runtime-configured
+  path in production would be a second source of truth about where the two processes meet,
+  which is the one thing this header exists to avoid.
+
+Two of my own mutations were worthless, and the second only after checking. Removing the
+`Files.exists` guard did **not** fail the test, because `Files.size` on a missing file
+throws `NoSuchFileException` and the catch already returns true — so that guard is
+redundant for correctness and kept only because throwing is expensive in the render
+path. Mutating just its final `return` also did nothing, since the guard short-circuits
+first. Replacing the whole method does fail, with the assertion naming the consequence. A
+mutation that cannot fail is worth as little as a test that cannot.

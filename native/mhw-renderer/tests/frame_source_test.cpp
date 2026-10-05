@@ -275,7 +275,10 @@ void checkLengthAssignedOnceOutsidePlatformSplit() {
     while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0) text.append(buffer, read);
     std::fclose(file);
 
-    const std::size_t openStart = text.find("bool open() {");
+    // "bool open(" rather than "bool open() {" - the signature gained an optional path so
+    // a test can point a reader at its own file, and an assertion pinned to the old
+    // spelling would fail over a change that was deliberate.
+    const std::size_t openStart = text.find("bool open(");
     check(openStart != std::string::npos, "Source::open() exists");
     if (openStart == std::string::npos) return;
     const std::size_t openEnd = text.find("void close() {", openStart);

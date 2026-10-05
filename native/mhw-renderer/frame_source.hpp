@@ -89,8 +89,13 @@ public:
     // one means we caught it mid-creation; mapping it would produce a zero-length
     // section whose every read fails, which is a far more confusing symptom than
     // "not there yet".
-    bool open() {
+    // `path` defaults to the fixed channel path and is a parameter only so a test can
+    // point a reader at its own file. A runtime-configured path in production would be a
+    // second source of truth about where the two processes meet, which is the one thing
+    // this file exists to avoid.
+    bool open(const char* path = ChannelPath) {
         close();
+        if (!path || path[0] == '\0') return false;
         // Both platforms produce a byte count and a view. The length is assigned once,
         // after the #if, so it cannot be forgotten on one of them.
         //
@@ -104,7 +109,12 @@ public:
         HANDLE file = INVALID_HANDLE_VALUE;
         pathSpelling_ = 0;
         for (int attempt = 0; attempt < frames::ChannelPathCandidates; ++attempt) {
-            file = CreateFileA(frames::channelPathAt(attempt), GENERIC_READ,
+            // The configured path is tried verbatim first; the drive-letter spelling is
+            // only a fallback for the fixed path, so a test's own file is never
+            // rewritten into a different name.
+            const char* candidate =
+                (attempt == 0 || path != ChannelPath) ? path : frames::channelPathAt(attempt);
+            file = CreateFileA(candidate, GENERIC_READ,
                 FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
                 FILE_ATTRIBUTE_NORMAL, nullptr);
             if (file != INVALID_HANDLE_VALUE) {
@@ -124,7 +134,7 @@ public:
         view_ = MapViewOfFile(mapping_, FILE_MAP_READ, 0, 0, 0);
         if (view_ == nullptr) { CloseHandle(mapping_); mapping_ = nullptr; return false; }
 #else
-        const int fd = ::open(ChannelPath, O_RDONLY);
+        const int fd = ::open(path, O_RDONLY);
         if (fd < 0) return false;
         struct stat st{};
         // An empty file is refused rather than mapped. The guest creates the channel and
