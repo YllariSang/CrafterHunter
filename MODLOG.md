@@ -1831,3 +1831,43 @@ assertion the bug itself made false, and which the old test asserted the other w
 
 The shader and the host now both derive from the one tested function, so the mapping
 cannot drift between them again.
+
+## 2026-10-06 — recovery that stopped resurrecting frozen frames
+
+`recoverChannel()` zeroed `lastAdvanceNanos` on **every** successful re-open. But
+re-opening a channel whose file still exists always succeeds — including when that file
+is the *same frozen one*. So once per second the reader forgot the sequence had stopped
+advancing, saw the same unmoving sequence as if it were fresh progress, and drew a
+frame from a guest that had gone away. Recovery was not merely failing to help; it was
+actively defeating the stall detection meant to stop exactly that, and it would have
+done so indefinitely while looking healthy in the log.
+
+The distinction needed is between a channel that is *the same writer, stuck* and one
+that is *a different writer*. `classifyGeneration()` returns exactly that, from
+evidence rather than from the file merely existing:
+
+| Evidence | Verdict | Consequence |
+|---|---|---|
+| sequence unchanged, geometry unchanged | `Same` | keep the memory, keep refusing |
+| sequence went **backwards** | `Restarted` | clear |
+| geometry changed | `Resized` | clear |
+| magic or version unrecognisable | `Replaced` | clear |
+
+A *higher* sequence is deliberately `Same`: that is progress by the writer we already
+know, not a new one. The regression test simulates the loop — memory, a stalled
+sequence, five re-opens — and asserts the frame is still refused after each, so a fix
+consisting of "never forget" would not pass it. The three genuine-new-generation cases
+are asserted too, for exactly that reason.
+
+Mutation-tested: making `shouldForget` return true unconditionally fails the test
+repeatedly (`so the reader must not forget what it knows about it`), exit 1.
+
+The reader's memory of the writer is now one struct, `FrameMemory`, holding the
+sequence, the geometry and the liveness clock together. They are one fact — "what the
+writer was last seen doing" — and splitting them across three globals is what let the
+clock be cleared while the sequence was not.
+
+`Source::headerValid()` was added because I first passed a *guess* for it: inferring
+the header's validity from whether a frame happened to come back. That guess produces
+the wrong verdict exactly when it matters, since a valid header holding nothing
+publishable is the normal state before the guest's first frame.

@@ -6,6 +6,7 @@
 // already states. A frame reader that draws a stale or foreign buffer produces
 // a plausible image, which is why each refusal is asserted rather than assumed.
 #include "frame_source.hpp"
+#include "frame_clock.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -130,6 +131,81 @@ void checkBoundedRecovery() {
           "no frame but inside the interval: wait rather than re-open every frame");
     check(shouldRemap(false, attempt + 1, 0),
           "no frame and never tried: re-open immediately");
+}
+
+// Regression: a frozen frame stays refused across repeated re-open attempts.
+//
+// The recovery routine used to zero the liveness clock on every successful re-open.
+// Re-opening a channel whose file still exists always succeeds, including when that
+// file is the *same* frozen one - so once per second the reader forgot the sequence
+// had stopped advancing, observed the same unmoving sequence as if it were new
+// progress, and drew a frame from a guest that had gone away. Recovery was not merely
+// failing to help; once a second it was defeating the stall detection meant to stop
+// exactly this.
+//
+// The test simulates the loop rather than calling it: memory, a stalled sequence, a
+// re-open, and back again.
+void checkFrozenFrameSurvivesRecovery() {
+    constexpr std::uint32_t width = 1908;
+    constexpr std::uint32_t height = 1028;
+    constexpr std::uint64_t stallSequence = 42;
+    constexpr std::uint64_t lastAdvance = 5'000'000'000ull;
+    constexpr std::uint64_t bound = 3'000'000'000ull;
+
+    FrameMemory memory{stallSequence, width, height, lastAdvance, true};
+    const std::uint64_t now = lastAdvance + 60'000'000'000ull;  // a minute later
+
+    // Before recovery the frame is already stale.
+    check(!crafterhunter::clock::frameIsFresh(crafterhunter::clock::AgeSource::LocalLiveness,
+              now, 0, memory.advanceNanos, bound, 0),
+          "a sequence that stopped advancing a minute ago is not fresh");
+
+    // Five re-open attempts, each seeing exactly the same frozen channel.
+    for (int attempt = 1; attempt <= 5; ++attempt) {
+        const Generation generation = classifyGeneration(memory, true, true,
+            stallSequence, width, height);
+        check(generation == Generation::Same,
+              "an unmoving sequence on unchanged geometry is the same writer");
+        check(!shouldForget(generation),
+              "so the reader must not forget what it knows about it");
+
+        // Because the memory survives, the frame is still refused afterwards.
+        check(!crafterhunter::clock::frameIsFresh(crafterhunter::clock::AgeSource::LocalLiveness,
+                  now + static_cast<std::uint64_t>(attempt) * bound, 0, memory.advanceNanos,
+                  bound, 0),
+              "and it is still refused after re-opening");
+    }
+
+    // A genuinely new writer does clear the memory, and the three ways to be one are
+    // each distinguished. Without these the fix would just be "never forget".
+    check(classifyGeneration(memory, true, true, stallSequence - 1, width, height)
+              == Generation::Restarted,
+          "a sequence that went backwards is a restarted writer");
+    check(classifyGeneration(memory, true, true, stallSequence + 1, 1904, 1024)
+              == Generation::Resized,
+          "changed geometry is a new buffer");
+    check(classifyGeneration(memory, false, true, stallSequence, width, height)
+              == Generation::Replaced,
+          "a bad magic is a different file altogether");
+    check(classifyGeneration(memory, true, false, stallSequence, width, height)
+              == Generation::Replaced,
+          "and so is another format version");
+    check(shouldForget(Generation::Restarted)
+              && shouldForget(Generation::Resized)
+              && shouldForget(Generation::Replaced),
+          "each of those does clear the reader's memory");
+
+    // A forward sequence is progress, not a new generation: the memory stays and the
+    // caller refreshes the liveness clock.
+    check(classifyGeneration(memory, true, true, stallSequence + 1, width, height)
+              == Generation::Same,
+          "a higher sequence on the same geometry is the same writer, still working");
+    check(!shouldForget(Generation::Same), "so nothing is forgotten");
+
+    // A reader that has never seen a writer has no memory to keep.
+    const FrameMemory none{};
+    check(classifyGeneration(none, true, true, 7, width, height) == Generation::Restarted,
+          "an unestablished reader treats what it finds as a new generation");
 }
 
 // The decision an unmapped reader must reach: refuse, and say why.
@@ -284,6 +360,7 @@ int main() {
     checkWindowsLengthIsDerived();
     checkRecycledSlotDetected();
     checkBoundedRecovery();
+    checkFrozenFrameSurvivesRecovery();
     checkStaleRefuses();
     checkOutOfRangeRefuses();
     checkGeometryOfRealCapture();
@@ -293,7 +370,7 @@ int main() {
             "Frame source checks passed: unmapped refuses, short buffer refuses, length rule, "
             "Windows length derived not cached, recycled slot detected, bounded recovery, "
             "stale refuses, "
-            "oversized refuses, real-capture geometry.\n");
+            "oversized refuses, frozen frame survives recovery, real-capture geometry.\n");
         return 0;
     }
     std::fprintf(stderr, "%d frame source check(s) failed\n", failures);

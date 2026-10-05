@@ -114,16 +114,15 @@ frames::Source frameSource;
 ComPtr<ID3D11Texture2D> minecraftTexture;
 ComPtr<ID3D11ShaderResourceView> minecraftView;
 UINT minecraftWidth = 0, minecraftHeight = 0;
-// The sequence whose pixels are already on the texture. Kept apart from
-// lastAdvanceSequence below because the two answer different questions: one
-// avoids re-uploading the same frame, the other says the guest is still alive.
+// The sequence whose pixels are already on the texture. Kept apart from the liveness
+// memory below because the two answer different questions: this one avoids re-uploading
+// the same frame, the other says the guest is still alive.
+//
+// When the sequence last changed lives in frameMemory.advanceNanos, on our own clock,
+// because that is what a frame's age is measured from - the two processes' clocks were
+// measured 3,422,487 ms apart and cannot be compared, and frame_clock.hpp records why
+// correcting for that does not work either.
 unsigned long long lastUploadedSequence = 0;
-unsigned long long lastAdvanceSequence = 0;
-// When the sequence last changed, on our own clock. This is what a frame's age is
-// measured from, because the two processes' clocks were measured 3,422,487 ms
-// apart and cannot be compared; frame_clock.hpp records why correcting for that
-// does not work either.
-unsigned long long lastAdvanceNanos = 0;
 // Which way this frame's age is judged, decided once from a measurement and
 // logged once so the log states which rule is in force rather than leaving it to
 // be inferred.
@@ -144,6 +143,10 @@ unsigned long long lastRefusalLogNanos = 0;
 // compares against the same depth the stone did. Recomputing it would risk two
 // different candidates and two different verdicts in one frame.
 ComPtr<ID3D11ShaderResourceView> sceneDepthView;
+// What the reader remembers about the writer behind the channel. Survives a channel
+// re-open on purpose: it is what decides whether a frame is fresh, so discarding it on
+// every re-open would discard the only defence against a frozen frame.
+frames::FrameMemory frameMemory;
 
 // The Minecraft frame's own pipeline state, kept apart from the stone's.
 ComPtr<ID3D11VertexShader> frameVertexShader;
@@ -755,22 +758,40 @@ bool recoverChannel(bool haveFrame) {
     if (!frames::shouldRemap(haveFrame, now, lastRemapNanos)) return false;
     lastRemapNanos = now;
 
-    // Forget what we were holding before dropping the mapping. A channel that comes
-    // back at a different size must not be compared against the old geometry, and a
-    // restarted guest's sequence of 1 must not be mistaken for the frame already on
-    // the texture. Both are handled by forgetting, and forgetting is cheap.
     const bool wasMapped = frameSource.mapped();
     frameSource.close();
-    if (frameSource.open()) {
-        log("re-opened the Minecraft frame channel (%s, size %zu)",
-            wasMapped ? "was mapped" : "was absent", frameSource.length());
-        lastUploadedSequence = 0;
-        lastAdvanceSequence = 0;
-        lastAdvanceNanos = 0;
-        ageSourceChosen = false;
-        const char* why = nullptr;
-        return frameSource.newestFrame(now, &why).pixels != nullptr;
+    if (!frameSource.open()) {
+        log("Minecraft frame channel still absent after re-opening it");
+        return false;
     }
+
+    const char* why = nullptr;
+    const frameio::FrameView view = frameSource.newestFrame(now, &why);
+    // Forget what we were holding *only* if this is a different writer, not merely a
+    // different file handle.
+    //
+    // Re-opening a channel whose file still exists always succeeds, including when that
+    // file is the same frozen one. Forgetting unconditionally therefore meant that once
+    // per second the reader zeroed its liveness clock, saw the same unmoving sequence as
+    // if it were fresh progress, and drew a frame from a guest that had gone. Recovery
+    // was defeating the stall detection meant to stop exactly that.
+    const bool headerOk = frameSource.headerValid();
+    const frames::Generation generation = frames::classifyGeneration(
+        frameMemory, headerOk, headerOk, view.sequence, view.width, view.height);
+    const bool forget = frames::shouldForget(generation);
+    log("re-opened the Minecraft frame channel (%s, size %zu): %s, memory %s",
+        wasMapped ? "was mapped" : "was absent", frameSource.length(),
+        generation == frames::Generation::Same ? "same writer"
+            : generation == frames::Generation::Restarted ? "restarted"
+            : generation == frames::Generation::Resized ? "resized" : "replaced",
+        forget ? "cleared" : "kept");
+
+    if (forget) {
+        lastUploadedSequence = 0;
+        frameMemory.established = false;
+        ageSourceChosen = false;
+    }
+    return view.pixels != nullptr;
     log("Minecraft frame channel still absent after re-opening it");
     return false;
 }
@@ -813,11 +834,16 @@ bool uploadNewestFrame() {
             static_cast<double>(frameio::MaxAgeNanos) / 1e6);
     }
 
-    // Liveness is measured here, on our own clock, because nothing else can be.
-    if (view.sequence != lastAdvanceSequence) {
-        lastAdvanceSequence = view.sequence;
-        lastAdvanceNanos = now;
+    // Liveness is measured here, on our own clock, because nothing else can be. The
+    // memory struct is what survives a channel re-open, so the two are kept as one.
+    if (view.sequence != frameMemory.sequence) {
+        frameMemory.sequence = view.sequence;
+        frameMemory.advanceNanos = now;
     }
+    frameMemory.width = view.width;
+    frameMemory.height = view.height;
+    frameMemory.established = true;
+    const unsigned long long lastAdvanceNanos = frameMemory.advanceNanos;
 
     if (!ch::frameIsFresh(ageSource, now, view.capturedNanos, lastAdvanceNanos,
                           ch::StallBoundNanos, frameio::MaxAgeNanos)) {
@@ -1137,7 +1163,7 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     sharedReady = false; framePipelineFailed = false; depthSelectionFrame = 0;
     sceneDepthView.Reset(); minecraftView.Reset(); minecraftTexture.Reset();
     frameVertexShader.Reset(); framePixelShader.Reset(); frameConstants.Reset();
-    lastUploadedSequence = 0; lastAdvanceSequence = 0; lastAdvanceNanos = 0;
+    lastUploadedSequence = 0; frameMemory = frames::FrameMemory{};
     ageSourceChosen = false; lastRemapNanos = 0;
     minecraftUploaded = 0; minecraftWidth = 0; minecraftHeight = 0;
     frameSource.close();

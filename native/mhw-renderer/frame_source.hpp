@@ -136,6 +136,22 @@ public:
     // written is detectable here as well as by its sequence.
     bool mapped() const { return mapped_; }
 
+    // Does this mapping hold a channel header we recognise?
+    //
+    // Deliberately distinct from "is there a frame in it": a channel can be perfectly
+    // valid and hold nothing publishable yet, which is the normal state before the
+    // guest's first frame. The recovery path needs to tell those apart - a valid header
+    // over an unchanged sequence is a stuck writer, while an unrecognisable one means
+    // something else is at this path - and inferring it from whether a frame came back
+    // is a guess that produces the wrong verdict exactly when it matters.
+    bool headerValid() const {
+        if (!mapped_ || !channelLongEnough(length())) return false;
+        const auto* bytes = static_cast<const std::uint8_t*>(view_);
+        const auto* header = reinterpret_cast<const crafterhunter::frame::BufferHeader*>(bytes);
+        return header->magic == crafterhunter::frame::Magic
+            && header->formatVersion == crafterhunter::frame::FormatVersion;
+    }
+
     bool stillHolds(std::uint64_t sequence) const {
         if (!mapped_ || !channelLongEnough(length()) || sequence == 0) return false;
         const auto* bytes = static_cast<const std::uint8_t*>(view_);
@@ -283,6 +299,54 @@ inline bool mayRemap(std::uint64_t nowNanos, std::uint64_t lastAttemptNanos) {
 // None of them is visible from inside the mapping. `haveFrame` false therefore means
 // "the mapping may be describing the past", and the answer is to re-open it - but
 // only once per interval, or a closed Minecraft would cost a remap per frame.
+// What the reader remembers about the writer it is reading from.
+//
+// This survives a channel re-open, and that is the point: the memory is what decides
+// whether a frame is fresh, so throwing it away on every re-open would throw away the
+// only defence against a frozen frame.
+struct FrameMemory {
+    std::uint64_t sequence = 0;   // the newest sequence seen, 0 if none
+    std::uint32_t width = 0;
+    std::uint32_t height = 0;
+    std::uint64_t advanceNanos = 0;  // when the sequence last changed, on our clock
+    bool established = false;       // whether this memory describes a real writer
+};
+
+// Why the channel looks different from what we last read.
+//
+// The distinction is between a channel that is *the same writer, stuck* and one that is
+// *a different writer*. Both present as "no frame arriving", and re-opening the file
+// separates them - but only if the reader does not then treat the unchanged file as a
+// fresh start. That mistake is what let a frozen frame be resurrected once per second
+// indefinitely: re-opening succeeded, the liveness clock was zeroed, and the very next
+// observation of the same unmoving sequence looked like progress.
+enum class Generation {
+    Same,       // the same writer, still stuck: keep the memory, keep refusing
+    Restarted,  // sequence numbers went backwards: a new writer began at one
+    Resized,    // the geometry changed: a new buffer
+    Replaced,   // not even our channel: a different file
+};
+
+inline Generation classifyGeneration(const FrameMemory& memory, bool magicOk, bool versionOk,
+                                    std::uint64_t sequence, std::uint32_t width,
+                                    std::uint32_t height) {
+    if (!magicOk || !versionOk) return Generation::Replaced;
+    if (!memory.established) return Generation::Restarted;
+    if (width != memory.width || height != memory.height) return Generation::Resized;
+    // Backwards is the signal that a counter restarted. Equal is the signal that nothing
+    // happened, which is the case this whole function exists to keep distinct.
+    if (sequence < memory.sequence) return Generation::Restarted;
+    return Generation::Same;
+}
+
+// Should the reader forget what it knows? Only for a genuinely new generation.
+//
+// No memory argument: classifyGeneration already reports an unestablished reader as
+// Restarted, so the generation alone decides it.
+inline bool shouldForget(Generation generation) {
+    return generation != Generation::Same;
+}
+
 inline bool shouldRemap(bool haveFrame, std::uint64_t nowNanos,
                         std::uint64_t lastAttemptNanos) {
     if (haveFrame) return false;
