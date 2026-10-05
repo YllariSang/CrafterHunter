@@ -1203,3 +1203,55 @@ occlusion correct rather than approximate, then the ownership handshake.
 in `/dev/shm` rather than the double-buffered ring the transport will actually
 use. The number will move; the order of magnitude will not, and the design
 decision it drives — shared memory, not zero-copy — is safe either way.
+
+## 2026-10-05 — the transport, and a cross-language test that earned its keep
+
+The frame contract, stated on both sides and checked against each other.
+`frame_transport.hpp` on the native side, `FrameChannel` on the guest, and
+`tools/test-frame-transport-agreement.sh` compiles both and compares the
+constants. Two slots, one frame in flight, a sequence number per slot, pixels
+published before the header that claims them.
+
+**The agreement test caught three real disagreements on its first run**, which is
+the argument for writing it:
+
+1. `sizeof(SlotHeader)` is 64 in C++ because of `alignas(64)`, not the 40 bytes
+   its fields occupy. The guest had assumed the field count and written slot
+   one's header inside slot zero's pixels.
+2. `sizeof(BufferHeader)` is 128, not 64 — the `reserved[14]` array — so every
+   offset downstream was wrong by half again.
+3. Then, once the sizes matched: **the guest was writing big-endian.**
+   `ByteBuffer.allocate` defaults to big-endian and every field was byte-swapped.
+   This is the worst class of transport bug — every field present, at the right
+   offset, holding the right value, and useless — and it is invisible to any test
+   that only checks "did it write something".
+
+The native struct also gained explicit field order with padding first. Leaving
+layout to the compiler is fine until a second language writes the bytes by hand,
+which is exactly what happened: the first C++ ordering and the first Java
+ordering were mirror images of each other around the alignment boundary.
+
+**A mutation test, because "the test passes" is not evidence.** The endianness
+fix was reverted, the suite run, and confirmed to fail with the swapped values,
+then restored. A suite that cannot fail on the bug it was written for is a suite
+that will pass on the next one.
+
+Field offsets are now pinned three ways: `static_assert` and `offsetof` checks in
+the C++ test, byte-level reads in the Java test at the same offsets, and the
+cross-language comparison. Fifteen constants agree: magic, version, format name,
+bytes per pixel, slot count, both header sizes, both slot offsets, both pixel
+offsets, and the buffer size for the live 1908x1028 capture.
+
+**Also fixed while here:** `FrameLayoutTest` and `FrameChannelTest` were in the
+default package while the classes they test are not, so `javac` put their
+classes in two different directories and `java` could not find one of them. The
+headless script runs them by their full names now, which is what stopped the
+silent "Could not find or load main class" that was being misread as a test
+failure.
+
+Mod 0.3.0 rebuilt and installed. Gate green: 19 protocol tests, seven headless
+suites (three new), gradle, plugin, host verification.
+
+**Not done:** nothing reads the channel yet. The native side has the contract and
+its rules, but no code maps or draws from it — that is the next piece, and it is
+where the depth compare lives.

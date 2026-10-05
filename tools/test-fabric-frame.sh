@@ -7,9 +7,15 @@ project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_directory="$project_root/minecraft/fabric/build/headless-tests"
 mkdir -p "$output_directory"
 
-javac --release 25 -Xlint:all -Werror -d "$output_directory" \
-    "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameLayout.java" \
-    "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameRequest.java" \
-    "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameCopyState.java" \
+sources=(
+    "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameLayout.java"
+    "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameRequest.java"
+    "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameCopyState.java"
+    "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameChannel.java"
     "$project_root/minecraft/fabric/tests/FrameLayoutTest.java"
-java -cp "$output_directory" FrameLayoutTest
+    "$project_root/minecraft/fabric/tests/FrameChannelTest.java"
+)
+
+javac --release 25 -Xlint:all -Werror -d "$output_directory" "${sources[@]}"
+java -cp "$output_directory" dev.crafterhunter.client.FrameLayoutTest
+java -cp "$output_directory" dev.crafterhunter.client.FrameChannelTest

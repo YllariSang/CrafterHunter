@@ -51,6 +51,7 @@ public final class FrameCapture {
     private final Path sharedDirectory = Path.of("/dev/shm/crafterhunter");
     private final Path sharedFrame = sharedDirectory.resolve("frame.rgba");
     private final Path sharedMeta = sharedDirectory.resolve("frame.meta");
+    private final Path channelFile = sharedDirectory.resolve("frame.channel");
     private final Path outputDirectory =
         FabricLoader.getInstance().getGameDir().resolve("crafterhunter").resolve("out");
     private final Path summaryFile = outputDirectory.resolve("capture.txt");
@@ -83,6 +84,11 @@ public final class FrameCapture {
     private String status = "idle";
     private int lastWidth;
     private int lastHeight;
+    private long lastSequence;
+    private long channelSize = -1;
+
+    /** The double-buffered shared buffer MHW's renderer will read. */
+    private FrameChannel channel;
 
     /** Called from the render thread at the end of every frame. */
     public void onRenderedFrame(long nowNanos) {
@@ -310,15 +316,46 @@ public final class FrameCapture {
         ImageIO.write(image, "png", outputDirectory.resolve("frame.png").toFile());
     }
 
+    /**
+     * Publish every frame into the shared channel, and write the single-file
+     * copy and its meta only for the last frame of a request.
+     *
+     * The channel is what MHW's renderer reads; the single file is for a person
+     * or an inspection script, and rewriting 7.8 MB per frame for every frame of
+     * a 60-frame measurement would measure the disk instead of the transport.
+     */
     private void writeShared(byte[] pixels, boolean alsoMeta) throws IOException {
         Files.createDirectories(sharedDirectory);
-        Files.write(sharedFrame, pixels);
+        if (channel == null || channelSizeMismatched()) {
+            reopenChannel();
+        }
+
+        long sequence = channel.publish(pixels, System.nanoTime());
+        lastSequence = sequence;
         if (alsoMeta) {
+            Files.write(sharedFrame, pixels);
             Files.writeString(
                 sharedMeta,
-                FrameLayout.meta(captured + 1, System.nanoTime(), bufferWidth, bufferHeight),
+                FrameLayout.meta(sequence, System.nanoTime(), bufferWidth, bufferHeight),
                 StandardCharsets.UTF_8);
         }
+    }
+
+    private boolean channelSizeMismatched() {
+        return channel == null
+            || channelSize != bufferWidth * (long) bufferHeight;
+    }
+
+    private void reopenChannel() throws IOException {
+        if (channel != null) {
+            channel.close();
+            channel = null;
+        }
+        channel = new FrameChannel(channelFile, bufferWidth, bufferHeight);
+        channelSize = bufferWidth * (long) bufferHeight;
+        System.out.println(
+            "[CrafterHunter] Frame channel ready at " + channelFile
+                + " (" + FrameChannel.bufferBytes(bufferWidth, bufferHeight) + " bytes)");
     }
 
     /** Writes the summary a person reads to accept or reject the capture. */
@@ -332,6 +369,7 @@ public final class FrameCapture {
             summary.append("requested=").append(requestedFrames).append(System.lineSeparator());
             summary.append("size=").append(lastWidth).append('x').append(lastHeight)
                 .append(System.lineSeparator());
+            summary.append("lastSequence=").append(lastSequence).append(System.lineSeparator());
             // Work, not waiting. readMillis and flipMillis are what a frame
             // costs to get out of the GPU; ageMillis is how long it sat before
             // anyone looked, which is a property of the request, not of us.

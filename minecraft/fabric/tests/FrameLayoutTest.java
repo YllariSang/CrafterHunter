@@ -1,8 +1,7 @@
+package dev.crafterhunter.client;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
-import dev.crafterhunter.client.FrameCopyState;
-import dev.crafterhunter.client.FrameLayout;
-import dev.crafterhunter.client.FrameRequest;
 
 /**
  * Headless checks for the frame contract. These run outside the game on purpose:
