@@ -76,8 +76,9 @@ without restarting either game (`02-recovery-hud-A.png`,
 it sent no second HelloAck and the ten-second camera grace was not re-applied;
 the native placement stayed anchored across the outage.
 
-**Steps 5 and 6, still blocked on a person driving MHW, now with a measured
-cause.** Injected pointer input reaches MHW's camera *sometimes* and never
+**Why steps 5 and 6 could not be answered without a person, with a measured
+cause (recorded before the person-driven run).** Injected pointer input reaches
+MHW's camera *sometimes* and never
 repeatably. With MHW focused and the cursor verified over its window,
 `ydotool mousemove` twice rotated the camera — measured exactly, because the
 anchor's projection walked from (483,406) to (1335,822) across one -600 px
@@ -107,6 +108,20 @@ Two halves of the question were answered without a person:
   `127,127,127` and `143,143,143` at the top of the histogram, while the old
   (483,406) position now holds only dark scene.
 
+**Steps 5 and 6, verified by the person driving MHW.** Camera, movement and
+position all track between the two games: Minecraft follows MHW's rotation in
+the same direction with no inverted axis reported, and its view moves relative
+to the starting Minecraft viewpoint rather than jumping to MHW's absolute
+coordinates. F8 re-anchors from the current vanilla Minecraft camera and
+re-orients both the player and the camera, so the fresh-anchor half of step 6
+passes as well.
+
+The run also produced one friction worth recording because it shaped how the
+test was performed: Minecraft periodically takes input away from MHW, so the
+person drove MHW with Minecraft parked on a menu. That is a workaround around
+window focus, not a defect in the link — the camera, movement and position
+stayed in sync throughout, and both games kept reporting `LIVE`.
+
 **Step 9, world leave and rejoin verified.** Done with injected input alone:
 Hyprland `send_shortcut{window=<window>}` opens Minecraft's pause menu and
 `ydotool` reaches it through uinput, so mouse moves plus `ydotool click 0xC0`
@@ -126,8 +141,10 @@ invalidation since `anchored` at 04:46:10, so the stone survived the bridge
 outage, the world unload and the reload
 (`11-stone-still-rendered-after-rejoin.png`).
 
-Still open from step 9: the dimension change and the fifteen-minute expedition,
-both of which need a person driving MHW.
+Steps 5 and 6 are now closed. Still open from step 9: the fifteen-minute
+expedition (HUD rate, exceptions, placement stability) and the dimension change.
+Both were part of the person-driven run's script but were not reported
+separately, so they stay open until they have their own readout.
 
 This milestone renders the status and camera in Minecraft. Steve replacement,
 Minecraft HUD inside MHW, and rendering Minecraft blocks in MHW are later work.

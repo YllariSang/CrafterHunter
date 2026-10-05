@@ -226,3 +226,38 @@ taken: `OFF` visibly changes Minecraft's world view (mean 8.45 over 3,514
 pixels), so the link's pose really is being applied. Whether it follows MHW in
 the same direction still needs a person — Minecraft renders a featureless dark
 grass field, and MHW ignores injected input.
+
+## 2026-10-05 — steps 5 and 6 verified by the person
+
+The person drove MHW directly and reported that camera, movement and position
+track between the two games: Minecraft follows MHW's rotation in the same
+direction with no inverted axis, and its view moves relative to the starting
+Minecraft viewpoint instead of jumping to MHW's absolute coordinates. F8
+re-anchors from the current vanilla Minecraft camera and re-orients both the
+player and the camera, so the fresh-anchor half of step 6 passes too. The two
+halves the agent could only prove separately — that Minecraft applies the pose,
+and that the native placement tracks rotation without invalidating — are now
+covered end to end by a person seeing the link behave.
+
+The run was performed with Minecraft parked on a menu, because Minecraft
+periodically takes input away from MHW. That is a workaround around window
+focus, not a link defect, and it is recorded in `docs/camera-link-test.md` so
+the next run does not mistake it for one.
+
+Two operational notes from the session. The bridge died on `EINTR` with
+`Error: Os { code: 4, kind: Interrupted, message: "Interrupted system call" }`
+and exited instead of retrying the socket read; a restart brought both clients
+back (`registered Mhw`, and `registered Minecraft` on a fresh port) with neither
+game relaunched, so the recovery path in step 8 held a second time, but the
+missing retry is a real defect to fix. And the layout cost of testing is now
+measured: both games must share the active workspace or MHW stops rendering and
+the feed falls to `1 pkt/s`, while Minecraft must stay visible above MHW's
+window or its response cannot be observed — Hyprland renders only the active
+workspace, and MHW re-raises itself over the pinned Minecraft overlay at
+intervals.
+
+Milestone 1 in `MODDING_PLAN.md` is recorded with the step 9 dimension change
+and fifteen-minute expedition still open. Next milestone is 2, composition: one
+Minecraft block inside an MHW expedition, hidden by MHW terrain at different
+camera angles, after verifying the actual DXVK color/depth resources and frame
+synchronization.

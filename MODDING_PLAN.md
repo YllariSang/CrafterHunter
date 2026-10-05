@@ -20,7 +20,10 @@ This matches the repository's existing separate-process architecture.
   Loom 1.18-SNAPSHOT. Launcher authentication and live guest compatibility
   remain to be confirmed.
 - Implemented: localhost transport, read-only MHW camera telemetry, Fabric
-  camera-follow code. Live camera acceptance is still pending.
+  camera-follow code. Live camera acceptance was recorded on 2026-10-05 in
+  `docs/camera-link-test.md`: axes, relative translation, F8 re-anchoring, the
+  F7 toggle, disconnect recovery and world leave/rejoin. The step 9 dimension
+  change and fifteen-minute expedition are still open.
 - Missing: frame composition, terrain collision, shared player control,
   monster proxies, damage exchange, quest and story integration.
 
@@ -41,6 +44,9 @@ playable mode is a later feature and must not have both games drive the player.
 
 1. **Camera acceptance:** finish `docs/camera-link-test.md` in both games;
    verify axes, scale, transitions, and disconnect recovery.
+   *Status 2026-10-05: recorded in `docs/camera-link-test.md`, driven by the
+   person for axes, transitions and re-anchoring. Dimension change and the
+   fifteen-minute expedition still open.*
 2. **Composition:** show one Minecraft block inside an MHW expedition,
    correctly hidden by MHW terrain at different camera angles. Verify the
    actual DXVK color/depth resources and frame synchronization first.
