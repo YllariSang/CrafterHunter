@@ -1385,3 +1385,40 @@ not before; a reload would otherwise have left a stale mapping and a live textur
 
 **Not verified:** still not run inside MHW. This is the second attempt, and the
 first failed for a reason that no host-side test could have caught.
+
+## 2026-10-05 — two lost entry points, and the gate that should have caught them
+
+The composite still did not draw, and this time the log said exactly why:
+
+```
+[32818087] FrameVS compile: CrafterHunter(70,10): error X3000: syntax error: unexpected token '('
+[32818087] Minecraft frame pipeline unavailable; frame composite disabled
+[32902979] VS compile: CrafterHunter(70,10): error X3000: syntax error: unexpected token '('
+[32902980] Pipeline unavailable; drawing disabled
+```
+
+Line 70 was a verbatim duplicate of line 69, and there was no `VS` function in the
+file at all. Both came from one careless edit: its `oldString` was the whole `VS`
+function and its `newString` reused that body for `FrameVS` while also ending with
+the `float4 PS(...)` line that already followed. So one edit renamed the stone's
+vertex shader into `FrameVS` and duplicated `PS`. Nothing noticed for three
+deployments because nothing on the host ever looked at the shader — the renderer
+only logs its own compile failures, and only once someone is standing in an
+expedition waiting for Steve to appear.
+
+`tools/test-shader-source.sh` now compiles every entry point the renderer asks
+`D3DCompile` for, with the names read out of `renderer.cpp` rather than listed in
+the script, so a new entry point is validated without editing the test and cannot
+be forgotten. Structural checks (brace balance, functions defined twice) run
+whether or not a compiler is installed. glslang is not D3DCompile and will not
+accept everything it does, so this is a floor rather than proof: it catches the
+structural damage a text edit causes, which is what it is aimed at.
+
+Mutation-tested both ways, since a gate that does not fail is worse than none:
+
+- duplicating `PS` again → 5 checks fail, structural check catches it too;
+- renaming `VS` away → `VS vs_5_0 FAILED / Entry point not found`, exit code 1.
+
+Exit codes were checked directly rather than through a pipe, having first been
+masked by `tail` in the mutation run — a gate whose failure is invisible in a log
+is a gate nobody trusts.

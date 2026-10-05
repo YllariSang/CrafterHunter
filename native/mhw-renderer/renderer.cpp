@@ -423,6 +423,15 @@ Texture2D<float4> minecraftColour : register(t0);
 Texture2D<float> minecraftDepth : register(t1);
 cbuffer FrameMapping : register(b3) { float4 uvRect; };
 
+// The stone's vertex shader. Kept distinct from FrameVS rather than shared: they
+// differ only in name today, but one generates a full-screen triangle for the
+// stone and the other for the frame, and a shared body would let a change to one
+// silently alter the other.
+float4 VS(uint id : SV_VertexID) : SV_Position {
+    float2 uv = float2((id << 1) & 2, id & 2);
+    return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
+}
+
 float4 FrameVS(uint id : SV_VertexID) : SV_Position {
     float2 uv = float2((id << 1) & 2, id & 2);
     return float4(uv * float2(2, -2) + float2(-1, 1), 0, 1);
@@ -463,7 +472,6 @@ float4 FramePS(float4 pixel : SV_Position) : SV_Target {
     // draws over it, or a building against the sky punches a hole in the world.
     return float4(colour.rgb, 1);
 }
-float4 PS(float4 pixel : SV_Position) : SV_Target {
 float4 PS(float4 pixel : SV_Position) : SV_Target {
     float2 ndc = pixel.xy / screen.xy * float2(2, -2) + float2(-1, 1);
     if (any(abs(uiScale.xy - float2(2, -2) / screen.xy) > 0.000001)) discard;
