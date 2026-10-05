@@ -2057,3 +2057,33 @@ assertions failed for reasons that had nothing to do with the rule under test. I
 opens a path that cannot exist. This is the second time a test of mine has depended on
 the machine's state rather than the code's, and it is worth stating as a rule: a test
 whose result changes because a game is running is not a test.
+
+## 2026-10-06 — what depth capture would actually take, checked rather than assumed
+
+Before promising item 3, the three things that could have made it impossible were
+checked against the deobfuscated 26.2 client jar rather than guessed:
+
+1. **Is the depth attachment reachable?** Yes. `RenderTarget` exposes
+   `protected GpuTexture depthTexture` with public `getDepthTexture()` and
+   `getDepthTextureView()`. `MainTarget` inherits it. So depth is the same kind of
+   object the colour read already uses, and `CommandEncoder.copyTextureToBuffer` is
+   generic over `GpuTexture` — the call proven for colour takes depth unchanged.
+2. **Is the current injection point wrong for this?** Yes, and now known rather than
+   suspected. `FrameCaptureMixin` injects at `GameRenderer.render(...)` TAIL, which is
+   *after* GUI compositing. That is why our own HUD text and Minecraft's F3 debug screen
+   both appear in the composited frame: they are in the texture being copied. A
+   world-only capture wants `GameRenderer.renderLevel(DeltaTracker)`, which is public and
+   ends before the GUI pass.
+3. **What about hands?** `renderItemInHand(CameraRenderState, float, Matrix4fc)` is
+   private and called from inside the level path, so the first-person hand is drawn
+   *within* `renderLevel` and no injection point in that method excludes it. That is a
+   real constraint rather than a scheduling detail: "world colour and depth before
+   hands and HUD" needs either a hook inside the hand call itself or acceptance that the
+   hand is part of the world pass. Which of those is right depends on whether item 5's
+   isolated scene is played first- or third-person, and that has not been decided.
+
+So depth capture is feasible, not blocked. What is *not* established is the depth
+format `allocateDepthAttachment` picks, the linearisation from that format plus
+Minecraft's projection, and the normalisation against MHW's reversed-Z — items 4 and 6,
+which are the parts where a wrong answer produces a plausible image rather than an
+error.
