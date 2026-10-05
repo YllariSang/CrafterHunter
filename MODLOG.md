@@ -284,3 +284,33 @@ Milestone 1 in `MODDING_PLAN.md` is now a pass: all nine steps of
 person. Next is milestone 2, composition — the occlusion acceptance scene is
 the gap, since the native depth-tested renderer, the identified scene depth
 resource and the placement lifecycle already exist.
+
+## 2026-10-05 — the bridge survives an interrupted read
+
+The outage recorded earlier today was the bridge itself. A signal landed on
+`recv_from`, which returned `Interrupted`, and the receive loop only tolerated
+`WouldBlock` and `TimedOut`, so `main` returned `Err` and the process printed
+`Error: Os { code: 4, kind: Interrupted, message: "Interrupted system call" }`
+and exited. From the games' side that is just a dead peer: Minecraft retried at
+60/min until the restart, MHW kept sending into the void.
+
+`is_transient` now covers `Interrupted` alongside the timeout cases, so the
+receive loop simply tries again. Every other error still returns, because a
+bridge that fails loudly beats one that goes quiet during a live session. The
+send path carried the same latent fault — `send_packet` and `send_bytes` used
+`?`, so an interrupted datagram send would have killed the process in exactly
+the same way. Sends now go through `send_with_retries`, extracted as a
+closure-taking function so the retry is testable without a socket: it retries
+an `Interrupted` send until it lands and returns any other failure at once.
+
+Five tests cover the decision: interrupted, would-block and timed-out reads are
+retried; broken-pipe and permission-denied are not; an interrupted send is
+retried to completion; a real send failure returns on the first attempt; a
+truncated datagram is still an error. `cargo test --workspace` reports twelve
+passing, `cargo clippy --workspace --all-targets` is clean, and
+`tools/test-fabric-camera.sh` passes. The bridge was rebuilt and restarted so
+the running process carries the fix.
+
+This was step 0 of the composition prep. Next: depth-resource selection by
+this-frame freshness instead of discovery order, plus the frame-synchronization
+trace, before the cutscene case is attempted.

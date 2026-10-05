@@ -69,11 +69,7 @@ fn main() -> io::Result<()> {
                     send_bytes(&socket, destination.address, &buffer[..length])?;
                 }
             }
-            Err(error)
-                if matches!(
-                    error.kind(),
-                    io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                ) => {}
+            Err(error) if is_transient(&error) => {}
             Err(error) => return Err(error),
         }
 
@@ -96,6 +92,17 @@ fn peer_for(source: Source, endpoints: &HashMap<Source, Endpoint>) -> Option<End
     }
 }
 
+/// A read can come back interrupted by a signal, or empty because the 250 ms
+/// timeout fired; neither means the bridge is broken, so the loop tries again.
+/// Every other error is returned so the process stops loudly instead of
+/// silently going quiet on a live game.
+fn is_transient(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::Interrupted | io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
+    )
+}
+
 fn send_packet(socket: &UdpSocket, destination: SocketAddr, packet: &Packet) -> io::Result<()> {
     let bytes = packet
         .encode()
@@ -104,14 +111,28 @@ fn send_packet(socket: &UdpSocket, destination: SocketAddr, packet: &Packet) -> 
 }
 
 fn send_bytes(socket: &UdpSocket, destination: SocketAddr, bytes: &[u8]) -> io::Result<()> {
-    let sent = socket.send_to(bytes, destination)?;
-    if sent != bytes.len() {
-        return Err(io::Error::new(
-            io::ErrorKind::WriteZero,
-            "UDP datagram was only partially sent",
-        ));
+    send_with_retries(|| socket.send_to(bytes, destination), bytes.len())
+}
+
+/// A signal landing on a datagram send must not take the bridge down either:
+/// retry that one interruption, and keep every other failure fatal.
+fn send_with_retries(
+    mut send: impl FnMut() -> io::Result<usize>,
+    length: usize,
+) -> io::Result<()> {
+    loop {
+        match send() {
+            Ok(sent) if sent == length => return Ok(()),
+            Ok(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "UDP datagram was only partially sent",
+                ))
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(error),
+        }
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -146,5 +167,74 @@ mod tests {
     fn does_not_route_until_the_peer_exists() {
         let endpoints = HashMap::from([(Source::Mhw, endpoint("127.0.0.1:40001"))]);
         assert!(peer_for(Source::Mhw, &endpoints).is_none());
+    }
+
+    #[test]
+    fn an_interrupted_read_is_retried_not_fatal() {
+        // 2026-10-05: a signal interrupted recv_from and the bridge exited with
+        // `Os { code: 4, kind: Interrupted }` instead of trying again.
+        for kind in [
+            io::ErrorKind::Interrupted,
+            io::ErrorKind::WouldBlock,
+            io::ErrorKind::TimedOut,
+        ] {
+            assert!(
+                is_transient(&io::Error::from(kind)),
+                "{kind:?} must be retried"
+            );
+        }
+    }
+
+    #[test]
+    fn a_real_read_failure_stops_the_bridge() {
+        for kind in [io::ErrorKind::BrokenPipe, io::ErrorKind::PermissionDenied] {
+            assert!(
+                !is_transient(&io::Error::from(kind)),
+                "{kind:?} must stay fatal so the bridge fails loudly"
+            );
+        }
+    }
+
+    #[test]
+    fn an_interrupted_send_is_retried_until_it_lands() {
+        let mut attempts = 0;
+        let result = send_with_retries(
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(io::Error::from(io::ErrorKind::Interrupted))
+                } else {
+                    Ok(4)
+                }
+            },
+            4,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn a_real_send_failure_is_returned_immediately() {
+        let mut attempts = 0;
+        let result: io::Result<()> = send_with_retries(
+            || {
+                attempts += 1;
+                Err(io::Error::from(io::ErrorKind::ConnectionRefused))
+            },
+            4,
+        );
+
+        assert_eq!(
+            result.unwrap_err().kind(),
+            io::ErrorKind::ConnectionRefused
+        );
+        assert_eq!(attempts, 1);
+    }
+
+    #[test]
+    fn a_truncated_datagram_is_an_error() {
+        let result: io::Result<()> = send_with_retries(|| Ok(3), 4);
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::WriteZero);
     }
 }
