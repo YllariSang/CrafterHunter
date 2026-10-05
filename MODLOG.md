@@ -314,3 +314,29 @@ the running process carries the fix.
 This was step 0 of the composition prep. Next: depth-resource selection by
 this-frame freshness instead of discovery order, plus the frame-synchronization
 trace, before the cutscene case is attempted.
+
+## 2026-10-05 — freshness alone would have broken occlusion
+
+Reading the two captures left in `render/` from today (`13166284` at 06:24 and
+`14757842` at 06:51) rather than launching anything turned up the design
+constraint for milestone 2's depth rule. Both hold three candidates now, not
+the two the earlier table saw. In `14757842` candidates 0 and 1 were **both**
+fresh (`age=1`), and `inspect-depth-capture.py` reports candidate 1 at `0.00 %`
+covered — cleared every frame and never rendered into.
+
+That matters because the naive rule the plan was heading towards, "pick whichever
+depth was cleared this frame", would have selected an empty buffer. Under
+reversed Z an empty depth is all zeros, `sceneDepth` then reads 0, and
+`depth + epsilon < 0` is never true, so nothing is ever discarded and the stone
+draws through every object in front of it — the exact failure the depth path
+exists to prevent, reached by a "safer" rule rather than by the old one.
+Candidate 2 shows the mirror image: `age=87757` and `age=134603` with
+byte-identical percentiles across two different views, so it is stale and
+frozen.
+
+Selection needs two conditions — fresh this frame **and** known to contain
+scene content — with content coming from an occasional read-back rather than
+every frame, since a per-frame read-back stalls the GPU. Until that exists
+`depths[0]` plus the staleness check stays, because it is the only candidate
+verified to hold geometry. Recorded in `docs/depth-renderer.md` next to the
+table it extends.

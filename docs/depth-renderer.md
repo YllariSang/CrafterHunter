@@ -144,6 +144,29 @@ Two observations for whoever revisits selection:
   adopting any rule other than `depths[0]`, capture another area and at least
   one cutscene, and prefer this-frame freshness over list index.
 
+**Freshness alone is not sufficient (measured 2026-10-05).** Two captures from
+that day each hold three candidates, and in `14757842` candidates 0 and 1 were
+*both* fresh (`age=1`) while candidate 1 read back `0.00 %` covered — cleared
+every frame and never rendered into. Binding that one would put zeros in
+`sceneDepth`, and under reversed Z `depth + epsilon < 0` never holds, so the
+stone would draw through every object: precisely the failure this path exists
+to prevent. Candidate 2 is the opposite hazard, stale with frozen content.
+
+| capture | `depth0` | `depth1` | `depth2` |
+| --- | --- | --- | --- |
+| `13166284` (10-05 06:24) | 56.25 % covered, percentiles vary with the view | 0.00 % covered | 4.47 %, `age=87757` |
+| `14757842` (10-05) | 100.00 % covered, median 0.0326 | 0.00 % covered, `age=1` | 4.47 %, `age=134603` |
+
+`depth2`'s percentiles are byte-identical across the two captures
+(0.074314 / 0.085027 / 0.088576) taken in different views, which is what a
+frozen buffer looks like.
+
+The selection rule therefore needs two conditions, not one: **fresh this
+frame** *and* **known to contain scene content**, with content established by
+an occasional read-back rather than on every frame. Until that exists,
+`depths[0]` plus the staleness check stays, because it is the only candidate
+verified to hold geometry.
+
 ### Live composition checks (2026-10-05)
 
 The person drove these against the live games during the camera-link session
