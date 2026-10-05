@@ -59,11 +59,12 @@ playable mode is a later feature and must not have both games drive the player.
    the cube behind the cutscene characters with them drawing in front of it,
    and the depth bound during that cutscene held its geometry, so the
    fresh-but-empty hazard did not fire. Three single-frame >25 m teleports
-   invalidated placement as specified. Follow-ups carried forward: the
-   depth-resource selection rule (fresh *and* known content, re-checked
-   periodically, per the second-area capture) and frame-synchronization
-   evidence. Yielding input and camera, and the wider story flow, remain
-   milestone 7's.*
+   invalidated placement as specified. Follow-ups: the depth-resource
+   selection rule and the frame-synchronization trace are now **implemented**
+   (`selection.hpp` with off-target tests, plus a `framesync` request and
+   `tools/inspect-framesync.py`); the frame-sync trace still needs a live run
+   against the games. Yielding input and camera, and the wider story flow,
+   remain milestone 7's.*
 3. **Terrain and player:** bounded host terrain queries feed Minecraft collision;
    align a host player proxy with the Minecraft player; verify ground, slopes,
    movement, loading screens, chunk streaming, and immediate control fallback.

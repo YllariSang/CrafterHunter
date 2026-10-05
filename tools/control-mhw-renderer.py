@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("action", choices=["place", "clear", "capture", "trace", "reload"])
+parser.add_argument("action", choices=["place", "clear", "capture", "trace", "framesync", "reload"])
 parser.add_argument("--game", type=Path, default=Path.home() / ".local/share/Steam/steamapps/common/Monster Hunter World")
 args = parser.parse_args()
 plugin = args.game / "nativePC/plugins/CSharp/CrafterHunter"
@@ -14,6 +14,8 @@ if args.action == "place":
     print("Place is for a loaded world: anchors the existing stone 3 metres along the current view.")
 elif args.action == "clear":
     print("Clear drops the anchor; the stone stays hidden until the next place.")
+elif args.action == "framesync":
+    print("Frame sync arms 60 composed frames of camera/depth correlation in renderer.log.")
 request = plugin / "native-renderer.reload" if args.action == "reload" else plugin / "render" / f"{args.action}.request"
 request.parent.mkdir(exist_ok=True)
 request.write_text(args.action + "\n")

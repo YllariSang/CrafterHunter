@@ -422,3 +422,49 @@ milestone is design work rather than observation: the depth-selection rule
 (fresh *and* known content, re-checked periodically — `depth2` held content in
 one area and none in another) and the frame-synchronization trace. Next phase:
 terrain and player queries for milestone 3.
+
+## 2026-10-05 — depth selection implemented, frame-sync trace added
+
+The two follow-ups that were recorded as design work are now code.
+
+**Selection** moved into `native/mhw-renderer/selection.hpp`, which carries no
+D3D types on purpose so it can be tested with the host compiler. A candidate
+binds only when it matches the backbuffer, was cleared to 0 (reversed Z), is at
+most one frame old, **and** a read-back has shown it holds geometry. That last
+condition is the one the morning's captures demanded: `14757842` and `2089775`
+both held a candidate at `age=1` reading `0.00 %` covered, so freshness alone
+would have bound an all-zero buffer and drawn the stone through everything.
+An unmeasured candidate is not bindable at all, so on startup composition waits
+for the first read-back instead of defaulting to index 0.
+
+Content measurement is deliberately cheap and non-blocking: one copy in flight,
+`Map` with `D3D11_MAP_FLAG_DO_NOT_WAIT` retried on later frames, a 90-frame
+timeout, only for candidates that are fresh right now, and only on first sight
+then every 300 frames. The re-check interval matters because content is not a
+property of a resource for ever — `depth2` held 4.47 % in one area and 0.00 %
+in another. Threshold is 2 % of a whole-frame sample grid, chosen to err
+strict: too strict hides the stone, too lenient draws through.
+
+`bash tools/test-depth-selection.sh` compiles the header with `-Werror` and
+runs 13 checks — freshness boundaries, the reversed-Z clear, target mismatch,
+the fresh-but-empty case, the threshold from both sides, discovery-order
+fall-through, corner content still counting as content, and every failure mode
+resolving to "skip this frame".
+
+**Frame sync** is a bounded diagnostic rather than a permanent cost:
+`python tools/control-mhw-renderer.py framesync` arms 60 composed frames, and
+each one logs the bound depth with its coverage and age, an FNV-1a hash of the
+GPU host view-projection of the very draw being composed (so a frozen camera
+buffer shows up as `same` across frames that should differ), and the block
+centre projected twice — once with those GPU constants and once with the
+CPU-side view-projection handed in for the same frame. The pixel difference
+between the two is the CPU/GPU sync error. `tools/inspect-framesync.py` judges
+a trace and exits non-zero if a frame bound no depth, a bound depth was older
+than one frame, the camera could not be read, or the projections disagree by
+more than `--max-delta` (default 2 px); its failure paths were checked against
+synthetic good and bad traces.
+
+Renderer rebuilds clean under mingw with `-Wall -Wextra`. Gates run: 12 Rust
+tests, the fabric camera checks, and the new depth-selection tests, all green.
+Still outstanding is the live half — deploy the DLL, run the framesync trace
+against the running games, and judge it.

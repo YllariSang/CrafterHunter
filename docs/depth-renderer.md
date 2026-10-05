@@ -176,9 +176,10 @@ rather than decided once at discovery.
 
 The selection rule therefore needs two conditions, not one: **fresh this
 frame** *and* **known to contain scene content**, with content established by
-an occasional read-back rather than on every frame. Until that exists,
-`depths[0]` plus the staleness check stays, because it is the only candidate
-verified to hold geometry.
+an occasional read-back rather than on every frame. That rule is implemented in
+`selection.hpp` and described under "Depth selection and frame-synchronization
+trace" below; until its first read-back lands it binds nothing at all rather
+than defaulting to list index 0.
 
 ### Live composition checks (2026-10-05)
 
@@ -262,6 +263,65 @@ Eight `Native placement anchored` lines span the recording (12:48:52 → 12:50:1
 `tools/control-mhw-renderer.py place` — and no request file was left behind, so
 every anchor went through that sanctioned path; nothing re-anchored
 automatically, and the only invalidation is the jump after the recording.
+
+### Depth selection and frame-synchronization trace (2026-10-05)
+
+The selection rule now lives in `native/mhw-renderer/selection.hpp`, deliberately
+free of D3D types so it can be tested off-target, and `drawBlock` only fills in
+what it already knows about each resource. A candidate binds when **all** of
+these hold:
+
+1. the target matches the backbuffer (R32_TYPELESS, same size);
+2. it was cleared to `0` — the reversed-Z scene depth clear;
+3. it was cleared on this frame or the one before (`FreshFrames = 1`);
+4. its content has been **measured**, and the measurement says geometry is there.
+
+Condition 4 is the new one. Coverage is the fraction of a whole-frame sample
+grid (stride `min(w,h)/54`, so ~54×54 samples) holding a value above zero —
+reversed-Z leaves the clear value 0 for anything the pass never touched. The
+threshold is `ContentThreshold = 0.02`, chosen to err strict: too strict and
+the stone disappears, which fails closed, too lenient and an empty buffer is
+bound, which draws through. An unmeasured candidate fails condition 4 whatever
+its placeholder says, so nothing binds until the first read-back lands.
+
+Content is measured with one copy in flight at a time, a non-blocking
+`Map(D3D11_MAP_FLAG_DO_NOT_WAIT)` retried on later frames, a 90-frame timeout,
+and only for candidates fresh enough to be selectable — so a `Map` never
+happens on the frame the composition needs. Each candidate is measured on first
+sight and then re-measured every `ContentRecheckFrames = 300` frames, because
+content is not a permanent property: `depth2` held 4.47 % in one area and
+0.00 % in another.
+
+What it writes to `renderer.log`:
+
+- `depth[N] content 99.20% holds geometry (age=1)` — on a result that changes
+  the eligibility verdict;
+- `depth select=0 covered=99.20% age=1` — when the bound candidate changes;
+- `no eligible depth candidate (3 observed; unmeasured, stale or empty) -
+  composition skipped` — once per skip episode, never per frame.
+
+**Frame-synchronization trace.** `python tools/control-mhw-renderer.py
+framesync` arms 60 composed frames, each logging one `framesync` line with:
+
+- `depth`, `covered`, `age` — which candidate was bound and how old it was;
+- `cam=<fnv64>` plus `changed`/`same` — a hash of the GPU host
+  view-projection of the very draw being composed, so a stale or frozen camera
+  buffer is visible;
+- `gpu=(x,y)` and `cpu=(x,y)` — the block centre projected once with those GPU
+  constants and once with the CPU-side view-projection handed to `CH_Frame` for
+  the same frame. `delta` is their difference in pixels: the CPU/GPU frame-sync
+  error for that frame.
+
+Judge a captured trace with `python tools/inspect-framesync.py`, which exits
+non-zero if any frame bound no depth, if a bound depth was older than one
+frame, if the GPU camera could not be read, or if the two projections disagree
+by more than `--max-delta` (default 2 px).
+
+`bash tools/test-depth-selection.sh` compiles `selection.hpp` with the host
+compiler and runs 13 checks covering freshness, the reversed-Z clear, target
+matching, the fresh-but-empty case measured this morning, the threshold
+boundary from both sides, discovery-order fall-through, whole-frame coverage
+sampling, and fail-closed behaviour when nothing qualifies.
 
 ### Remaining scope
 

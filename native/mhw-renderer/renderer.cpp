@@ -15,8 +15,10 @@
 #include <cstring>
 #include <mutex>
 #include <vector>
+#include "selection.hpp"
 
 using Microsoft::WRL::ComPtr;
+namespace sel = crafterhunter::depth;
 namespace {
 constexpr char Dir[] = "nativePC/plugins/CSharp/CrafterHunter/render";
 std::mutex gate;
@@ -50,6 +52,13 @@ struct Depth {
     ComPtr<ID3D11Texture2D> texture;
     float clear = 1;
     unsigned long long lastFrame = 0;
+    // Content measurement: a candidate is only bindable once a read-back has
+    // shown it holds geometry, and it is re-measured periodically because
+    // content varies by area.
+    bool contentKnown = false;
+    float covered = 0;
+    unsigned long long checkedFrame = 0;
+    ComPtr<ID3D11Texture2D> staging;
 };
 std::vector<Depth> depths;
 using ClearFn = void (STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11DepthStencilView*, UINT, FLOAT, UINT8);
@@ -66,7 +75,17 @@ bool ownDraw = false;
 unsigned traceCount = 0;
 bool composed = false;
 unsigned composedCount = 0;
-void drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui);
+// Content read-back state: at most one copy in flight, because Map stalls.
+int contentPending = -1;
+unsigned long long contentCopyFrame = 0;
+std::size_t lastSelected = sel::NotFound;
+bool skipLogged = false;
+// Frame-synchronization trace: remaining composed frames to log.
+unsigned frameSyncRemaining = 0;
+unsigned long long previousCameraHash = 0;
+bool previousCameraValid = false;
+ComPtr<ID3D11Buffer> cameraStaging;
+int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui);
 void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count);
 void STDMETHODCALLTYPE observeDraw(ID3D11DeviceContext* ctx, UINT n, UINT start) {
     traceDraw(ctx, "Draw", n); originalDraw(ctx, n, start);
@@ -108,7 +127,7 @@ void STDMETHODCALLTYPE observeClear(ID3D11DeviceContext* ctx, ID3D11DepthStencil
                 if (!known && depths.size() < 8) {
                     log("depth[%zu] %ux%u format=%u bind=%u clear=%.3f", depths.size(),
                         desc.Width, desc.Height, desc.Format, desc.BindFlags, clear);
-                    depths.push_back({tex, clear, frame});
+                    depths.push_back({tex, clear, frame, false, 0.0f, 0, nullptr});
                 }
             }
         }
@@ -166,6 +185,86 @@ bool dumpTexture(ID3D11Texture2D* tex, const char* path) {
     return ok;
 }
 
+// Row-vector projection, matching the shader's `mul(float4(hit, 1), vp)`.
+bool projectScreen(const float* vp, const float* centre, UINT screenWidth,
+    UINT screenHeight, float& sx, float& sy) {
+    if (!vp || !centre) return false;
+    const float x = centre[0], y = centre[1], z = centre[2];
+    float clip[4]{};
+    for (int c = 0; c < 4; ++c)
+        clip[c] = x * vp[c] + y * vp[4 + c] + z * vp[8 + c] + vp[12 + c];
+    if (!(clip[3] > 0.000001f)) return false;
+    sx = (clip[0] / clip[3] * 0.5f + 0.5f) * static_cast<float>(screenWidth);
+    sy = (0.5f - clip[1] / clip[3] * 0.5f) * static_cast<float>(screenHeight);
+    return true;
+}
+
+// Records, for a bounded number of frames, what is needed to show that the
+// composition used this frame's camera and this frame's depth:
+//   - a hash of the GPU camera constants of the very draw being composed, and
+//     whether it changed since the previous traced frame (live, not stale);
+//   - the block centre projected once with those GPU constants and once with
+//     the CPU-side view-projection handed to CH_Frame for this frame - the
+//     pixel difference between them is the CPU/GPU frame-sync error;
+//   - the depth candidate actually bound, its measured coverage, its age in
+//     frames, and how many traced frames remain.
+// Bounded because reading a constant buffer back stalls the pipeline.
+void recordFrameSync(ID3D11Buffer* camera, int bound) {
+    if (!frameSyncRemaining || !context || !device || !camera) return;
+    --frameSyncRemaining;
+    float host[16]{};
+    bool cameraRead = false;
+    if (!cameraStaging) {
+        D3D11_BUFFER_DESC bd{}; camera->GetDesc(&bd);
+        bd.Usage = D3D11_USAGE_STAGING; bd.BindFlags = 0;
+        bd.CPUAccessFlags = D3D11_CPU_ACCESS_READ; bd.MiscFlags = 0;
+        if (FAILED(device->CreateBuffer(&bd, nullptr, &cameraStaging))) cameraStaging.Reset();
+    }
+    if (cameraStaging) {
+        context->CopyResource(cameraStaging.Get(), camera);
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (SUCCEEDED(context->Map(cameraStaging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+            std::memcpy(host, mapped.pData, sizeof(host));
+            context->Unmap(cameraStaging.Get(), 0);
+            cameraRead = true;
+        }
+    }
+    unsigned long long hash = 0;
+    if (cameraRead) {
+        hash = 14695981039346656037ULL;  // FNV-1a over the GPU host view-projection
+        const auto* bytes = reinterpret_cast<const unsigned char*>(host);
+        for (size_t i = 0; i < sizeof(host); ++i) {
+            hash ^= bytes[i];
+            hash *= 1099511628211ULL;
+        }
+    }
+    const bool changed = previousCameraValid && hash != previousCameraHash;
+    previousCameraHash = hash;
+    previousCameraValid = cameraRead;
+
+    float gpuX = 0, gpuY = 0, cpuX = 0, cpuY = 0;
+    const bool gpuOk = projectScreen(host, parameters.centre, width, height, gpuX, gpuY);
+    const bool cpuOk = projectScreen(parameters.projection, parameters.centre, width, height, cpuX, cpuY);
+
+    float covered = 0;
+    unsigned long long age = 0;
+    bool haveDepth = false;
+    {
+        std::lock_guard lock(gate);
+        if (bound >= 0 && static_cast<size_t>(bound) < depths.size()) {
+            covered = depths[bound].covered;
+            age = frame - depths[bound].lastFrame;
+            haveDepth = true;
+        }
+    }
+    log("framesync frame=%llu depth=%d covered=%.2f%% age=%llu cam=%016llx %s gpu=(%.1f,%.1f) cpu=(%.1f,%.1f) delta=(%.2f,%.2f) left=%u",
+        frame, bound, haveDepth ? covered * 100.0f : 0.0f, age, hash,
+        cameraRead ? (changed ? "changed" : "same") : "unread",
+        gpuX, gpuY, cpuX, cpuY,
+        (gpuOk && cpuOk) ? gpuX - cpuX : 0.0f, (gpuOk && cpuOk) ? gpuY - cpuY : 0.0f,
+        frameSyncRemaining);
+}
+
 void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
     if (ownDraw || ctx != context.Get() || (!traceDraws && (!drawEnabled || composed))) return;
     ComPtr<ID3D11RenderTargetView> rtv;
@@ -196,8 +295,10 @@ void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
         if (camera) camera->GetDesc(&cameraDesc);
         if (ui) ui->GetDesc(&uiDesc);
         if (stride == 32 && cameraDesc.ByteWidth == 1072 && uiDesc.ByteWidth == 400) {
-            drawBlock(back.Get(), camera.Get(), ui.Get()); composed = true;
+            const int bound = drawBlock(back.Get(), camera.Get(), ui.Get());
+            composed = true;
             if (++composedCount == 1) log("Composing before MHW UI with current GPU camera constants");
+            if (frameSyncRemaining) recordFrameSync(camera.Get(), bound);
         }
     }
     if (!traceDraws || traceCount >= 80) return;
@@ -333,23 +434,113 @@ bool createPipeline() {
     return true;
 }
 
-void drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {
-    if (!drawEnabled || pipelineFailed) return;
-    if (!pixelShader && !createPipeline()) { pipelineFailed = true; log("Pipeline unavailable; drawing disabled"); return; }
+// Measures whether a candidate actually holds scene geometry, so selection can
+// reject the fresh-but-empty buffer measured on 2026-10-05. One copy in flight
+// at a time and only for candidates fresh enough to be selectable: Map stalls
+// the GPU, so this happens on first sight and then only every
+// sel::ContentRecheckFrames frames. The result is cached on the candidate.
+// Caller holds `gate`.
+void serviceContentChecks() {
+    constexpr unsigned long long CopyTimeoutFrames = 90;
+    if (contentPending >= static_cast<int>(depths.size())) contentPending = -1;
+    if (contentPending >= 0) {
+        Depth& pending = depths[contentPending];
+        if (!pending.staging || frame - contentCopyFrame > CopyTimeoutFrames) {
+            contentPending = -1;
+        } else {
+            D3D11_MAPPED_SUBRESOURCE mapped{};
+            if (SUCCEEDED(context->Map(pending.staging.Get(), 0, D3D11_MAP_READ,
+                    D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped))) {
+                const float measured = sel::coverage([&](unsigned x, unsigned y) {
+                    const auto* row = reinterpret_cast<const float*>(
+                        static_cast<const unsigned char*>(mapped.pData) +
+                        static_cast<size_t>(y) * mapped.RowPitch);
+                    return row[x];
+                }, width, height);
+                context->Unmap(pending.staging.Get(), 0);
+                const bool changed = !pending.contentKnown ||
+                    (measured >= sel::ContentThreshold) != (pending.covered >= sel::ContentThreshold);
+                pending.contentKnown = true;
+                pending.covered = measured;
+                pending.checkedFrame = frame;
+                if (changed)
+                    log("depth[%d] content %.2f%% %s (age=%llu)", contentPending, measured * 100.0f,
+                        measured >= sel::ContentThreshold ? "holds geometry" : "empty",
+                        frame - pending.lastFrame);
+                contentPending = -1;
+            }
+        }
+    }
+    if (contentPending >= 0) return;
+    // Next candidate to measure: anything unmeasured first, then the oldest
+    // measured one that is due a re-check. Stale ones are skipped, since
+    // measuring a buffer we would refuse to bind tells us nothing useful.
+    int chosen = -1;
+    unsigned long long oldest = 0;
+    for (size_t i = 0; i < depths.size(); ++i) {
+        Depth& candidate = depths[i];
+        if (frame - candidate.lastFrame > sel::FreshFrames) continue;
+        if (!candidate.contentKnown) { chosen = static_cast<int>(i); break; }
+        const unsigned long long due = frame - candidate.checkedFrame;
+        if (due >= sel::ContentRecheckFrames && (chosen < 0 || due > oldest)) {
+            chosen = static_cast<int>(i); oldest = due;
+        }
+    }
+    if (chosen < 0) return;
+    Depth& candidate = depths[chosen];
+    if (!candidate.staging) {
+        D3D11_TEXTURE2D_DESC td{};
+        candidate.texture->GetDesc(&td);
+        td.Usage = D3D11_USAGE_STAGING; td.BindFlags = 0;
+        td.CPUAccessFlags = D3D11_CPU_ACCESS_READ; td.MiscFlags = 0;
+        if (FAILED(device->CreateTexture2D(&td, nullptr, &candidate.staging))) return;
+    }
+    context->CopyResource(candidate.staging.Get(), candidate.texture.Get());
+    contentPending = chosen;
+    contentCopyFrame = frame;
+}
+
+// Returns the index of the depth candidate bound for this frame, or -1 when the
+// frame is skipped. Selection never falls back to drawing without depth: an
+// unmeasured, stale or empty candidate means no composition, not draw-through.
+int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {
+    if (!drawEnabled || pipelineFailed) return -1;
+    if (!pixelShader && !createPipeline()) { pipelineFailed = true; log("Pipeline unavailable; drawing disabled"); return -1; }
     ComPtr<ID3D11ShaderResourceView> depthView;
+    std::size_t chosen = sel::NotFound;
     {
         std::lock_guard lock(gate);
-        // Candidate 0 was verified in a read-only capture to contain scene geometry.
-        // Reject stale/unsupported resources; never fall back to draw-through.
-        if (depths.empty() || frame - depths[0].lastFrame > 1 || depths[0].clear != 0) return;
-        D3D11_TEXTURE2D_DESC d{}; depths[0].texture->GetDesc(&d);
-        if (d.Format != DXGI_FORMAT_R32_TYPELESS || d.Width != width || d.Height != height) return;
+        serviceContentChecks();
+        std::array<sel::CandidateView, 8> candidates{};
+        const size_t count = depths.size() < candidates.size() ? depths.size() : candidates.size();
+        for (size_t i = 0; i < count; ++i) {
+            D3D11_TEXTURE2D_DESC d{}; depths[i].texture->GetDesc(&d);
+            candidates[i] = sel::CandidateView{depths[i].clear, depths[i].lastFrame, frame,
+                d.Format == DXGI_FORMAT_R32_TYPELESS && d.Width == width && d.Height == height,
+                depths[i].contentKnown, depths[i].covered};
+        }
+        chosen = sel::select(candidates.data(), count);
+        if (chosen == sel::NotFound) {
+            lastSelected = sel::NotFound;
+            if (!skipLogged) {
+                skipLogged = true;
+                log("no eligible depth candidate (%zu observed; unmeasured, stale or empty) - composition skipped",
+                    count);
+            }
+            return -1;
+        }
+        if (chosen != lastSelected) {
+            lastSelected = chosen;
+            log("depth select=%zu covered=%.2f%% age=%llu", chosen,
+                depths[chosen].covered * 100.0f, frame - depths[chosen].lastFrame);
+        }
+        skipLogged = false;
         D3D11_SHADER_RESOURCE_VIEW_DESC desc{}; desc.Format = DXGI_FORMAT_R32_FLOAT;
         desc.ViewDimension = D3D11_SRV_DIMENSION_TEXTURE2D; desc.Texture2D.MipLevels = 1;
-        if (FAILED(device->CreateShaderResourceView(depths[0].texture.Get(), &desc, &depthView))) return;
+        if (FAILED(device->CreateShaderResourceView(depths[chosen].texture.Get(), &desc, &depthView))) return -1;
     }
     ComPtr<ID3D11RenderTargetView> target;
-    if (FAILED(device->CreateRenderTargetView(back, nullptr, &target))) return;
+    if (FAILED(device->CreateRenderTargetView(back, nullptr, &target))) return -1;
     ComPtr<ID3DDeviceContextState> saved;
     context1->SwapDeviceContextState(drawState.Get(), &saved);
     if (pixelsDirty) { context->UpdateSubresource(stone.Get(), 0, nullptr, pixels.data(), 64, 1024); pixelsDirty = false; }
@@ -376,6 +567,7 @@ void drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui) {
     ID3D11ShaderResourceView* empty[2]{}; context->PSSetShaderResources(0, 2, empty);
     context->OMSetRenderTargets(0, nullptr, nullptr);
     context1->SwapDeviceContextState(saved.Get(), nullptr);
+    return static_cast<int>(chosen);
 }
 }
 
@@ -398,6 +590,7 @@ extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* view
     D3D11_TEXTURE2D_DESC d{}; back->GetDesc(&d);
     if (width != d.Width || height != d.Height) {
         std::lock_guard lock(gate); depths.clear(); width = d.Width; height = d.Height;
+        contentPending = -1; lastSelected = sel::NotFound;
         log("backbuffer %ux%u format=%u", width, height, d.Format);
     }
     std::memcpy(parameters.projection, viewProjection, sizeof(parameters.projection));
@@ -406,6 +599,11 @@ extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* view
     constexpr char TraceRequest[] = "nativePC/plugins/CSharp/CrafterHunter/render/trace.request";
     if (GetFileAttributesA(TraceRequest) != INVALID_FILE_ATTRIBUTES && DeleteFileA(TraceRequest)) {
         traceDraws = true; traceCount = 0;
+    }
+    constexpr char FrameSyncRequest[] = "nativePC/plugins/CSharp/CrafterHunter/render/framesync.request";
+    if (GetFileAttributesA(FrameSyncRequest) != INVALID_FILE_ATTRIBUTES && DeleteFileA(FrameSyncRequest)) {
+        frameSyncRemaining = 60; previousCameraValid = false;
+        log("frame-sync trace armed for up to 60 composed frames");
     }
     constexpr char Request[] = "nativePC/plugins/CSharp/CrafterHunter/render/capture.request";
     if (GetFileAttributesA(Request) != INVALID_FILE_ATTRIBUTES && DeleteFileA(Request)) {
@@ -439,6 +637,9 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     std::lock_guard lock(gate); depths.clear(); context.Reset(); device.Reset();
     drawState.Reset(); context1.Reset(); vertexShader.Reset(); pixelShader.Reset();
     constants.Reset(); stoneView.Reset(); stone.Reset(); sampler.Reset();
-    rasterizer.Reset(); noDepth.Reset(); drawEnabled = false; pipelineFailed = false;
+    rasterizer.Reset(); noDepth.Reset(); cameraStaging.Reset();
+    contentPending = -1; lastSelected = sel::NotFound;
+    frameSyncRemaining = 0; previousCameraValid = false;
+    drawEnabled = false; pipelineFailed = false;
     initialized = false; swapchain = nullptr;
 }
