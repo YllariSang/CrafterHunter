@@ -9,7 +9,15 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <string>
 #include <vector>
+
+// The header under test, so one check can assert the shape of its Windows branch.
+// A host test cannot execute that branch, but it can insist the branch exists and
+// does not cache a length.
+#ifndef FRAME_SOURCE_PATH
+#error "FRAME_SOURCE_PATH must name frame_source.hpp"
+#endif
 
 using namespace crafterhunter::frame;
 using namespace crafterhunter::frames;
@@ -77,6 +85,61 @@ void checkShortBufferRefuses() {
     (void)slots;
 }
 
+// The rule behind that refusal, pinned directly.
+//
+// This is the threshold whose failure mode was invisible from the host: on
+// Windows the mapping's length was never stored, so it read as 0, and a zero
+// length fails this test on the machine that matters. The test below asserts the
+// length is *derived* on Windows so the same failure cannot come back.
+void checkLengthRule() {
+    const std::uint64_t headers = headerBytes() + std::uint64_t(SlotCount) * slotHeaderBytes();
+    check(!channelLongEnough(0), "a zero length is never enough");
+    check(!channelLongEnough(headers - 1), "one byte short of the headers is refused");
+    check(channelLongEnough(headers), "exactly the headers is enough");
+    // The real capture, to check against a number rather than a round value.
+    constexpr std::uint32_t width = 1908;
+    constexpr std::uint32_t height = 1028;
+    check(channelLongEnough(bufferBytes(width, height)),
+          "a real 1908x1028 channel passes the length rule");
+}
+
+// The Windows branch must not store a mapping length.
+//
+// A host test cannot run the Windows code, so this asserts the *shape* of the fix
+// instead: on Windows the length is obtained from the mapping, and no assignment
+// to the stored length exists inside that branch. If someone reinstates a cached
+// length there, this fails and names the reason it mattered.
+void checkWindowsLengthIsDerived() {
+    const char* source = FRAME_SOURCE_PATH;
+    std::FILE* file = std::fopen(source, "rb");
+    if (!file) {
+        check(false, "frame_source.hpp could not be read for the Windows-length check");
+        return;
+    }
+    std::string text;
+    char buffer[4096];
+    std::size_t read = 0;
+    while ((read = std::fread(buffer, 1, sizeof(buffer), file)) > 0) text.append(buffer, read);
+    std::fclose(file);
+
+    // Everything between the Windows branch of length() and its #else.
+    const std::size_t start = text.find("std::size_t length() const");
+    check(start != std::string::npos, "Source::length() exists");
+    if (start == std::string::npos) return;
+    const std::size_t windows = text.find("#if defined(_WIN32)", start);
+    const std::size_t end = text.find("#else", windows);
+    check(windows != std::string::npos && end != std::string::npos && windows < end,
+          "Source::length() has a Windows branch");
+    if (windows == std::string::npos || end == std::string::npos || windows >= end) return;
+
+    const std::string branch = text.substr(windows, end - windows);
+    check(branch.find("VirtualQuery") != std::string::npos,
+          "the Windows branch asks the mapping for its own length");
+    check(branch.find("length_ =") == std::string::npos
+              && branch.find("length_=") == std::string::npos,
+          "the Windows branch stores no length: that assignment is what went missing before");
+}
+
 void checkStaleRefuses() {
     constexpr std::uint32_t width = 1908;
     constexpr std::uint32_t height = 1028;
@@ -141,14 +204,17 @@ void checkGeometryOfRealCapture() {
 int main() {
     checkUnmappedRefuses();
     checkShortBufferRefuses();
+    checkLengthRule();
+    checkWindowsLengthIsDerived();
     checkStaleRefuses();
     checkOutOfRangeRefuses();
     checkGeometryOfRealCapture();
 
     if (failures == 0) {
         std::printf(
-            "Frame source checks passed: unmapped refuses, short buffer refuses, stale refuses, "
-            "oversized refuses, real-capture geometry.\n");
+            "Frame source checks passed: unmapped refuses, short buffer refuses, length rule, "
+            "Windows length derived not cached, stale refuses, oversized refuses, "
+            "real-capture geometry.\n");
         return 0;
     }
     std::fprintf(stderr, "%d frame source check(s) failed\n", failures);

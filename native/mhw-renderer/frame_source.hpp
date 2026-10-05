@@ -34,6 +34,19 @@ namespace crafterhunter::frames {
 // disagree without removing anything.
 inline constexpr char ChannelPath[] = "/dev/shm/crafterhunter/frame.channel";
 
+// Is a mapping of this many bytes big enough to hold the channel's headers?
+//
+// Pulled out as a rule rather than left inline so the host can check it. The bug
+// it exists to catch was not in this arithmetic - it was that `length()` reported
+// zero on Windows - but a test of the rule at least pins the threshold, and the
+// same test file asserts that the Windows branch derives its length instead of
+// storing one.
+inline constexpr bool channelLongEnough(std::uint64_t bytes) {
+    return bytes >= crafterhunter::frame::headerBytes()
+        + static_cast<std::uint64_t>(crafterhunter::frame::SlotCount)
+            * crafterhunter::frame::slotHeaderBytes();
+}
+
 #if defined(_WIN32)
 using MappingHandle = HANDLE;
 #else
@@ -53,6 +66,12 @@ public:
 
     // Maps the channel. Returns false when the guest has never published, which
     // is the normal state before Minecraft is loaded and must not be an error.
+    //
+    // A file that exists but is still empty is refused rather than mapped. The
+    // guest creates the channel and fills it in the same constructor, so an empty
+    // one means we caught it mid-creation; mapping it would produce a zero-length
+    // section whose every read fails, which is a far more confusing symptom than
+    // "not there yet".
     bool open() {
         close();
 #if defined(_WIN32)
@@ -61,9 +80,11 @@ public:
         if (file == INVALID_HANDLE_VALUE) return false;
         LARGE_INTEGER size{};
         if (!GetFileSizeEx(file, &size)) { CloseHandle(file); return false; }
+        if (size.QuadPart <= 0) { CloseHandle(file); return false; }
         // Map the file whole. Its length is written by the guest and bounds both
         // slots, so this is the only size that can be trusted before a header has
-        // been read.
+        // been read - which is why length() asks the mapping for its size rather
+        // than remembering this one.
         mapping_ = CreateFileMappingA(file, nullptr, PAGE_READONLY, 0, 0, nullptr);
         CloseHandle(file);
         if (mapping_ == nullptr) return false;
@@ -99,7 +120,29 @@ public:
     }
 
     bool mapped() const { return mapped_; }
-    std::size_t length() const { return length_; }
+
+    // How many bytes are actually readable through this mapping.
+    //
+    // On Windows this is asked of the mapping rather than remembered from open(),
+    // and that is the whole point. A stored length is a second copy of a fact the
+    // OS already knows, and the copy is exactly what went missing: length_ was
+    // assigned only in the POSIX branch, so on Windows it stayed 0, every frame
+    // failed the "shorter than its headers" check, and Steve could never appear
+    // no matter how many frames were published. No host test could see it either,
+    // because the branch that was wrong is the one Linux never compiles.
+    //
+    // Deriving it removes the assignment that could be forgotten, rather than
+    // restoring the one that was.
+    std::size_t length() const {
+        if (view_ == nullptr) return 0;
+#if defined(_WIN32)
+        MEMORY_BASIC_INFORMATION info{};
+        if (VirtualQuery(view_, &info, sizeof(info)) == 0) return 0;
+        return static_cast<std::size_t>(info.RegionSize);
+#else
+        return length_;
+#endif
+    }
 
     // The newest complete frame, or a frame with null pixels when there is
     // nothing to draw. Never guesses: every refusal returns a null pointer and a
@@ -108,9 +151,11 @@ public:
         std::uint32_t hostHeight, std::uint64_t nowNanos, const char** reason) const {
         crafterhunter::frame::FrameView view{0, 0, 0, 0, nullptr};
         if (!mapped_) { *reason = "channel not mapped"; return view; }
-        if (length() < crafterhunter::frame::headerBytes()
-            + crafterhunter::frame::SlotCount * crafterhunter::frame::slotHeaderBytes()) {
-            *reason = "channel shorter than its headers";
+        if (!channelLongEnough(length())) {
+            // A zero here is not a small channel: it means the mapping's length
+            // could not be established, which on the platform this ran on is a
+            // different failure from a truncated file and worth saying so.
+            *reason = length() == 0 ? "mapping length unknown" : "channel shorter than its headers";
             return view;
         }
 

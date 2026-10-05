@@ -1474,3 +1474,50 @@ both times.
 The 1x1 `minecraftDepthProbe` texture is gone. It existed only to stand in for a
 binding the shader no longer reads, and leaving it would have suggested depth was
 on its way without saying what it would cost.
+
+## 2026-10-05 — the Windows mapping length, which made Steve impossible
+
+Diagnosing the frame path before shipping it turned up three faults, each fatal on
+its own. This is the first, and it is the reason nothing could ever have appeared
+in MHW regardless of how many frames were published.
+
+`frame_source.hpp` read the channel's length with `GetFileSizeEx` on Windows and
+then **threw the value away**. `length_` was only ever assigned in the POSIX
+branch, so on Windows it stayed `0`, and `newestFrame()` opens with:
+
+```cpp
+if (length() < headerBytes() + SlotCount * slotHeaderBytes()) { ... refuse ... }
+```
+
+`0 < 256`, so **every frame was rejected as "channel shorter than its headers",
+forever.** No log line, no crash, no way to tell from the game that the reader was
+alive and refusing. The comment directly above the discarded read even said the
+length "is the only size that can be trusted before a header has been read".
+
+No host test could have caught it, and that is the part worth keeping: Linux
+compiles the POSIX branch, so the branch that was wrong is the one the test suite
+never built. A test of the *arithmetic* would still have passed, because the
+arithmetic was correct — the value it was given was not.
+
+So the fix removes the failure instead of repairing it. On Windows the length is
+now obtained from the mapping itself via `VirtualQuery`, so there is no cached
+length in that branch to forget:
+
+- `channelLongEnough()` is extracted as a pure rule and tested, including that a
+  zero length is never sufficient and that one byte short of the headers is
+  refused;
+- the refusal now distinguishes `mapping length unknown` from
+  `channel shorter than its headers`, because a zero means the mapping's size
+  could not be established, which is a different failure from a truncated file;
+- an empty file is refused at `open()` on both platforms. The guest creates and
+  fills the channel in one constructor, so an empty one means we caught it
+  mid-creation, and mapping it yields a zero-length section whose every read
+  fails — a far more confusing symptom than "not there yet".
+
+One test asserts the *shape* of the Windows branch: that it exists, that it asks
+the mapping for its length, and that it contains no assignment to the stored
+length. Mutation-tested: reinstating the cached `length_` fails both of those
+assertions by name, and weakening the length rule fails the boundary check.
+
+**Build passes; nothing here has been seen in-game yet.** That distinction is the
+subject of the next entries.
