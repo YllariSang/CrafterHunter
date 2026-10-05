@@ -77,8 +77,9 @@ public final class FrameCapture {
     private int remaining;
     private int requestedFrames = 1;
     private long captured;
-    private long totalMapNanos;
-    private long totalPublishNanos;
+    private long totalAgeNanos;
+    private long totalReadNanos;
+    private long totalFlipNanos;
     private String status = "idle";
     private int lastWidth;
     private int lastHeight;
@@ -113,12 +114,13 @@ public final class FrameCapture {
         }
         return String.format(
             Locale.ROOT,
-            "FRAME: %dx%d | %d frames | map %.2fms publish %.2fms | %s",
+            "FRAME: %dx%d | %d frames | read %.2fms flip %.2fms age %.0fms | %s",
             lastWidth,
             lastHeight,
             captured,
-            totalMapNanos / 1_000_000.0 / captured,
-            totalPublishNanos / 1_000_000.0 / captured,
+            totalReadNanos / 1_000_000.0 / captured,
+            totalFlipNanos / 1_000_000.0 / captured,
+            totalAgeNanos / 1_000_000.0 / captured,
             status);
     }
 
@@ -149,8 +151,9 @@ public final class FrameCapture {
         requestedFrames = frames;
         remaining = frames;
         captured = 0;
-        totalMapNanos = 0;
-        totalPublishNanos = 0;
+        totalAgeNanos = 0;
+        totalReadNanos = 0;
+        totalFlipNanos = 0;
         lastWidth = 0;
         lastHeight = 0;
         status = "queued " + frames;
@@ -253,9 +256,20 @@ public final class FrameCapture {
                 return;
             }
 
+            // Three separate costs, because conflating them produced a number
+            // that meant nothing: "age" is how long the frame waited before it
+            // was read, "read" is the map-and-copy itself, and "flip" is the
+            // row reordering. Only the last two are work we can optimise; the
+            // first is dominated by how often a frame was asked for.
+            totalAgeNanos += nowNanos - copyQueuedNanos;
+
+            long readStart = System.nanoTime();
             data.get(raw);
-            totalMapNanos += nowNanos - copyQueuedNanos;
+            long flipStart = System.nanoTime();
+            totalReadNanos += flipStart - readStart;
+
             byte[] flipped = FrameLayout.flipRows(raw, bufferWidth, bufferHeight);
+            totalFlipNanos += System.nanoTime() - flipStart;
 
             // The raw frame first: it is what the native side will consume, so
             // a PNG writer that fails must not cost us the measurement.
@@ -318,11 +332,17 @@ public final class FrameCapture {
             summary.append("requested=").append(requestedFrames).append(System.lineSeparator());
             summary.append("size=").append(lastWidth).append('x').append(lastHeight)
                 .append(System.lineSeparator());
-            summary.append("mapMillis=")
-                .append(captured == 0 ? 0.0 : totalMapNanos / 1_000_000.0 / captured)
+            // Work, not waiting. readMillis and flipMillis are what a frame
+            // costs to get out of the GPU; ageMillis is how long it sat before
+            // anyone looked, which is a property of the request, not of us.
+            summary.append("readMillis=")
+                .append(captured == 0 ? 0.0 : totalReadNanos / 1_000_000.0 / captured)
                 .append(System.lineSeparator());
-            summary.append("publishMillis=")
-                .append(captured == 0 ? 0.0 : totalPublishNanos / 1_000_000.0 / captured)
+            summary.append("flipMillis=")
+                .append(captured == 0 ? 0.0 : totalFlipNanos / 1_000_000.0 / captured)
+                .append(System.lineSeparator());
+            summary.append("ageMillis=")
+                .append(captured == 0 ? 0.0 : totalAgeNanos / 1_000_000.0 / captured)
                 .append(System.lineSeparator());
             summary.append("status=").append(status).append(System.lineSeparator());
             summary.append("note=").append(note == null ? "" : note).append(System.lineSeparator());

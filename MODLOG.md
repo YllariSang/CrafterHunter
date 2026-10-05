@@ -1155,3 +1155,51 @@ host verification.
 **Not done:** still nothing composites this. No transport, no depth compare, no
 frame in MHW. The next run answers one question — does a real frame come back,
 and how long does it take.
+
+## 2026-10-05 — the spike is answered: a Minecraft frame reads out, and it is cheap
+
+Plugin and mod aside, the one number this project could not estimate: **a full
+Minecraft frame can be read out of the GPU, on demand, correctly.**
+
+30 frames requested, 30 captured, `status=done`, 1908x1028, 7,845,696 bytes —
+exactly the size the contract predicts, checked by the headless suite rather than
+by eye. The PNG is right way up: crosshair centred, HUD legible, hotbar along the
+bottom, the ocean horizon where the horizon is, and our own `MHW LINK: LIVE` and
+`PLAYER: LIVE` lines captured from inside the frame. Row order is therefore
+correct on the first attempt, which is the part most likely to have needed
+debugging.
+
+**What it costs, measured rather than asserted.**
+
+| Step | Cost |
+| --- | --- |
+| Read a 7.8 MB frame out of `/dev/shm` | 1.41 ms median, 3.70 ms worst of 20 |
+| Write a 7.8 MB frame to `/dev/shm` | 4.7–5.1 ms |
+| Frame size at 1920x1080 | 8.3 MB |
+| Sustained if we ship every frame at 60 Hz | 0.50 GB/s |
+
+So a frame crosses the boundary in single-digit milliseconds at this
+resolution, and the honest reading is that **shared memory is enough** — no
+zero-copy, no Vulkan external memory, no GPU handle sharing. That is the
+expensive design I was going to have to write if this had gone badly, and it is
+not needed.
+
+The number that first came out was 1001 ms and it was a lie. `mapMillis` was
+measuring from *queueing* a copy to *publishing* it, so it reported how long the
+frame waited for me to ask for it — dominated by request pacing, not by the GPU.
+It is now three numbers: `readMillis` and `flipMillis` are the work, `ageMillis`
+is the waiting. Conflating them is how a cost measurement becomes a number
+nobody can act on, which is the same mistake as the bridge that discarded 5,138
+player packets while both ends looked healthy: a metric that measures something
+adjacent to the thing you care about.
+
+**What this settles.** Milestone 3 was restructured today around the fear that a
+full frame might be unaffordable. It is affordable, so "Playable Steve" is an
+ordinary engineering milestone and the order stands: transport (double-buffered,
+one frame in flight, with an age), then the per-pixel depth compare that makes
+occlusion correct rather than approximate, then the ownership handshake.
+
+**The honest caveat.** 1908x1028 is not 1920x1080, and this measured a *file*
+in `/dev/shm` rather than the double-buffered ring the transport will actually
+use. The number will move; the order of magnitude will not, and the design
+decision it drives — shared memory, not zero-copy — is safe either way.
