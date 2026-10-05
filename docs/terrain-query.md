@@ -271,6 +271,32 @@ sample is a made-up number.
 Three rays at two per sample, so a sweep spans two ticks and never exceeds the
 per-tick budget in either of them.
 
+And on the steepest ground the person could find, a hillside in the Wildspire
+Wetlands:
+
+```
+16:43:52.634  Terrain sweep 6: agree=True rayY=27.351m collisionY=27.701m delta=0.350m |
+              centre[0m=27.351m attr=1056768 |n|=0.010] right[1m=27.722m attr=1056768 |n|=0.010]
+              left[-1m=26.923m attr=1056768 |n|=0.010] | slope=0.40 rise/m
+```
+
+0.40 rise per metre is about 22 degrees, 0.8 m of height across the two-metre
+span, three times in a row. All three columns report the same attribute, so it
+is one smooth inclined surface rather than steps — and **all three report no
+normal**. This is the case the design was changed for: the measurement that
+matters is the one that works without a normal, and it works. The centre column
+also agreed with `CollisionPosition` to within the same 0.350 m as the flat
+surfaces, so the hunter's feet are on the surface the ray finds even at 22
+degrees.
+
+| Surface | normal | attribute | centre vs feet | slope |
+| --- | --- | --- | --- | --- |
+| Quest house plank, ~27° | unit | `0x00100000` | exact | not swept |
+| Base camp dirt | unit | `0` | 6 mm | -0.01 rise/m |
+| Wetlands path | \|n\|=0.010 | `0x00104000` | exact | not swept |
+| Wetlands cave floor | \|n\|=0.010 | `5` | 11 cm | -0.01 rise/m |
+| Wetlands hillside, ~22° | \|n\|=0.010 | `0x102040` | exact | **+0.40 rise/m** |
+
 ## Answering the guest
 
 Requests arrive on the endpoint thread, where nothing native may happen, and are

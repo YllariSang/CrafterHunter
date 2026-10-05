@@ -975,3 +975,31 @@ because the number moved off zero, not because either of us judged a picture.
 or the spacing is zero. A slope averaged across a missing sample is an invented
 number, and an invented number in a collision path is how a player ends up
 standing on nothing.
+
+## 2026-10-05 — a 22-degree hillside, and the ground-truth row closes
+
+The person found the steepest slope they knew in the map and stood on it. Three
+sweeps, identical:
+
+```
+centre[0m=27.351m] right[1m=27.722m] left[-1m=26.923m] | slope=0.40 rise/m
+```
+
+0.40 rise per metre is about 22 degrees, 0.8 m of height across the two-metre
+span. All three columns carry the same attribute, so it is one smooth incline
+and not steps wearing the same number — and all three report `|n| = 0.010`,
+which is the whole reason the sweep exists. The centre column agreed with
+`CollisionPosition` to 0.350 m, the same offset it shows on flat ground, so the
+hunter's feet are on the surface the ray finds even at 22 degrees.
+
+Milestone 3's ground-truth question is answered: the routine is callable, it
+lands on the ground the hunter stands on, it does so at 22 degrees as cleanly as
+on the flat, and the two things it needed to tell us — that `CollisionPosition`
+is not ground height, and that the normal is not a direction on most surfaces —
+were both found by measuring rather than by reading the documentation.
+
+Five surfaces, three of them reporting the same non-normal, one measurement
+method that does not need it. The next stage is the guest half: a heightmap of
+column heights around the player, mapped into Minecraft coordinates through the
+proxy anchor, with the bridge rebuilt and restarted first so kinds 12 and 13
+survive it.
