@@ -634,3 +634,56 @@ derived from the camera's proven conversion and has to be watched against the
 hunter's actual facing, because a mirrored proxy would still look plausible in
 motion. My first run of the new suite failed on an expectation of mine, not the
 code: identity wraps to -180, not +180.
+
+## 2026-10-05 — player proxy accepted, and the bridge that was eating it
+
+Minecraft was restarted with the rebuilt jar (40,805 bytes, previous jar saved
+to `~/.local/share/crafterhunter-backups/minecraft-mod-20261005T1412/`), the
+plugin hot-reloaded at 14:11:51, and both guarded reads armed at 14:12:03. The
+guest connected on launch with no discarded-packet errors, so the deployment
+looked complete.
+
+**It was not, and neither end could tell.** The bridge binary had been started
+at 12:20, before `Kind::PlayerState` existed, and the protocol rejects an
+unassigned kind, so every player packet died in the bridge:
+
+```
+discarded invalid packet from 127.0.0.1:39442: UnknownKind(11)
+```
+
+5,138 times, at 20 Hz, while the plugin logged `First guarded player read
+succeeded` and Minecraft logged nothing at all. The camera kept working — its
+kind was already known — so the proxy simply never arrived and the HUD stayed
+on `WAITING`. The only evidence was in the bridge's own log.
+
+`cargo build --offline --workspace` recompiled the bridge and probe, and a
+restart on the same log file re-registered both endpoints (`registered Mhw`,
+`registered Minecraft`) with zero discards afterwards; the guest reconnected at
+14:36:01 after one `PortUnreachableException` retry. This is the operational
+half of "the bridge needs no change": the source is forward-compatible with new
+kinds, a running binary is not. The line to add next time a kind is introduced
+is in `docs/host-queries.md`, next to the status claim where it will be read.
+
+**Verdict from the person:** camera and movement between the two characters are
+precise and accurate, the same judgement that closed milestone 2, and they
+asked to proceed to the next phase.
+
+**What is still open, deliberately recorded rather than folded into the pass.**
+The one reading of the proxy as *reversed* was taken with the camera link (F7)
+off. That matters because F7 is what normally overwrites the view from the MHW
+camera every frame: with it on, the model quaternion never reaches the screen in
+first person, and with it off the vanilla camera follows `LocalPlayer.yRot`, so
+the view *is* the model-quaternion path. The person attributed the reading to
+the camera link being off rather than to the conversion, but the clean test —
+F7 off, F9 on, turn the hunter 90 degrees and confirm the character turns the
+same way — has not been run, nor has F9 mid-motion. Both stay in the
+verification table in `docs/host-queries.md`.
+
+**Why the agent could not take the screenshot itself.** MHW runs floating on
+the same workspace, above Minecraft and re-grabbing focus, so `grim` captures
+and an injected F2 both landed on MHW. Hyprland here dispatches through Lua:
+`hyprctl dispatch 'hl.dsp.focus{workspace=hl.get_workspace(3)}'` switches
+workspace, `hl.get_windows()` returns window objects, and `hyprctl eval` can
+write files with `io.open`, which is how the window geometry was read. Raising
+the game or lowering MHW is the person's layout, so the HUD reading stays with
+them until they say otherwise.

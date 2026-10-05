@@ -105,12 +105,21 @@ which produces no packet, which ages out on the guest. Silence is the failure
 signal; the guest never keeps the last known position alive past the freshness
 window.
 
-**Status: implemented, awaiting live acceptance.** The plugin samples the
-hunter at 20 Hz beside the camera and sends kind 11; the bridge needs no change
-because it already forwards every game-to-game packet. On the guest,
+**Status: accepted in the live games on 2026-10-05.** The plugin samples the
+hunter at 20 Hz beside the camera and sends kind 11. On the guest,
 `PlayerMixin` runs at the tail of `LocalPlayer.tick()`, so vanilla finishes its
 own movement for the frame before the proxy places the player, zeroes velocity,
 and clears accumulated fall distance. F9 toggles the link.
+
+One deployment fact is worth keeping next to the claim that "the bridge needs
+no change": that is true of the bridge's *source*, false of a bridge binary
+built before the kind existed. The running bridge had been started hours
+earlier and discarded every player packet with `UnknownKind(11)` — 5,138
+times — while the plugin logged `First guarded player read succeeded` and
+Minecraft logged no decode error, so neither end looked broken. The loss was
+visible only in the bridge's own log. `cargo build --offline --workspace` plus
+a bridge restart re-registered both endpoints and stopped the discards. Any
+future protocol kind repeats this: rebuild and restart the bridge too.
 
 Two details were made deliberate rather than incidental:
 
@@ -132,7 +141,7 @@ Two details were made deliberate rather than incidental:
 | Does it survive a loading screen? | Enter and leave an area; confirm queries report "no terrain" rather than a stale hit, and that the proxy anchor clears. |
 | Does chunk streaming disturb it? | Query across an area boundary during streaming and reject answers that disagree with the ground under the hunter. |
 | Does control fall back immediately? | Stop the bridge mid-motion and confirm the guest stops driving on the freshness timeout. |
-| Does the proxy follow and face the hunter? | Walk and turn in MHW, watch the HUD proxy target and the Minecraft character, and confirm the yaw convention matches the hunter's facing rather than being mirrored; press F9 mid-motion and confirm movement returns to the keyboard on that tick. |
+| Does the proxy follow and face the hunter? | **Partly answered 2026-10-05:** with the bridge fixed, the person drove both games and reported camera and movement between the two characters precise and accurate, which is the same judgement that closed the camera link in milestone 2. An intermediate reading of "kinda reversed" was traced to the camera link (F7) being *off*: with F7 on, `CameraMixin` overwrites the view from the MHW camera every frame and hides whatever the model quaternion does; with F7 off the vanilla camera follows `LocalPlayer.yRot`, so the first-person view is the model-quaternion path and nothing else. **Still open:** one turn-direction check with F7 off and F9 on — turn the hunter 90 degrees left and confirm the Minecraft character turns left — plus F9 mid-motion returning control to the keyboard on that tick. |
 
 These acceptance steps need the games running and are recorded in `MODLOG.md`
 when they run.
