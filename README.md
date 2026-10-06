@@ -197,5 +197,13 @@ See [docs/architecture.md](docs/architecture.md) and
 
 ## License
 
-No public software license has been selected yet. All original CrafterHunter
-code is currently reserved pending that decision.
+Licensed under the Apache License, Version 2.0 (see `LICENSE`). You may use
+this project under those terms; no rights are granted over Minecraft, Monster
+Hunter: World, or any other third-party content, which remain the property of
+their owners and must be obtained independently.
+
+Third-party components keep their own licenses: MinHook (BSD-2-Clause,
+notice installed beside the renderer as `MinHook-LICENSE.txt`), Fabric API
+(Apache-2.0), LWJGL (BSD-3-Clause), and byte signatures/facts derived from the
+MIT-licensed `justbustin/minecraft-crossover-bridge`, credited in
+`docs/prior-art.md`.

@@ -5,7 +5,7 @@
   "name": "CrafterHunter",
   "description": "Unofficial local interoperability endpoint for CrafterHunter.",
   "authors": ["CrafterHunter contributors"],
-  "license": "All-Rights-Reserved",
+  "license": "Apache-2.0",
   "environment": "client",
   "entrypoints": {
     "client": [
