@@ -4,11 +4,10 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "CameraMixin",
+    "CameraProjectionAccessor",
     "FrameCaptureMixin",
-    "GameRendererProjectionAccessor",
     "HudMixin",
     "KeyboardMixin",
-    "LevelProjectionAccessor",
     "PlayerMixin",
     "WorldCaptureMixin"
   ],

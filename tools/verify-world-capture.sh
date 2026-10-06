@@ -83,10 +83,19 @@ grep -q 'hookSeen=true' "$summary" \
 printf 'hook is live at the world-render boundary\n\n'
 
 # One mode: request it, wait for a publish, and report what happened.
+# grep -c prints the count and still exits 1 when the count is 0, so `|| echo 0`
+# would append a second line and make the arithmetic below read "0\n0" - which
+# aborts the whole ;-list in bash and takes the status assignments with it.
+gl_count() {
+  local n
+  n=$(grep -ac "$1" "$log" 2>/dev/null || true)
+  printf '%s' "${n:-0}"
+}
+
 run_mode() {
   local verb="$1" label="$2"
   local gl_before
-  gl_before=$(grep -ac "glReadPixels" "$log" 2>/dev/null || echo 0)
+  gl_before=$(gl_count glReadPixels)
 
   rm -f "$meta"
   # Publish a complete command by same-directory rename, never partial writes.
@@ -106,7 +115,7 @@ run_mode() {
   done
 
   local gl_after gl_new
-  gl_after=$(grep -ac "glReadPixels" "$log" 2>/dev/null || echo 0)
+  gl_after=$(gl_count glReadPixels)
   gl_new=$((gl_after - gl_before))
 
   if [ ! -f "$meta" ]; then

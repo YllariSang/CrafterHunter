@@ -18,6 +18,7 @@ import javax.imageio.ImageIO;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.Projection;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.GameRenderer;
 import org.joml.Matrix4f;
@@ -114,6 +115,7 @@ public final class WorldCapture {
     private float[] inFlightFar = {Float.NaN};
     private float[] inFlightMatrix = new float[16];
     private boolean inFlightMatrixKnown;
+    private String inFlightProjectionSource = "none";
     private String inFlightPerspective = "?";
     private long inFlightQueuedNanos;
     private boolean hookSeen;
@@ -412,6 +414,7 @@ public final class WorldCapture {
     private void recordCamera(Minecraft minecraft, long identity) {
         inFlightAnchorSource = "none";
         inFlightMatrixKnown = false;
+        inFlightProjectionSource = "none";
         inFlightNear[0] = Float.NaN;
         inFlightFar[0] = Float.NaN;
 
@@ -424,9 +427,10 @@ public final class WorldCapture {
         }
 
         Camera camera = minecraft.gameRenderer.mainCamera();
+        CameraRenderState state = null;
         if (camera != null) {
             try {
-                CameraRenderState state = new CameraRenderState();
+                state = new CameraRenderState();
                 camera.extractRenderState(state, 1.0f);
                 if (state.initialized && state.pos != null) {
                     inFlightX = (float) state.pos.x;
@@ -437,6 +441,7 @@ public final class WorldCapture {
                     inFlightAnchorSource = "camera-render-state";
                 }
             } catch (RuntimeException | LinkageError problem) {
+                state = null;
                 inFlightAnchorSource = "camera-render-state failed: " + problem;
             }
         }
@@ -453,23 +458,33 @@ public final class WorldCapture {
             inFlightAnchorSource = "player-eye";
         }
 
-        // The projection the renderer actually used, if it can be reached. Read from
-        // the game's own Projection rather than rebuilt from fov, because a rebuilt
-        // one is a guess about near and far that would be indistinguishable from a
-        // measurement in the output.
-        try {
-            var projection = ProjectionAccess.levelProjection(minecraft.gameRenderer);
-            if (projection != null) {
+        // The projection the renderer actually used: the camera's own Projection is
+        // the object whose matrix extractRenderState copied into the render state
+        // above and renderLevel then uploads, configured with the level's near, far
+        // and field of view. Read from there rather than rebuilt from the fov, because
+        // a rebuilt one is a guess about near and far that would be indistinguishable
+        // from a measurement in the output. The previous path through
+        // ProjectionMatrixBuffer.lastUploadedProjection was structurally always null -
+        // the level upload nulls that field on the way in - which is why the metadata
+        // used to record NaN.
+        Projection projection = ProjectionAccess.levelProjection(camera);
+        if (projection != null) {
+            try {
                 inFlightNear[0] = projection.zNear();
                 inFlightFar[0] = projection.zFar();
                 inFlightFov = projection.fov();
-                Matrix4f matrix = projection.getMatrix(new Matrix4f());
+                // Prefer the matrix the render state already holds: calling
+                // projection.getMatrix() first would bump its version and force a
+                // redundant GPU re-upload of a matrix that has not changed.
+                Matrix4f matrix = (state != null && state.projectionMatrix != null)
+                    ? state.projectionMatrix
+                    : projection.getMatrix(new Matrix4f());
                 matrix.get(inFlightMatrix);
                 inFlightMatrixKnown = true;
+                inFlightProjectionSource = "camera-projection";
+            } catch (RuntimeException | LinkageError problem) {
+                inFlightProjectionSource = "camera-projection failed: " + problem;
             }
-        } catch (RuntimeException | LinkageError problem) {
-            inFlightNear[0] = Float.NaN;
-            inFlightFar[0] = Float.NaN;
         }
     }
 
@@ -590,6 +605,9 @@ public final class WorldCapture {
             inFlightXRot, inFlightYRot));
         text.append("perspective=").append(inFlightPerspective).append('\n');
         text.append("handInFrame=").append(handInFrame()).append('\n');
+        // Provenance for the projection, in the same spirit as anchorSource above:
+        // a projection of unknown origin cannot be distinguished from a guessed one.
+        text.append("projectionSource=").append(inFlightProjectionSource).append('\n');
         text.append("fov=").append(inFlightFov).append('\n');
         text.append("zNear=").append(inFlightNear[0]).append('\n');
         text.append("zFar=").append(inFlightFar[0]).append('\n');

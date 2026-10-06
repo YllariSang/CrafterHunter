@@ -6,7 +6,9 @@ Reads ``world-capture.meta``, ``world-depth.f32`` and ``world-colour.png`` writt
 has to satisfy before it can be used for anything:
 
   1. Depth linearises to sensible distances using the projection that was actually
-     recorded with the frame, not a projection rebuilt from the field of view.
+     recorded with the frame, not a projection rebuilt from the field of view, and
+     with the depth convention that recorded matrix implements - standard window
+     depth or reversed-Z - detected against the matrix rather than assumed.
   2. Row order is determined *from the data*. A depth buffer whose rows are upside
      down produces numbers that are individually plausible and a picture that is
      silently mirrored. Rather than assume, this scores which orientation makes
@@ -52,17 +54,25 @@ def as_int(fields, key, default=None):
         return default
 
 
-def linearise(z_window, near, far):
-    """Distance in metres for a window-space depth.
+def linearise(z_window, near, far, convention="standard"):
+    """Distance in metres for a window-space depth, in a stated convention.
 
-    For a standard OpenGL perspective, window depth is 0 at the near plane and 1 at
-    the far plane, and the inverse is d = fn / (f - zw*(f - n)). Checked at both ends:
-    zw=0 gives n, zw=1 gives f.
+    Two conventions exist and the recorded matrix decides which one applies:
 
-    The convention is not assumed silently - ``check_matrix`` re-derives the same
-    numbers from the recorded projection matrix and compares.
+      standard : 0 at the near plane, 1 at the far plane (classic OpenGL),
+                 d = fn / (f - zw*(f - n)). Checked at both ends: zw=0 gives n,
+                 zw=1 gives f.
+      reversed : 1 at the near plane, 0 at the far plane (reversed-Z, which is
+                 what this game's projection was measured to implement),
+                 d = fn / (zw*(f - n) + n). Ends the other way round.
+
+    The convention is never assumed silently: ``detect_convention`` picks it by
+    comparing each form against the recorded projection matrix.
     """
-    denominator = far - z_window * (far - near)
+    if convention == "reversed":
+        denominator = z_window * (far - near) + near
+    else:
+        denominator = far - z_window * (far - near)
     if abs(denominator) < 1e-12:
         return float("inf")
     return near * far / denominator
@@ -90,18 +100,44 @@ def distance_from_matrix(z_window, matrix, near, far):
     return -z_view
 
 
-def check_matrix(matrix, near, far):
-    """The two derivations must agree, or the recorded projection is not what the
-    closed form assumes and every distance below is suspect."""
+def convention_worst(matrix, near, far, convention, samples=(0.0, 0.25, 0.5, 0.75, 0.999)):
+    """Worst relative disagreement between one closed form and the matrix.
+
+    ``distance_from_matrix`` inverts the recorded coefficients directly and assumes
+    no convention, so it is the referee between the two closed forms. None means the
+    matrix has no usable perspective coefficients at all.
+    """
     worst = 0.0
-    for zw in (0.0, 0.25, 0.5, 0.75, 0.999):
-        a = linearise(zw, near, far)
+    for zw in samples:
+        a = linearise(zw, near, far, convention)
         b = distance_from_matrix(zw, matrix, near, far)
         if b is None:
             return None
         scale = max(1.0, abs(a), abs(b))
         worst = max(worst, abs(a - b) / scale)
     return worst
+
+
+def detect_convention(matrix, near, far):
+    """Which closed form the recorded matrix implements, if either.
+
+    A standard projection and a reversed-Z projection are both perfectly good
+    matrices and their depth values are both in [0,1]; the difference is which end
+    means what, and getting it backwards reconstructs near distances as far ones
+    without a single value looking wrong. Trying both forms against the matrix
+    turns that from a silent wrong answer into a reported measurement. Returns
+    ``(convention, worst)`` or ``(None, {convention: worst})`` when neither fits.
+    """
+    worst_by_convention = {}
+    for convention in ("standard", "reversed"):
+        worst = convention_worst(matrix, near, far, convention)
+        if worst is None:
+            return None, {"standard": None, "reversed": None}
+        worst_by_convention[convention] = worst
+    for convention in ("standard", "reversed"):
+        if worst_by_convention[convention] < 1e-3:
+            return convention, worst_by_convention
+    return None, worst_by_convention
 
 
 def load_depth(path, width, height):
@@ -181,20 +217,25 @@ def main():
               "cannot be computed from a matrix\nwhose planes are unknown.")
         return 1
 
-    agreement = check_matrix(matrix, near, far)
-    if agreement is None:
-        print("\nBLOCKED: the recorded matrix has no usable perspective coefficients.")
-        return 1
-    verdict = "agree" if agreement < 1e-3 else "DISAGREE"
+    convention, worst_by_convention = detect_convention(matrix, near, far)
     print(f"\nprojection: near {near} far {far} fov {meta.get('fov')} "
           f"(recorded, not rebuilt)")
-    print(f"            closed form and recorded matrix {verdict} "
-          f"(worst relative {agreement:.2e})")
-    if agreement >= 1e-3:
-        print("            DISAGREEMENT means the assumption behind the closed form")
-        print("            does not hold for this projection, so every distance")
-        print("            below is unreliable. Reported, not smoothed over.")
+    if convention is None:
+        print("            BLOCKED: neither the standard nor the reversed-Z closed")
+        print("            form matches the recorded matrix "
+              f"(worst relative {worst_by_convention}),")
+        print("            so every distance below would be unreliable. Reported,")
+        print("            not smoothed over.")
         return 1
+    names = {
+        "standard": "standard (window 0=near, 1=far)",
+        "reversed": "reversed-Z (window 1=near, 0=far)",
+    }
+    print(f"            convention : {names[convention]}, measured against the")
+    print(f"            recorded matrix (worst relative "
+          f"{worst_by_convention[convention]:.2e});")
+    print(f"            the writer claims depthConvention="
+          f"{meta.get('depthConvention')}")
 
     # ---- does the depth have the shape depth must have
     depth = load_depth(args.depth, width, height)
@@ -231,7 +272,7 @@ def main():
         value = depth[y * width + x]
         if value != value:
             continue
-        d = linearise(value, near, far)
+        d = linearise(value, near, far, convention)
         label = f"({x},{y})"
         print(f"  {label:>12}  {value:10.6f}  {d:12.3f}")
 
@@ -242,7 +283,7 @@ def main():
                   "pixel\ncovering that block, otherwise there is nothing to compare.")
             return 1
         value = depth[args.y * width + args.x]
-        measured = linearise(value, near, far)
+        measured = linearise(value, near, far, convention)
         error = abs(measured - args.known_dist) / max(0.001, args.known_dist)
         print(f"\nknown block at ({args.x},{args.y}):")
         print(f"  stated distance : {args.known_dist:.3f} m")
