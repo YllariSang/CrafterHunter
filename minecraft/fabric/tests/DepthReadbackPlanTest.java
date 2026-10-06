@@ -57,8 +57,41 @@ public final class DepthReadbackPlanTest {
         check(DepthReadbackPlan.glErrorName(1286).equals("GL_INVALID_FRAMEBUFFER_OPERATION"),
             "the error the refused depth read produced");
 
+        // The full pack state the reader sets. Each value is pinned because the
+        // read's correctness depends on all of them being SET, not inherited: a
+        // leftover skip moves the read past the end of a frame-sized buffer, and a
+        // leftover byte-swap reverses every float - both without a GL error.
+        check(DepthReadbackPlan.PACK_SKIP_ROWS == 0, "no rows are skipped on the way in");
+        check(DepthReadbackPlan.PACK_SKIP_PIXELS == 0, "no pixels are skipped on the way in");
+        check(!DepthReadbackPlan.PACK_SWAP_BYTES, "floats are not byte-swapped on the way in");
+        check(!DepthReadbackPlan.PACK_LSB_FIRST, "bit order within a byte is the default");
+        check(DepthReadbackPlan.PACK_ALIGNMENT == 4, "alignment is set, not inherited");
+
+        // The report of an incoming state. All-default reports nothing: the read
+        // assumes the defaults, so defaults are the one case with nothing at risk.
+        check(DepthReadbackPlan.nonDefaultPack(0, 4, 0, 0, false, false).isEmpty(),
+            "the GL default pack state must report as nothing to defend against");
+        // The previous contract (row length + alignment only) would have inherited
+        // all three of these. Each is named, in order, with its value.
+        check(DepthReadbackPlan.nonDefaultPack(0, 4, 5, 7, false, false)
+                .equals("skipRows=5,skipPixels=7"),
+            "a leftover skip must be named, with its exact value");
+        check(DepthReadbackPlan.nonDefaultPack(0, 4, 0, 0, true, false)
+                .equals("swapBytes=true"),
+            "a leftover byte-swap must be named");
+        check(DepthReadbackPlan.nonDefaultPack(17, 1, 0, 0, false, true)
+                .equals("rowLength=17,alignment=1,lsbFirst=true"),
+            "row length, alignment and bit order are reported in that order");
+        // A non-zero previous ROW LENGTH is the default for a reader that never set
+        // one, so it counts as non-default here - and so does the width the reader
+        // itself set, which is why the comparison is stated against defaults.
+        check(DepthReadbackPlan.nonDefaultPack(1908, 4, 0, 0, false, false)
+                .equals("rowLength=1908"),
+            "anything other than the GL default row length is reported");
+
         System.out.println("Depth readback plan checks passed: stride from pack state, capacity "
-            + "excluded, padding detected, row order and status names pinned.");
+            + "excluded, padding detected, row order and status names pinned, pack state "
+            + "guarded and reported.");
     }
 
     private static void check(boolean value, String what) {

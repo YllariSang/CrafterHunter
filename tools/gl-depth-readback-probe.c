@@ -27,20 +27,24 @@
  * (copyTextureToTexture passes the texture as `depth` when hasDepthAspect()), so
  * the omission is specific to the readback path, not to the backend as a whole.
  *
- * Four things are measured rather than argued, because each of them has a wrong
+ * Five things are measured rather than argued, because each of them has a wrong
  * answer that produces a plausible image:
  *
  *   A. the game's own recipe must fail with GL_INVALID_FRAMEBUFFER_OPERATION.
  *      If it ever stops failing, the diagnosis this file records is out of date
  *      and the test says so instead of passing quietly.
  *   B. which read-buffer setting makes a depth-only framebuffer readable, and
- *      whether the values that come back are the ones that were written.
+ *      whether the values that come back are the ones that were written -
+ *      exactly, since 0.25f and 0.75f are both exactly representable.
  *   C. the row contract: rows are width*4 bytes, the first row is the
  *      framebuffer's bottom row, and a larger destination buffer does not change
  *      either. Buffer capacity is not row stride, and a stride that is assumed
  *      instead of measured shears every row after the first.
- *   D. the D32_FLOAT values survive the round trip exactly (0.25f and 0.75f are
- *      both exactly representable, so equality is exact, not approximate).
+ *   D. the pixel-pack state contract: started from a deliberately hostile
+ *      incoming state (skip rows/pixels, byte swap, odd row length and
+ *      alignment), the previous row-length-and-alignment-only contract comes
+ *      back CORRUPTED, while the guarded read returns the written values, stays
+ *      inside the frame, and puts every parameter and binding back.
  *
  * Nothing here writes to a game, a request file, or a shared frame channel.
  *
@@ -523,6 +527,255 @@ static void test_packing(int winner) {
     free(large);
 }
 
+/* Test D: the pixel-pack state contract, started from a state this reader did
+ * not create.
+ *
+ * A read inherits whatever the last writer on the context left behind. Row
+ * length and alignment were always set; skip rows/pixels and byte-swap were
+ * not, and neither announces itself: a leftover skip relocates the data (it is
+ * measured here which side of the transfer it lands on), and a leftover
+ * byte-swap reverses every float's four bytes - all while glGetError reports
+ * nothing. Both destroy every value without raising an error.
+ *
+ * Two reads are measured from the same hostile starting state:
+ *
+ *   D1. the previous contract - row length and alignment only - to show it
+ *       comes back CORRUPTED. This is the regression: if D1 ever comes back
+ *       correct, the hostile state was ignored, or the contract under test no
+ *       longer matches the code, and this test is out of date rather than
+ *       reassuring.
+ *   D2. the current contract - all six pack parameters set and restored, plus
+ *       the read-framebuffer and pixel-pack-buffer bindings - to show the
+ *       written values, nothing written outside the frame, and every parameter
+ *       back where it was found.
+ *
+ * GL_PACK_IMAGE_HEIGHT and GL_PACK_SKIP_IMAGES are hostile here too but are
+ * deliberately NOT part of the guard: if they changed a 2D glReadPixels read,
+ * D2 would come back wrong and the failure below would say so. Their still
+ * holding their hostile values after D2 is the measurement that this read
+ * ignores them - an argument turned into a check.
+ */
+typedef struct {
+    GLint rowLength;
+    GLint alignment;
+    GLint skipRows;
+    GLint skipPixels;
+    GLint swapBytes;
+    GLint lsbFirst;
+    GLint imageHeight;
+    GLint skipImages;
+} PackState;
+
+static void get_pack(PackState *state) {
+    glGetIntegerv(GL_PACK_ROW_LENGTH, &state->rowLength);
+    glGetIntegerv(GL_PACK_ALIGNMENT, &state->alignment);
+    glGetIntegerv(GL_PACK_SKIP_ROWS, &state->skipRows);
+    glGetIntegerv(GL_PACK_SKIP_PIXELS, &state->skipPixels);
+    glGetIntegerv(GL_PACK_SWAP_BYTES, &state->swapBytes);
+    glGetIntegerv(GL_PACK_LSB_FIRST, &state->lsbFirst);
+    glGetIntegerv(GL_PACK_IMAGE_HEIGHT, &state->imageHeight);
+    glGetIntegerv(GL_PACK_SKIP_IMAGES, &state->skipImages);
+}
+
+static void set_pack(const PackState *state) {
+    glPixelStorei(GL_PACK_ROW_LENGTH, state->rowLength);
+    glPixelStorei(GL_PACK_ALIGNMENT, state->alignment);
+    glPixelStorei(GL_PACK_SKIP_ROWS, state->skipRows);
+    glPixelStorei(GL_PACK_SKIP_PIXELS, state->skipPixels);
+    glPixelStorei(GL_PACK_SWAP_BYTES, state->swapBytes);
+    glPixelStorei(GL_PACK_LSB_FIRST, state->lsbFirst);
+    glPixelStorei(GL_PACK_IMAGE_HEIGHT, state->imageHeight);
+    glPixelStorei(GL_PACK_SKIP_IMAGES, state->skipImages);
+}
+
+static int pack_equal(const PackState *left, const PackState *right) {
+    return left->rowLength == right->rowLength && left->alignment == right->alignment
+        && left->skipRows == right->skipRows && left->skipPixels == right->skipPixels
+        && left->swapBytes == right->swapBytes && left->lsbFirst == right->lsbFirst
+        && left->imageHeight == right->imageHeight && left->skipImages == right->skipImages;
+}
+
+/* First offset at or after `from` whose byte differs from `fill`, or capacity
+ * when every byte from `from` on still holds the fill. */
+static size_t first_changed(const unsigned char *data, size_t capacity, size_t from,
+    unsigned char fill) {
+    for (size_t offset = from; offset < capacity; offset++) {
+        if (data[offset] != fill) {
+            return offset;
+        }
+    }
+    return capacity;
+}
+
+/* First offset below `limit` still holding `fill` - a byte the read never wrote
+ * - or `limit` when the whole region was written. */
+static size_t first_untouched(const unsigned char *data, size_t limit, unsigned char fill) {
+    for (size_t offset = 0; offset < limit; offset++) {
+        if (data[offset] == fill) {
+            return offset;
+        }
+    }
+    return limit;
+}
+
+/* The read as DepthReadback issues it: its own read framebuffer, depth on the
+ * depth attachment, the read buffer B measured as working, completeness checked
+ * before anything is issued, and the state it manages saved and put back in the
+ * same order as the Java reader's finally block. fullGuard = 0 reproduces the
+ * contract before the pack state was enumerated (row length and alignment
+ * only); fullGuard = 1 is the current one. */
+static GLenum read_with_pack(unsigned char *destination, int fullGuard, int winner) {
+    GLint previousFramebuffer;
+    GLint previousPackBuffer;
+    glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previousFramebuffer);
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &previousPackBuffer);
+    PackState saved;
+    get_pack(&saved);
+
+    GLuint framebuffer;
+    glGenFramebuffers(1, &framebuffer);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthTexture, 0);
+    glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, 0, 0);
+    if (strcmp(VARIANTS[winner].name, "none") == 0) {
+        glReadBuffer(GL_NONE);
+    } else if (strcmp(VARIANTS[winner].name, "depth-attachment") == 0) {
+        glReadBuffer(GL_DEPTH_ATTACHMENT);
+    }
+
+    GLenum status = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        require(status == GL_FRAMEBUFFER_COMPLETE,
+            "D: read framebuffer is not complete: %s", status_name(status));
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint) previousFramebuffer);
+        glDeleteFramebuffers(1, &framebuffer);
+        return GL_INVALID_FRAMEBUFFER_OPERATION;
+    }
+
+    clear_errors();
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    glPixelStorei(GL_PACK_ROW_LENGTH, W);
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    if (fullGuard) {
+        glPixelStorei(GL_PACK_SKIP_ROWS, 0);
+        glPixelStorei(GL_PACK_SKIP_PIXELS, 0);
+        glPixelStorei(GL_PACK_SWAP_BYTES, GL_FALSE);
+        glPixelStorei(GL_PACK_LSB_FIRST, GL_FALSE);
+    }
+    glReadPixels(0, 0, W, H, GL_DEPTH_COMPONENT, GL_FLOAT, destination);
+    GLenum error = glGetError();
+
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, (GLuint) previousPackBuffer);
+    glPixelStorei(GL_PACK_ROW_LENGTH, saved.rowLength);
+    glPixelStorei(GL_PACK_ALIGNMENT, saved.alignment);
+    if (fullGuard) {
+        glPixelStorei(GL_PACK_SKIP_ROWS, saved.skipRows);
+        glPixelStorei(GL_PACK_SKIP_PIXELS, saved.skipPixels);
+        glPixelStorei(GL_PACK_SWAP_BYTES, saved.swapBytes);
+        glPixelStorei(GL_PACK_LSB_FIRST, saved.lsbFirst);
+    }
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, (GLuint) previousFramebuffer);
+    glDeleteFramebuffers(1, &framebuffer);
+    return error;
+}
+
+static void test_pack_state(int winner) {
+    printf("D. pixel-pack state (hostile incoming: rowLength=17 alignment=1 skip=5,7 swap=on)\n");
+
+    size_t capacity = BYTES + SENTINEL;
+    unsigned char *destination = malloc(capacity);
+    if (destination == NULL) {
+        fail("out of memory");
+        return;
+    }
+
+    PackState ambient;
+    get_pack(&ambient);
+
+    /* Deliberately non-default, as another reader on the same context could have
+     * left it. Each value is chosen so that ignoring it is observable. */
+    const PackState hostile = {17, 1, 5, 7, GL_TRUE, GL_TRUE, 3, 2};
+    clear_errors();
+    set_pack(&hostile);
+    GLenum setupError = glGetError();
+    require(setupError == GL_NO_ERROR, "setting the hostile pack state raised %s",
+        error_name(setupError));
+    PackState recorded;
+    get_pack(&recorded);
+    require(pack_equal(&recorded, &hostile),
+        "the driver did not record the hostile pack state (got rowLength=%d alignment=%d "
+        "skip=%d,%d swap=%d lsb=%d image=%d/%d)",
+        recorded.rowLength, recorded.alignment, recorded.skipRows, recorded.skipPixels,
+        recorded.swapBytes, recorded.lsbFirst, recorded.imageHeight, recorded.skipImages);
+
+    /* D1: the contract as it stood before the pack state was enumerated. */
+    memset(destination, 0xCD, capacity);
+    GLenum oldError = read_with_pack(destination, 0, winner);
+    require(oldError == GL_NO_ERROR,
+        "the old contract read failed with %s - corruption needs a read that reports success",
+        error_name(oldError));
+    int oldCorrect = oldError == GL_NO_ERROR
+        && values_are_the_written_ones((const float *) destination, NULL);
+    size_t pastFrame = first_changed(destination, capacity, BYTES, 0xCD);
+    size_t unwritten = first_untouched(destination, BYTES, 0xCD);
+    require(!oldCorrect,
+        "the old row-length-and-alignment-only contract came back CORRECT under a hostile pack "
+        "state, so this regression no longer exposes the bug it exists to expose");
+    require(pastFrame < capacity || unwritten < BYTES,
+        "the hostile skip left no trace: every byte in and past the frame was written cleanly");
+    printf("  old contract: values %s, %s\n",
+        oldCorrect ? "correct" : "corrupted",
+        pastFrame < capacity
+            ? "data written past the end of the frame"
+            : "frame left partly unwritten (the skip lands in the source)");
+
+    /* D2: bindings whose restoration has to be observable - restoring zero to
+     * zero proves nothing. */
+    GLuint dummyFbo;
+    GLuint dummyPbo;
+    glGenFramebuffers(1, &dummyFbo);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, dummyFbo);
+    glGenBuffers(1, &dummyPbo);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, dummyPbo);
+
+    memset(destination, 0xCD, capacity);
+    GLenum guardedError = read_with_pack(destination, 1, winner);
+    require(guardedError == GL_NO_ERROR, "the guarded read failed with %s",
+        error_name(guardedError));
+
+    if (guardedError == GL_NO_ERROR) {
+        require(values_are_the_written_ones((const float *) destination, NULL),
+            "the guarded read did not return the written values from a hostile pack state");
+        size_t guardedPast = first_changed(destination, capacity, BYTES, 0xCD);
+        require(guardedPast == capacity,
+            "the guarded read wrote past the frame, first at offset %zu of a %u-byte frame",
+            guardedPast, (unsigned) BYTES);
+        PackState after;
+        get_pack(&after);
+        require(pack_equal(&after, &hostile),
+            "the guarded read did not restore the pack state (rowLength=%d alignment=%d "
+            "skip=%d,%d swap=%d lsb=%d image=%d/%d)",
+            after.rowLength, after.alignment, after.skipRows, after.skipPixels,
+            after.swapBytes, after.lsbFirst, after.imageHeight, after.skipImages);
+        GLint boundFbo = 0;
+        GLint boundPbo = 0;
+        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &boundFbo);
+        glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &boundPbo);
+        require(boundFbo == (GLint) dummyFbo && boundPbo == (GLint) dummyPbo,
+            "the guarded read did not restore the bindings (readFbo=%d packBuffer=%d, expected "
+            "%d and %d)", boundFbo, boundPbo, dummyFbo, dummyPbo);
+    }
+
+    set_pack(&ambient);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+    glDeleteBuffers(1, &dummyPbo);
+    glDeleteFramebuffers(1, &dummyFbo);
+    free(destination);
+    printf("  guarded read: values correct, nothing written outside the frame, all eight pack "
+           "parameters and both bindings restored\n");
+}
+
 int main(void) {
     printf("gl-depth-readback-probe\n");
 
@@ -547,8 +800,10 @@ int main(void) {
 
     if (haveWinner) {
         test_packing(winner);
+        test_pack_state(winner);
     } else {
         printf("C. row contract: skipped, no readback recipe produced values\n");
+        printf("D. pack-state contract: skipped for the same reason\n");
     }
 
     if (failures > 0) {
@@ -556,6 +811,7 @@ int main(void) {
         return 1;
     }
     printf("Depth readback checks passed: the game's recipe is refused, the corrected "
-           "recipe returns the written values, rows are packed tight and bottom-up.\n");
+           "recipe returns the written values, rows are packed tight and bottom-up, and a "
+           "hostile pack state is guarded, bounded and restored.\n");
     return 0;
 }

@@ -64,9 +64,11 @@ public final class DepthReadback {
      * is deleted before returning, so nothing keeps a handle on the game's depth
      * texture - which the game may reallocate on the next resize. Every piece of
      * global GL state touched (the read framebuffer binding, the pixel-pack buffer
-     * binding, and both pack parameters) is read first and put back, because the
-     * game's own encoder caches the framebuffer binding and a stale cache would make
-     * it skip a bind it believes it has already done.
+     * binding, and all six pack parameters the read depends on) is read first and
+     * put back, because the game's own encoder caches the framebuffer binding and a
+     * stale cache would make it skip a bind it believes it has already done - and
+     * because a pack state left changed is a defect that surfaces in some later,
+     * unrelated read rather than in this one.
      *
      * @param completion runs when the GPU has finished writing the buffer, not when
      *                   the call returns
@@ -95,6 +97,16 @@ public final class DepthReadback {
         int previousPackBuffer = GL11C.glGetInteger(GL21.GL_PIXEL_PACK_BUFFER_BINDING);
         int previousRowLength = GL11C.glGetInteger(GL11.GL_PACK_ROW_LENGTH);
         int previousAlignment = GL11C.glGetInteger(GL11.GL_PACK_ALIGNMENT);
+        int previousSkipRows = GL11C.glGetInteger(GL11.GL_PACK_SKIP_ROWS);
+        int previousSkipPixels = GL11C.glGetInteger(GL11.GL_PACK_SKIP_PIXELS);
+        int previousSwapBytes = GL11C.glGetInteger(GL11.GL_PACK_SWAP_BYTES);
+        int previousLsbFirst = GL11C.glGetInteger(GL11.GL_PACK_LSB_FIRST);
+        // What the read would have inherited. Reported in the metadata even when it
+        // is about to be overwritten, because "the read succeeded" and "the read
+        // succeeded despite a hostile pack state" are different findings, and only
+        // one of them is recorded if the difference is noticed after the fact.
+        String observedPack = DepthReadbackPlan.nonDefaultPack(previousRowLength, previousAlignment,
+            previousSkipRows, previousSkipPixels, previousSwapBytes != 0, previousLsbFirst != 0);
 
         int framebuffer = 0;
         try {
@@ -120,8 +132,21 @@ public final class DepthReadback {
 
             GlStateManager.clearGlErrors();
             GlStateManager._glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, target.handle());
+            // The whole pack state, not just the two parameters the arithmetic uses.
+            // Setting row length and alignment alone leaves a previous writer's skip
+            // and byte-swap in force: skip moves the read past the end of a buffer
+            // sized exactly to the frame, and byte-swap silently reverses every
+            // float. Neither raises an error; both destroy every value. Measured in
+            // tools/test-depth-readback.sh section D, which starts from that state
+            // and shows this read come back correct and in bounds.
             GlStateManager._pixelStore(GL11.GL_PACK_ROW_LENGTH, width);
             GlStateManager._pixelStore(GL11.GL_PACK_ALIGNMENT, DepthReadbackPlan.PACK_ALIGNMENT);
+            GlStateManager._pixelStore(GL11.GL_PACK_SKIP_ROWS, DepthReadbackPlan.PACK_SKIP_ROWS);
+            GlStateManager._pixelStore(GL11.GL_PACK_SKIP_PIXELS, DepthReadbackPlan.PACK_SKIP_PIXELS);
+            GlStateManager._pixelStore(GL11.GL_PACK_SWAP_BYTES,
+                DepthReadbackPlan.PACK_SWAP_BYTES ? 1 : 0);
+            GlStateManager._pixelStore(GL11.GL_PACK_LSB_FIRST,
+                DepthReadbackPlan.PACK_LSB_FIRST ? 1 : 0);
             GlStateManager._readPixels(0, 0, width, height, GL11.GL_DEPTH_COMPONENT, GL11.GL_FLOAT, 0L);
             int error = GlStateManager._getError();
             if (error != 0) {
@@ -137,11 +162,16 @@ public final class DepthReadback {
             return new Result(true, "complete format=" + source.getFormat() + " " + width + "x"
                 + height + " rowStride=" + DepthReadbackPlan.rowStrideBytes(width)
                 + " rowsPadded=" + DepthReadbackPlan.rowsPadded(width, width,
-                    DepthReadbackPlan.PACK_ALIGNMENT));
+                    DepthReadbackPlan.PACK_ALIGNMENT)
+                + " packNonDefault=" + (observedPack.isEmpty() ? "none" : observedPack));
         } finally {
             GlStateManager._glBindBuffer(GL21.GL_PIXEL_PACK_BUFFER, previousPackBuffer);
             GlStateManager._pixelStore(GL11.GL_PACK_ROW_LENGTH, previousRowLength);
             GlStateManager._pixelStore(GL11.GL_PACK_ALIGNMENT, previousAlignment);
+            GlStateManager._pixelStore(GL11.GL_PACK_SKIP_ROWS, previousSkipRows);
+            GlStateManager._pixelStore(GL11.GL_PACK_SKIP_PIXELS, previousSkipPixels);
+            GlStateManager._pixelStore(GL11.GL_PACK_SWAP_BYTES, previousSwapBytes);
+            GlStateManager._pixelStore(GL11.GL_PACK_LSB_FIRST, previousLsbFirst);
             GlStateManager._glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, previousFramebuffer);
             if (framebuffer != 0) {
                 GlStateManager._glDeleteFramebuffers(framebuffer);

@@ -556,6 +556,12 @@ public final class WorldCapture {
         // not evidence about stride - see DepthReadbackPlan.
         text.append("depthPackRowLength=").append(width).append('\n');
         text.append("depthPackAlignment=").append(DepthReadbackPlan.PACK_ALIGNMENT).append('\n');
+        // The rest of the pack state the reader sets rather than inherits, stated
+        // where a validator can compare it against what the read actually wrote.
+        text.append("depthPackSkipRows=").append(DepthReadbackPlan.PACK_SKIP_ROWS).append('\n');
+        text.append("depthPackSkipPixels=").append(DepthReadbackPlan.PACK_SKIP_PIXELS).append('\n');
+        text.append("depthPackSwapBytes=").append(DepthReadbackPlan.PACK_SWAP_BYTES).append('\n');
+        text.append("depthPackLsbFirst=").append(DepthReadbackPlan.PACK_LSB_FIRST).append('\n');
         text.append("depthRowStrideBytes=")
             .append(DepthReadbackPlan.rowStrideBytes(width)).append('\n');
         text.append("depthWrittenBytes=")
@@ -570,6 +576,11 @@ public final class WorldCapture {
         // distinct top and bottom bands and reports which comes back first. GL's read
         // origin is the framebuffer's bottom left, so row 0 is the bottom row.
         text.append("depthRowOrder=").append(DepthReadbackPlan.rowOrder()).append('\n');
+        // The colour half is read through the same GL read origin, so the two raw
+        // buffers share a row order - that is what makes them comparable at all.
+        // The PNG is flipped to display order when written and this line is not
+        // about it; the live gate checks both against the window screenshot.
+        text.append("colourRowOrder=bottom-up").append('\n');
         text.append("depthConvention=").append(DepthReadbackPlan.depthConvention()).append('\n');
         text.append("depthRead=").append(depthReadDetail).append('\n');
         text.append("anchorSource=").append(inFlightAnchorSource).append('\n');
@@ -578,6 +589,7 @@ public final class WorldCapture {
         text.append(String.format(Locale.ROOT, "anchorRot=%.3f %.3f%n",
             inFlightXRot, inFlightYRot));
         text.append("perspective=").append(inFlightPerspective).append('\n');
+        text.append("handInFrame=").append(handInFrame()).append('\n');
         text.append("fov=").append(inFlightFov).append('\n');
         text.append("zNear=").append(inFlightNear[0]).append('\n');
         text.append("zFar=").append(inFlightFar[0]).append('\n');
@@ -722,11 +734,37 @@ public final class WorldCapture {
         }
     }
 
+    /**
+     * Whether the first-person hand is inside this capture, stated rather than
+     * left to the reader.
+     *
+     * <p>{@code renderItemInHand} is called from inside the level pass, so at the
+     * world-render hook the hand has <b>already been drawn</b> for a first-person
+     * camera: excluding the HUD does not exclude the hand, and a capture measured
+     * as "world only" while holding an item would be measuring the item too. This
+     * is derived from the recorded perspective and the hook's position in the
+     * frame, not from inspecting pixels.
+     */
+    private String handInFrame() {
+        return switch (inFlightPerspective) {
+            case "FIRST_PERSON" -> "included: renderItemInHand runs inside renderLevel";
+            case "THIRD_PERSON_BACK", "THIRD_PERSON_FRONT" ->
+                "excluded: a third-person camera draws no first-person hand";
+            default -> "unknown: perspective is " + inFlightPerspective;
+        };
+    }
+
     private void writePng(byte[] colour, int width, int height) throws IOException {
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+        // GL rows arrive bottom-up - row 0 is the framebuffer's BOTTOM row, pinned
+        // by tools/test-depth-readback.sh - while a PNG's row 0 is its top. The raw
+        // .rgba keeps GL order (it must agree with the depth buffer, which has the
+        // same origin); this PNG is the file meant for looking at, so it is flipped
+        // to display order here and only here.
         for (int y = 0; y < height; y++) {
+            int sourceRow = height - 1 - y;
             for (int x = 0; x < width; x++) {
-                int offset = (y * width + x) * 4;
+                int offset = (sourceRow * width + x) * 4;
                 image.setRGB(x, y, ((colour[offset] & 0xFF) << 16)
                     | ((colour[offset + 1] & 0xFF) << 8) | (colour[offset + 2] & 0xFF));
             }

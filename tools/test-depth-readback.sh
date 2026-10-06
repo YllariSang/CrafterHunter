@@ -3,9 +3,11 @@
 # GL driver, and measures the recipe that reads depth correctly.
 #
 # The game is not involved and no request file is touched: the probe creates its
-# own EGL context, writes a known depth pattern, and then asks both questions
-# the capture path has to answer - does the backend's own recipe come back with
-# GL_INVALID_FRAMEBUFFER_OPERATION, and what does a correct read look like?
+# own EGL context, writes a known depth pattern, and then asks the questions the
+# capture path has to answer - does the backend's own recipe come back with
+# GL_INVALID_FRAMEBUFFER_OPERATION, what does a correct read look like, how are
+# the rows packed, and what happens when the incoming pixel-pack state is
+# deliberately hostile (skip rows/pixels, byte swap) and must be restored.
 #
 # It runs twice: once on whatever GL vendor the machine hands out, and once with
 # the vendor Minecraft itself logs, because a readback diagnosis measured on the

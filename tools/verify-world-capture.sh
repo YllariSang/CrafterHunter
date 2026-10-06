@@ -28,6 +28,11 @@
 # It never touches the live frame channel. This capture writes its own files, and
 # deleting a channel the renderer is using would be sabotage, not a reset.
 #
+# Each run archives everything it sees - the previous run's leftovers first,
+# then each publish the moment it lands - into out/archive/<UTC stamp>/, because
+# the live meta and summary are single files that the next request claims, and a
+# later failure must be unable to overwrite an earlier success.
+#
 # Usage: tools/verify-world-capture.sh
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -40,6 +45,36 @@ meta="$out/world-capture.meta"
 log="$HOME/.minecraft/logs/latest.log"
 
 fail() { printf 'FAIL: %s\n' "$1"; exit 1; }
+
+# Every artifact this run produces is copied into a fresh directory before
+# anything is deleted or overwritten, so a later failure cannot erase an earlier
+# success - the live files are claimed by the mod and reused on every request,
+# which is exactly why they must not be the only copy of a passing result.
+stamp=$(date -u +%Y%m%dT%H%M%SZ)
+archive="$out/archive/$stamp"
+mkdir -p "$archive"
+
+close_archive() {
+  [ -d "$archive" ] || return 0
+  cp -f "$summary" "$archive/world-capture.txt" 2>/dev/null || true
+  [ -f "$meta" ] && cp -f "$meta" "$archive/last-world-capture.meta" 2>/dev/null
+  {
+    printf 'run %s\n' "$stamp"
+    grep -a -E "glReadPixels|OpenGL debug message|CrafterHunter\]" "$log" 2>/dev/null | tail -60
+  } > "$archive/opengl-and-mod.log"
+  printf '\nartifacts archived: %s\n' "$archive"
+}
+trap close_archive EXIT
+
+# What earlier runs left behind is evidence too, and the first request below
+# deletes the meta file before the mod writes a new one. Archive it now.
+if [ -f "$meta" ] || [ -f "$summary" ]; then
+  mkdir -p "$archive/preexisting"
+  for stale in "$meta" "$summary" "$out/world-depth.f32" "$out/world-colour.rgba" \
+      "$out/world-colour.png"; do
+    [ -f "$stale" ] && cp -f "$stale" "$archive/preexisting/"
+  done
+fi
 
 [ -f "$summary" ] || fail "no summary at $summary"
 grep -q 'hookSeen=true' "$summary" \
@@ -91,6 +126,25 @@ run_mode() {
   printf '           %s\n' "$(grep -E '^(depthMin|depthMax|colourNonZero|depthStats)=' "$meta" | tr '\n' ' ')"
   [ "$gl_new" -gt 0 ] && printf '           driver said: %s\n' \
     "$(grep -a 'glReadPixels' "$log" | tail -1 | sed 's/.*message=//' | cut -c1-90)"
+
+  # Copy this publish out of the live files immediately: the next mode's first
+  # request deletes the meta, and a mode that fails must not take this result
+  # with it. The files copied are the ones this mode actually wrote - filing a
+  # stale depth buffer under a colour run would be evidence about nothing.
+  mkdir -p "$archive/$label"
+  cp -f "$meta" "$archive/$label/"
+  cp -f "$summary" "$archive/$label/world-capture.txt"
+  local written artifact
+  case "$verb" in
+    colour)  written="$out/world-colour.rgba $out/world-colour.png" ;;
+    depth)   written="$out/world-depth.f32" ;;
+    capture) written="$out/world-depth.f32 $out/world-colour.rgba $out/world-colour.png" ;;
+    *)       written="" ;;
+  esac
+  for artifact in $written; do
+    [ -f "$artifact" ] && cp -f "$artifact" "$archive/$label/"
+  done
+  printf '           archived to %s\n' "$archive/$label"
   return 0
 }
 

@@ -2146,3 +2146,59 @@ capture — that needs both games running. The fail-closed policy (permanent dis
 after timeout or setup failure, buffers retained) is unchanged; what changed is that
 the refusal now arrives as an exception on a path that checks its own framebuffer
 first, so the cause is named instead of inferred.
+
+## 2026-10-06 — the pack state the read inherits, enumerated instead of assumed
+
+The depth read set two pixel-pack parameters (row length, alignment) and left the
+rest to whatever the context already held. Two of the untouched ones are silent:
+a leftover `GL_PACK_SKIP_ROWS`/`GL_PACK_SKIP_PIXELS` moves the read deeper into the
+destination — past the end of a buffer sized exactly to the frame — and a leftover
+`GL_PACK_SWAP_BYTES` byte-reverses every float on the way in. Neither raises a GL
+error; both destroy every value. The incoming state is now read first, reported as
+`packNonDefault=` in the capture metadata, set to explicit values (skip 0, no swap,
+no lsb-first, alignment 4, row length = width), and put back in the `finally` block
+alongside the framebuffer and pack-buffer bindings. `DepthReadbackPlan.nonDefaultPack`
+is the pure, tested half: it names each deviation from the GL defaults, in order,
+with its value.
+
+`tools/gl-depth-readback-probe.c` grew a section that starts from a deliberately
+hostile pack state (`rowLength=17 alignment=1 skip=5,7 swap=on lsb=on image=3/2`),
+then measures both contracts from it: the old row-length-and-alignment-only read
+comes back **corrupted** — values wrong and data written past the end of the frame,
+which is the regression this test exists to expose — while the guarded read returns
+the written values exactly, writes nothing outside the frame, and restores all eight
+pack parameters plus both bindings (verified against recorded hostile values and a
+dummy FBO/PBO, since restoring zero to zero proves nothing). The two image parameters
+are hostile too but deliberately not guarded: if they affected a 2D `glReadPixels`,
+the guarded read would fail — so their surviving untouched is the measurement that
+they are ignored.
+
+`WorldCapture` metadata additionally records `colourRowOrder=bottom-up` (same GL read
+origin as depth, so the two raw buffers are comparable) and `handInFrame=` derived
+from the recorded perspective — the first-person hand is drawn *inside* `renderLevel`,
+so excluding the HUD does not exclude the hand. The evidence PNG is now flipped to
+display order (the probe proved row 0 is the framebuffer's bottom row); the raw
+`.rgba` keeps GL order to stay in agreement with the depth buffer.
+
+`tools/verify-world-capture.sh` now archives every run under
+`out/archive/<UTC stamp>/`: the previous run's leftovers are copied before the first
+request deletes the meta, each publish is copied the moment it lands (only the files
+that mode actually wrote), and the run's GL/mod log lines are captured on exit — so
+a later failure cannot overwrite an earlier success.
+
+Verified headless: `bash tools/test-depth-readback.sh` (both drivers: NVIDIA RTX 2050
+and Mesa AMD Radeon 660M, section D passing on each), `bash tools/test-fabric-frame.sh`
+(pack-state assertions included), Fabric `./gradlew build`, `bash -n` on the gate
+script. Deployed: `~/.minecraft/mods/crafterhunter-fabric-0.3.0.jar` is byte-identical
+to the build (`sha256 9a0c2d53…d4cd9d159`, `cmp` clean); the previous jar is preserved
+in `~/.minecraft/crafterhunter/old-mods/`.
+
+Not verified — the live gate itself. One launch attempt (reconstructed from the
+SKLauncher logs) brought the game up in-world but *without Fabric*: no
+"Loading … with Fabric Loader" line, no CrafterHunter output, frame hook never fired;
+the instance exited cleanly and its log is kept at
+`/tmp/opencode/my-launch-logs/latest.log`. The launcher's injection evidently only
+works under the launcher, so the live capture (colour-only, depth-only, paired, one
+block at known distances, camera sync LIVE, screenshots) is handed to the user to run
+with both games. Unchanged: the fail-closed retention policy, the shared-memory
+transport, and the MHW compositor.

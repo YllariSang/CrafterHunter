@@ -32,7 +32,86 @@ public final class DepthReadbackPlan {
      */
     public static final int PACK_ALIGNMENT = 4;
 
+    /**
+     * The pixel-pack state this reader sets before reading, and the GL defaults it
+     * must restore after.
+     *
+     * <p>Every value below is set, not inherited. Row length and alignment were
+     * always set; the rest were discovered to be just as load-bearing: a leftover
+     * {@code GL_PACK_SKIP_ROWS/SKIP_PIXELS} moves the whole read deeper into the
+     * destination - past the end of a buffer sized exactly to the frame - and a
+     * leftover {@code GL_PACK_SWAP_BYTES} byte-swaps every float on the way in.
+     * Neither changes a single GL error code; both change every number. The
+     * incoming state is therefore read first, reported in the metadata, set to
+     * these values, and put back afterwards - see {@link #nonDefaultPack}.
+     *
+     * <p>Measured, not reasoned: {@code tools/test-depth-readback.sh} section D
+     * starts from a deliberately hostile pack state, shows this reader's previous
+     * two-parameter contract corrupted by it, and then shows the guarded read come
+     * back correct, in bounds, with every parameter restored.
+     */
+    public static final int PACK_SKIP_ROWS = 0;
+
+    /** See {@link #PACK_SKIP_ROWS}; a leftover skip shifts the read by texels. */
+    public static final int PACK_SKIP_PIXELS = 0;
+
+    /** See {@link #PACK_SKIP_ROWS}; byte-swapped floats are wrong, not errored. */
+    public static final boolean PACK_SWAP_BYTES = false;
+
+    /**
+     * Bit order within a byte. Ignored by a {@code GL_FLOAT} read, but set anyway
+     * so the read runs in a fully known state rather than in whatever the last
+     * writer of this context happened to leave.
+     */
+    public static final boolean PACK_LSB_FIRST = false;
+
     private DepthReadbackPlan() {
+    }
+
+    /**
+     * Reports the incoming pixel-pack state wherever it differs from GL's
+     * defaults.
+     *
+     * <p>An empty string means the state was already at its defaults - which is
+     * the only state the read's own arithmetic assumes, so nothing was at risk.
+     * Anything else is what the read would have inherited had it set only row
+     * length and alignment, and it is quoted in the capture metadata: a refusal to
+     * publish says the read failed, while this says what it was protected against.
+     *
+     * <p>The comparison is against the <b>defaults</b>, not against the values
+     * this reader sets: the previous row length is 0 (default) rather than the
+     * width in normal operation, and flagging that every frame would bury the one
+     * frame where something else was actually wrong.
+     */
+    public static String nonDefaultPack(int rowLength, int alignment, int skipRows, int skipPixels,
+            boolean swapBytes, boolean lsbFirst) {
+        StringBuilder reported = new StringBuilder();
+        if (rowLength != 0) {
+            append(reported, "rowLength", rowLength);
+        }
+        if (alignment != 4) {
+            append(reported, "alignment", alignment);
+        }
+        if (skipRows != PACK_SKIP_ROWS) {
+            append(reported, "skipRows", skipRows);
+        }
+        if (skipPixels != PACK_SKIP_PIXELS) {
+            append(reported, "skipPixels", skipPixels);
+        }
+        if (swapBytes != PACK_SWAP_BYTES) {
+            append(reported, "swapBytes", swapBytes);
+        }
+        if (lsbFirst != PACK_LSB_FIRST) {
+            append(reported, "lsbFirst", lsbFirst);
+        }
+        return reported.length() == 0 ? "" : reported.toString();
+    }
+
+    private static void append(StringBuilder reported, String name, Object value) {
+        if (reported.length() > 0) {
+            reported.append(',');
+        }
+        reported.append(name).append('=').append(value);
     }
 
     /**
