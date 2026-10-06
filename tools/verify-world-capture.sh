@@ -9,12 +9,18 @@
 #   * "depth" asks for the depth attachment alone, at the same hook.
 #   * "capture" asks for both.
 #
-# Asking them separately is not tidiness. A refused copy raises nothing in Java, and
-# the first live run produced exactly one driver error line and no publish, which is
-# equally consistent with "the depth copy was refused" and "both copies were refused
-# at a hook where no framebuffer is bound". Those need different fixes, and guessing
-# between them is how the wrong thing gets fixed. The colour-only run settles it: if
-# colour works at this hook, the hook is fine and depth is the specific problem.
+# Asking them separately is not tidiness. A refused copy is easy to misattribute,
+# and the first live run produced exactly one driver error line and no publish,
+# which is equally consistent with "the depth copy was refused" and "both copies
+# were refused at a hook where no framebuffer is bound". Those need different
+# fixes, and guessing between them is how the wrong thing gets fixed. The
+# colour-only run settles it: if colour works at this hook, the hook is fine and
+# depth is the specific problem. That is in fact what the first run showed, and
+# the cause is now measured rather than argued - GlCommandEncoder attaches the
+# source texture to GL_COLOR_ATTACHMENT0, a D32_FLOAT image is not colour
+# renderable, and the framebuffer is incomplete. See
+# tools/test-depth-readback.sh, which reproduces that refusal and the recipe
+# that replaces it (DepthReadback) on this machine's drivers.
 #
 # A mode that produces no publish is reported as "refused or stalled", with the
 # driver's own GL error quoted if there is one. It is not reported as a pass.
@@ -97,9 +103,10 @@ run_mode capture PAIRED; paired_ok=$?
 printf '\n=== what that establishes ===\n'
 if [ "$colour_ok" -ne 0 ] && [ "$depth_ok" -ne 0 ]; then
   printf 'Neither attachment publishes at the world-render hook, so the problem is the\n'
-  printf 'hook rather than either format: most likely no framebuffer is bound for\n'
+  printf 'hook rather than either format: most likely no framebuffer is complete for\n'
   printf 'reading there, and both glReadPixels calls are refused.\n'
-  printf 'A refused copy raises nothing in Java, which is why this had to be measured.\n'
+  printf 'The backend does throw on a refused copy (IllegalStateException after queueing\n'
+  printf 'the fence task); that refusal is what disables capture fail-closed above.\n'
   exit 1
 fi
 if [ "$colour_ok" -ne 0 ] && [ "$depth_ok" -eq 0 ]; then
@@ -109,10 +116,13 @@ fi
 if [ "$colour_ok" -eq 0 ] && [ "$depth_ok" -ne 0 ]; then
   printf 'Colour publishes from the world-render hook and depth does not.\n'
   printf 'So the hook point is sound, the target is readable, and the failure is\n'
-  printf 'specific to reading the D32_FLOAT depth attachment. The GL backend has no\n'
-  printf 'format guard, so it forwards the copy to glReadPixels, and the driver\n'
-  printf 'refuses it. This is the exact risk: an accessible depth texture is not a\n'
-  printf 'depth texture whose format the existing readback method supports.\n'
+  printf 'specific to the depth half. Depth is no longer handed to the game copy path\n'
+  printf '(which attaches a depth image to GL_COLOR_ATTACHMENT0 and gets refused); it\n'
+  printf 'goes through DepthReadback, which attaches it to GL_DEPTH_ATTACHMENT and\n'
+  printf 'checks framebuffer completeness before reading. So one of three things is\n'
+  printf 'being reported above: the framebuffer was not complete, glReadPixels returned\n'
+  printf 'an error, or the half never landed. The status line quotes which, and\n'
+  printf 'tools/test-depth-readback.sh says whether this driver accepts the recipe.\n'
   printf '\nPaired capture is therefore NOT achieved, and the transport extension is\n'
   printf 'not started - there is no second attachment to carry yet.\n'
   exit 1

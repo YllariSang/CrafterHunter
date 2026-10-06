@@ -2104,3 +2104,45 @@ Verified: tools/test-fabric-frame.sh (including new completion checks), Fabric
 `./gradlew build`, and Git diff whitespace check. No games launched, no deployment,
 no runtime tests. GPU completion still does not establish valid copied pixels;
 D32_FLOAT readback, row layout and paired depth acceptance remain unresolved.
+
+# 2026-10-06 — the D32 readback refusal, measured instead of argued
+
+The live log line that stopped every depth attempt was `GL_INVALID_FRAMEBUFFER_OPERATION
+in glReadPixels(incomplete framebuffer)` at 04:18:57. Which recipe produced it was
+settled against the deobfuscated 26.2 jar, not guessed: `GlCommandEncoder.
+copyTextureToBuffer` binds the source with `bindFrameBufferTextures(readFbo, texture, 0,
+mipLevel, GL_READ_FRAMEBUFFER)`, which puts the image on `GL_COLOR_ATTACHMENT0` and 0
+in the depth slot. A D32_FLOAT image on a colour attachment makes the FBO incomplete,
+`glReadPixels` is refused with 1286, and the backend then throws
+`IllegalStateException("Couldn't perform copyTobuffer ...: GL error 1286")` *after*
+`queueFencedTask` — so an earlier comment claim that a refused copy "raises nothing in
+Java" was wrong and the comment is corrected where it survived.
+
+`tools/gl-depth-readback-probe.c` (run by `tools/test-depth-readback.sh`) answers with
+a real driver instead of a build. On both vendors available here — the default NVIDIA
+RTX 2050 and, forced through glvnd, the AMD Radeon 660M / Mesa 26.2.4 that Minecraft
+itself logs — the game's recipe gives `GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT` plus
+`GL_INVALID_FRAMEBUFFER_OPERATION`, while the corrected recipe (depth on
+`GL_DEPTH_ATTACHMENT`, `glReadBuffer(GL_NONE)`, completeness checked before reading)
+returns the written values exactly. The same probe pins the row contract the capture
+metadata had wrong: rows are tight `width*4` bytes, row 0 is the framebuffer's *bottom*
+row, and a 4x larger destination changes neither — so capacity is not stride, and the
+old `depthRowsPadded = capacity > width*height*4` could only ever be false because the
+buffers are allocated exactly `width*height*4`. `glReadBuffer(GL_DEPTH_ATTACHMENT)` is
+`GL_INVALID_ENUM`; `glGetTexImage` works as a fallback.
+
+Consequently the depth half leaves the shared copy path: new `DepthReadback` (GL state
+saved and restored around `GlStateManager`'s cached framebuffer bindings, completion
+queued behind the fence, fail-closed on refusal) driven by the pure contract in
+`DepthReadbackPlan`, with `DepthReadbackPlanTest` pinning row stride, written bytes,
+row order (`bottom-up`), and depth convention (`gl-window-depth`, never compared
+directly to MHW reversed-Z). `WorldCapture` metadata now reports pack row length,
+pack alignment, row stride, written bytes, capacity *as capacity*, rows padded, row
+order, convention, and the read status/error name.
+
+Verified headless: `bash tools/test-depth-readback.sh` (both drivers),
+`bash tools/test-fabric-frame.sh`, Fabric `./gradlew build`. Not verified: any live
+capture — that needs both games running. The fail-closed policy (permanent disable
+after timeout or setup failure, buffers retained) is unchanged; what changed is that
+the refusal now arrives as an exception on a path that checks its own framebuffer
+first, so the cause is named instead of inferred.

@@ -31,13 +31,22 @@ import org.joml.Matrix4f;
  *
  * <p>Two things make this harder than copying another texture.
  *
- * <p><b>The depth attachment may not be readable at all.</b> Having a depth texture is
- * not the same as being able to copy it to a buffer; plenty of graphics APIs refuse
- * exactly that. Minecraft 26.2 allocates its main target's depth as
- * {@code GpuFormat.D32_FLOAT}, and the OpenGL backend's {@code copyTextureToBuffer}
- * passes whatever format it is given straight to {@code glReadPixels} with no guard —
- * but that is an argument, not a result, so this class records the format it actually
- * saw and the shape of the data it actually got, rather than assuming either.
+ * <p><b>The depth attachment was not readable through the game's own path, and that is
+ * now measured rather than suspected.</b> Minecraft 26.2 allocates the main target's
+ * depth as {@code GpuFormat.D32_FLOAT}. {@code GlCommandEncoder.copyTextureToBuffer}
+ * attaches its source to {@code GL_COLOR_ATTACHMENT0} regardless of format, so a depth
+ * image produces an incomplete framebuffer and the read is refused: the live game log
+ * carries exactly one line for it,
+ * {@code GL_INVALID_FRAMEBUFFER_OPERATION in glReadPixels(incomplete framebuffer)}, and
+ * {@code tools/gl-depth-readback-probe.c} reproduces that refusal - and the corrected
+ * recipe that does return values - on this machine's drivers, the game's own Mesa
+ * driver included. Depth is therefore read by {@link DepthReadback}, which attaches
+ * the image to {@code GL_DEPTH_ATTACHMENT} and fails closed if the framebuffer is not
+ * complete or the read reports an error.
+ *
+ * <p>This class still records the format it actually saw and the shape of the data it
+ * actually got rather than assuming either, because "the read returned without
+ * throwing" is not a claim about pixels.
  *
  * <p><b>Two asynchronous readbacks must be paired by capture identity.</b> Colour and
  * depth are copied by two callbacks that can land in either order, or not at all. So
@@ -109,6 +118,8 @@ public final class WorldCapture {
     private long inFlightQueuedNanos;
     private boolean hookSeen;
     private WorldCopyState copyState;
+    /** What the depth read reported at issue, quoted by the metadata either way. */
+    private String depthReadDetail = "not issued";
     // Fail closed after uncertain GPU work. Retain this one buffer pair until
     // process exit: no reuse, close, spin wait, or replacement allocation.
     private boolean captureDisabled;
@@ -148,11 +159,16 @@ public final class WorldCapture {
         }
 
         // A half that never lands must become a report, not an indefinite wait.
-        // The first version of this class had no such path and the consequence was
-        // observed live: the driver refused the depth copy with
-        // GL_INVALID_FRAMEBUFFER_OPERATION, no callback ever fired, and the capture
-        // sat in flight forever writing nothing. A stall that reports nothing is
-        // indistinguishable from a stall that has not happened yet.
+        // The live run left exactly one driver line for this capture -
+        // 'GL_INVALID_FRAMEBUFFER_OPERATION in glReadPixels(incomplete framebuffer)',
+        // at 04:18:57 in the 2026-10-06-3 session - and the summary file that would
+        // say which of our paths reported it was overwritten by a later run, so
+        // that question stays open rather than guessed. What the game's own source
+        // shows is that copyTextureToBuffer queues its completion callback and only
+        // afterwards raises the GL error, so a thrown exception and a callback that
+        // never arrives are both possible here and neither is guaranteed. The
+        // timeout covers whichever one this run is seeing: a stall that reports
+        // nothing is indistinguishable from a stall that has not happened yet.
         if (inFlight && copyState != null && !copyState.complete()
                 && nowNanos - inFlightQueuedNanos > IN_FLIGHT_TIMEOUT_NANOS) {
             inFlight = false;
@@ -304,13 +320,21 @@ public final class WorldCapture {
             copyState = completion;
 
             CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();
-            // Copies go into one submit, so the first cannot land while the second is
-            // still unrecorded - the same pairing problem one level down.
+            // Both halves are issued before the submit, so neither can land in the
+            // middle of the other's recording - the same pairing problem one level
+            // down.
             //
-            // A refused copy raises nothing in Java. The live run proved this: the
-            // driver returned GL_INVALID_FRAMEBUFFER_OPERATION and the callback simply
-            // never fired, so the only honest signal that a copy did not happen is
-            // that its flag never arrives. That is why the in-flight timeout exists.
+            // Colour goes through the game's own copy, which is the path the verified
+            // frame transfer already uses. Depth does not: GlCommandEncoder attaches
+            // the source texture to GL_COLOR_ATTACHMENT0, a D32_FLOAT image is not
+            // colour-renderable, and the framebuffer is therefore incomplete. The
+            // live run produced exactly one driver line for it -
+            // 'GL_INVALID_FRAMEBUFFER_OPERATION in glReadPixels(incomplete
+            // framebuffer)' - and the backend then raises IllegalStateException with
+            // that error code from inside copyTextureToBuffer, after it has already
+            // queued the completion callback. So the exception is the signal here,
+            // and DepthReadback issues the depth read against its own framebuffer
+            // instead. Which recipe works is measured by tools/test-depth-readback.sh.
             if (wantColour) {
                 encoder.copyTextureToBuffer(colour, colourBuffer, 0L,
                     () -> {
@@ -319,11 +343,18 @@ public final class WorldCapture {
                     }, 0, 0, 0, width, height);
             }
             if (wantDepth) {
-                encoder.copyTextureToBuffer(depth, depthBuffer, 0L,
+                DepthReadback.Result depthRead = DepthReadback.read(depth, depthBuffer, width, height,
                     () -> {
                         completion.depthCompleted();
                         if (inFlightIdentity == identity) depthLanded = true;
-                    }, 0, 0, 0, width, height);
+                    });
+                depthReadDetail = depthRead.detail();
+                if (!depthRead.ok()) {
+                    // Refused before or after the call, and never retried: the pair
+                    // would otherwise publish one half from this frame and one from
+                    // wherever the next attempt landed.
+                    throw new IllegalStateException("depth read refused: " + depthRead.detail());
+                }
             }
             encoder.submit();
             status = "copying " + width + "x" + height + " " + mode;
@@ -517,16 +548,30 @@ public final class WorldCapture {
         text.append("height=").append(height).append('\n');
         text.append("colourFormat=").append(inFlightColourFormat).append('\n');
         text.append("depthFormat=").append(inFlightDepthFormat).append('\n');
-        text.append("depthBytesPerTexel=4\n");
-        text.append("depthTightStride=").append(width * 4).append('\n');
-        // If these exceed width*4 the rows are padded, and a tight-stride read would
-        // shear every row but the first.
-        text.append("depthBufferBytes=").append(lastDepthBytes).append('\n');
-        text.append("colourBufferBytes=").append(lastColourBytes).append('\n');
+        text.append("depthBytesPerTexel=").append(DepthReadbackPlan.BYTES_PER_TEXEL).append('\n');
+        // The row contract is what this reader *set*, not what the destination's size
+        // suggests: GL_PACK_ROW_LENGTH is the width and the alignment is fixed here,
+        // so a row starts width*4 bytes after the previous one. Capacity is reported
+        // as capacity, because a buffer that happens to be exactly the right size is
+        // not evidence about stride - see DepthReadbackPlan.
+        text.append("depthPackRowLength=").append(width).append('\n');
+        text.append("depthPackAlignment=").append(DepthReadbackPlan.PACK_ALIGNMENT).append('\n');
+        text.append("depthRowStrideBytes=")
+            .append(DepthReadbackPlan.rowStrideBytes(width)).append('\n');
+        text.append("depthWrittenBytes=")
+            .append(DepthReadbackPlan.writtenBytes(width, height, DepthReadbackPlan.PACK_ALIGNMENT))
+            .append('\n');
+        text.append("depthBufferCapacityBytes=").append(lastDepthBytes).append('\n');
+        text.append("colourBufferCapacityBytes=").append(lastColourBytes).append('\n');
         text.append("depthRowsPadded=")
-            .append(haveDepth && lastDepthBytes > (long) width * height * 4L).append('\n');
-        text.append("depthRowOrder=topdown\n");
-        text.append("depthConvention=opengl-window-depth\n");
+            .append(DepthReadbackPlan.rowsPadded(width, width, DepthReadbackPlan.PACK_ALIGNMENT))
+            .append('\n');
+        // Row order is measured, not asserted: tools/test-depth-readback.sh writes
+        // distinct top and bottom bands and reports which comes back first. GL's read
+        // origin is the framebuffer's bottom left, so row 0 is the bottom row.
+        text.append("depthRowOrder=").append(DepthReadbackPlan.rowOrder()).append('\n');
+        text.append("depthConvention=").append(DepthReadbackPlan.depthConvention()).append('\n');
+        text.append("depthRead=").append(depthReadDetail).append('\n');
         text.append("anchorSource=").append(inFlightAnchorSource).append('\n');
         text.append(String.format(Locale.ROOT, "anchor=%.4f %.4f %.4f%n",
             inFlightX, inFlightY, inFlightZ));
@@ -652,13 +697,15 @@ public final class WorldCapture {
     }
 
     /**
-     * The number of bytes the driver actually gave us for one attachment.
+     * The capacity of each readback buffer, as allocated by {@link #ensureBuffers}.
      *
-     * <p>Recorded because the row layout is a question, not a detail. A tight row is
-     * {@code width * 4} bytes; a driver may pad rows to an alignment, and if it does then
-     * reading at a tight stride shears every row after the first. The colour path
-     * assumes tight rows and its output looks right, which is evidence but not proof, so
-     * depth is measured the same way and the number written down.
+     * <p>These are <b>not</b> row strides and cannot show padding: both are set to
+     * {@code width * height * 4} by construction, so comparing either against that
+     * product would answer "not padded" for any buffer this class ever allocates,
+     * including one a driver wrote past. The stride is decided by the pixel-store
+     * state the reader issues and is reported from that instead, and whether the
+     * driver honours it is measured by {@code tools/test-depth-readback.sh} with
+     * sentinel bytes around the frame.
      */
     private long lastColourBytes;
     private long lastDepthBytes;
