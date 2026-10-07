@@ -20,7 +20,8 @@ Deliberately does **not** compare Minecraft depth with MHW depth. MHW uses rever
 and the two spaces are not comparable until both are normalised, and normalising one
 side of a comparison is how a wrong answer gets to look like a right one.
 
-Usage: validate-world-depth.py [--meta PATH] [--known-dist METRES] [--x PX] [--y PX]
+Usage: validate-world-depth.py [--meta PATH] [--depth PATH] [--colour PATH]
+                                [--known-dist METRES] [--x PX] [--y PX]
 """
 
 import argparse
@@ -173,6 +174,81 @@ def load_depth(path, width, height):
     return struct.unpack_from(f"<{count}f", raw, 0)
 
 
+def load_colour(path, width, height):
+    """Raw RGBA bytes in GL order (row 0 is the framebuffer's bottom row).
+
+    The PNG is written flipped to display order for humans; this file keeps
+    the order it was copied in, which is the same order the depth read uses,
+    so comparing the two raw files compares like with like.
+    """
+    raw = path.read_bytes()
+    expected = width * height * 4
+    if len(raw) < expected:
+        raise SystemExit(
+            f"colour file is {len(raw)} bytes, expected at least {expected}")
+    return raw[:expected]
+
+
+def colour_depth_agreement(depth, colour, width, height, near, far, convention):
+    """Score both depth row orders against the colour image, in metres.
+
+    Colour is the referee depth cannot be for itself: in a real scene the sky
+    sits far away and the ground under it does not, and exactly one row order
+    puts far depth under the sky pixels. Rows are classified from colour
+    (bright, blue-dominant = sky; the brightness floor keeps dark water out),
+    each depth row is averaged in window depth and linearised with the
+    detected convention, and each order is scored as mean(sky row distance)
+    minus mean(ground row distance). The correct order gives a large positive
+    gap, the mirror flips it negative.
+
+    Returns ``(verdict, detail)``: verdict is ``"aligned"`` (depth rows line
+    up with colour rows), ``"mirrored"`` (they are flipped relative to
+    colour), or ``None`` when the evidence cannot decide - no usable
+    sky/ground split, or no depth structure for a split to land on. The
+    detail carries the numbers either way, so an undecidable result reports
+    its evidence instead of a verdict.
+    """
+    sky_fraction = []
+    for y in range(height):
+        base = y * width * 4
+        sky = 0
+        for x in range(width):
+            i = base + 4 * x
+            r, g, b = colour[i], colour[i + 1], colour[i + 2]
+            if b >= r + 8 and b >= g + 8 and min(r, g, b) >= 60:
+                sky += 1
+        sky_fraction.append(sky / width)
+
+    sky_rows = [y for y in range(height) if sky_fraction[y] >= 0.5]
+    ground_rows = [y for y in range(height) if sky_fraction[y] <= 0.1]
+    if len(sky_rows) < 3 or len(ground_rows) < 3:
+        return None, (f"colour offers {len(sky_rows)} sky and {len(ground_rows)} "
+                      f"ground rows, and the split needs at least 3 of each")
+
+    row_distance = []
+    for y in range(height):
+        base = y * width
+        mean_zw = sum(depth[base:base + width]) / width
+        row_distance.append(linearise(mean_zw, near, far, convention))
+
+    def gap(depth_row_for_colour_row):
+        sky_d = (sum(row_distance[depth_row_for_colour_row(y)] for y in sky_rows)
+                 / len(sky_rows))
+        ground_d = (sum(row_distance[depth_row_for_colour_row(y)]
+                        for y in ground_rows) / len(ground_rows))
+        return sky_d - ground_d
+
+    aligned = gap(lambda y: y)
+    mirrored = gap(lambda y: height - 1 - y)
+    detail = (f"sky-ground gap {aligned:+.1f} m with depth rows as stored, "
+              f"{mirrored:+.1f} m with them flipped")
+    verdict, best = (("aligned", aligned) if aligned > mirrored
+                     else ("mirrored", mirrored))
+    if best - min(aligned, mirrored) < 1.0 or best <= 0:
+        return None, detail + ", which does not separate the two orders"
+    return verdict, detail
+
+
 def orientation_score(depth, width, height):
     """How well depth agrees with colour, for both possible row orders.
 
@@ -199,6 +275,9 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--meta", type=Path, default=OUT / "world-capture.meta")
     parser.add_argument("--depth", type=Path, default=OUT / "world-depth.f32")
+    parser.add_argument("--colour", type=Path, default=OUT / "world-colour.rgba",
+                        help="raw RGBA colour from the same capture, the referee "
+                             "for the depth row order")
     parser.add_argument("--known-dist", type=float, default=None,
                         help="true distance in metres to a block you can see")
     parser.add_argument("--x", type=int, default=None, help="pixel column of that block")
@@ -287,9 +366,35 @@ def main():
     topdown, bottomup = orientation_score(depth, width, height)
     print(f"row order : depth gradient statistics are identical either way "
           f"({topdown:.6f}),")
-    print(f"            which is why row order CANNOT be decided from depth alone.")
-    print(f"            The meta records '{meta.get('depthRowOrder')}'; treat that as")
-    print(f"            a claim from the writer, not a measurement.")
+    print("            which is why row order CANNOT be decided from depth alone.")
+    # The colour file is the referee; its absence leaves the claim a claim,
+    # and a claim contradicted by the referee fails the capture outright.
+    orientation_ok = True
+    claim = meta.get("depthRowOrder")
+    colour_claim = meta.get("colourRowOrder")
+    expected = None
+    if claim and colour_claim:
+        expected = "aligned" if claim == colour_claim else "mirrored"
+    if not args.colour.exists():
+        print(f"            No colour file at {args.colour} to decide against, so")
+        print(f"            '{claim}' stays a claim from the writer, not a measurement.")
+    else:
+        colour = load_colour(args.colour, width, height)
+        verdict, detail = colour_depth_agreement(
+            depth, colour, width, height, near, far, convention)
+        if verdict is None:
+            print(f"            Row order UNDECIDABLE against colour: {detail}.")
+            print(f"            '{claim}' stays a claim from the writer, unverified.")
+        elif expected is None:
+            print(f"            MEASURED {verdict} against colour: {detail}; the row-order")
+            print("            claims are incomplete, so there is nothing to confirm.")
+        elif verdict == expected:
+            print(f"            MEASURED {verdict} against colour: {detail};")
+            print(f"            claims depth '{claim}' / colour '{colour_claim}' - CONFIRMED.")
+        else:
+            print(f"            MEASURED {verdict} against colour: {detail};")
+            print(f"            claims depth '{claim}' / colour '{colour_claim}' - CONTRADICTED.")
+            orientation_ok = False
 
     # ---- distances
     print("\ndistance at sampled pixels (window depth -> metres):")
@@ -314,6 +419,11 @@ def main():
             print("\nA known distance was given but no pixel. Pass --x and --y for the "
                   "pixel\ncovering that block, otherwise there is nothing to compare.")
             return 1
+        if not orientation_ok:
+            print("\nNOT VALIDATED: colour says the depth rows are mirrored relative to")
+            print("the recorded row order, so (x, y) may address a different row than")
+            print("the one named. The writer's row order has to be fixed first.")
+            return 1
         value = depth[args.y * width + args.x]
         measured = linearise(value, near, far, convention)
         error = abs(measured - args.known_dist) / max(0.001, args.known_dist)
@@ -331,6 +441,11 @@ def main():
             print("\nOK: reconstructed distance is within 10% of the stated distance.")
             return 0
         print("\nNOT VALIDATED: reconstructed distance is more than 10% out.")
+        return 1
+
+    if not orientation_ok:
+        print("\nNOT VALIDATED: the row order measured against colour contradicts the")
+        print("recorded one, so distances computed from these rows are not trustworthy.")
         return 1
 
     print("\nDepth linearises and the projection is real. Distance accuracy is")

@@ -25,6 +25,12 @@ the validator as a subprocess:
     both conventions compared at ~1.0 worst-relative against a matrix they
     are both algebraically right about. (This failed before the fix:
     "BLOCKED: neither the standard nor the reversed-Z".)
+  * colour/depth row order, three ways: a sky-over-ground scene whose depth
+    rows line up must read CONFIRMED, the same scene with its depth rows
+    mirrored must read CONTRADICTED and fail the capture (the docstring
+    promised a colour-based decision the validator never made - reported
+    absent here), and a depth buffer with no structure must read
+    UNDECIDABLE rather than pick a winner.
 
 Usage: test-validate-world-depth.py
 """
@@ -98,7 +104,16 @@ def linearise(zw, near, far, convention):
     return near * far / (far - zw * (far - near))
 
 
-def write_fixture(directory, matrix, sample_zw):
+def write_fixture(directory, matrix, sample_zw, scene=None):
+    """Write meta + depth (+ colour for scene fixtures).
+
+    ``scene`` builds a two-band world the orientation referee can judge:
+    the colour file has sky rows at the file's top (GL order, row 0 is the
+    bottom of the frame) and ground rows below; ``"aligned"`` puts far depth
+    in the same rows, ``"mirrored"`` puts it in the opposite ones, and
+    ``"flat"`` writes no structure at all so the referee must refuse to
+    decide.
+    """
     directory.mkdir(parents=True, exist_ok=True)
     meta = directory / "world-capture.meta"
     lines = [
@@ -123,30 +138,59 @@ def write_fixture(directory, matrix, sample_zw):
         lines.append("projectionMatrix=" + " ".join(repr(v) for v in matrix))
     lines += [
         "depthRowOrder=bottom-up",
+        "colourRowOrder=bottom-up",
         "depthConvention=gl-window-depth",
     ]
     meta.write_text("\n".join(lines) + "\n")
 
-    values = []
-    for y in range(HEIGHT):
-        for x in range(WIDTH):
-            if (x, y) == (SAMPLE_X, SAMPLE_Y):
-                values.append(sample_zw)
-            else:
-                values.append((y * WIDTH + x) / (WIDTH * HEIGHT))
+    if scene is None:
+        values = []
+        for y in range(HEIGHT):
+            for x in range(WIDTH):
+                if (x, y) == (SAMPLE_X, SAMPLE_Y):
+                    values.append(sample_zw)
+                else:
+                    values.append((y * WIDTH + x) / (WIDTH * HEIGHT))
+    else:
+        # Colour rows: file rows 0-11 ground, 12-15 sky (bottom-up GL order).
+        near_zw = zw_zero_to_one(4.0, NEAR, FAR)
+        values = []
+        for y in range(HEIGHT):
+            if scene == "aligned":
+                far_here = y >= 12
+            elif scene == "mirrored":
+                far_here = y < 4
+            else:                       # flat: no structure to align
+                far_here = False
+            for x in range(WIDTH):
+                if (x, y) == (SAMPLE_X, SAMPLE_Y):
+                    values.append(sample_zw)
+                elif scene == "flat":
+                    values.append(0.0)
+                else:
+                    values.append(0.0 if far_here else near_zw)
     (directory / "world-depth.f32").write_bytes(
         struct.pack(f"<{WIDTH * HEIGHT}f", *values))
+
+    if scene is not None:
+        colour = bytearray()
+        for y in range(HEIGHT):
+            pixel = (bytes((120, 170, 255, 255)) if y >= 12
+                     else bytes((90, 150, 70, 255)))
+            colour += pixel * WIDTH
+        (directory / "world-colour.rgba").write_bytes(bytes(colour))
     return meta
 
 
 def run(meta, known_dist, x, y):
-    return subprocess.run(
-        [sys.executable, str(VALIDATOR),
-         "--meta", str(meta),
-         "--depth", str(meta.parent / "world-depth.f32"),
-         "--known-dist", str(known_dist),
-         "--x", str(x), "--y", str(y)],
-        capture_output=True, text=True)
+    command = [sys.executable, str(VALIDATOR),
+               "--meta", str(meta),
+               "--depth", str(meta.parent / "world-depth.f32"),
+               "--colour", str(meta.parent / "world-colour.rgba")]
+    if known_dist is not None:
+        command += ["--known-dist", str(known_dist),
+                    "--x", str(x), "--y", str(y)]
+    return subprocess.run(command, capture_output=True, text=True)
 
 
 def check(name, condition, output):
@@ -220,6 +264,41 @@ def main():
             and "reversed-Z (window 1=near, 0=far)" in out.stdout
             and "zero-to-one" in out.stdout
             and "OK: reconstructed distance" in out.stdout,
+            out))
+
+        # 6. sky-over-ground colour with matching depth rows: CONFIRMED
+        meta = write_fixture(tmp / "aligned", measured_matrix(NEAR, FAR),
+                             sample_zw=zw_zero_to_one(known, NEAR, FAR),
+                             scene="aligned")
+        out = run(meta, known, SAMPLE_X, SAMPLE_Y)
+        results.append(check(
+            "row order confirmed against colour when depth rows align",
+            out.returncode == 0
+            and "MEASURED aligned against colour" in out.stdout
+            and "CONFIRMED" in out.stdout
+            and "OK: reconstructed distance" in out.stdout,
+            out))
+
+        # 7. same scene, depth rows mirrored: CONTRADICTED, capture fails
+        meta = write_fixture(tmp / "mirrored", measured_matrix(NEAR, FAR),
+                             sample_zw=zw_zero_to_one(known, NEAR, FAR),
+                             scene="mirrored")
+        out = run(meta, known, SAMPLE_X, SAMPLE_Y)
+        results.append(check(
+            "mirrored depth rows contradicted against colour and the run fails",
+            out.returncode == 1
+            and "MEASURED mirrored against colour" in out.stdout
+            and "CONTRADICTED" in out.stdout,
+            out))
+
+        # 8. no depth structure: refuse to decide instead of guessing
+        meta = write_fixture(tmp / "flat", measured_matrix(NEAR, FAR),
+                             sample_zw=zw_zero_to_one(known, NEAR, FAR),
+                             scene="flat")
+        out = run(meta, known, SAMPLE_X, SAMPLE_Y)
+        results.append(check(
+            "structureless depth reports UNDECIDABLE instead of a winner",
+            out.returncode == 0 and "UNDECIDABLE" in out.stdout,
             out))
 
     if all(results):
