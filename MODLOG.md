@@ -1,5 +1,35 @@
 # CrafterHunter mod journal
 
+## 2026-10-07 — manual block-depth gate and bounded paired transport
+
+User screenshots plus archived captures establish two distances to existing
+bedrock at (917,-60,348), F3 target confirmed in the second screenshot.
+Archives 20261007T132237Z and 20261007T132722Z: identities 9 and 12,
+generation 1391383374261, centre raw pixel (474,514), 949x1028, FOV 70.
+Expected centre-ray distances to the known near-face Z plane are 4.895355 and
+12.122026 blocks, from pose and block coordinates independently of depth;
+reconstructed about 4.895 and 12.121. Strict validator passed hashes, projection,
+finite scene depth and colour/depth orientation at both distances. Both used
+pre-hand-clear fallback; this does not verify the optional always-on-top hook,
+linked MHW camera, isolated Steve or guest composition. Prior 4.9-degree FOV
+did not reproduce at these independent-camera poses, not a global FOV fix claim.
+
+Implemented request-paced WorldFrameChannel publication of a complete paired
+snapshot with issue-time generation/identity, pose and projection. Atomic
+same-directory replacement isolates incomplete writes; bounded size and malformed
+header checks precede native-reader allocation. Separate world.frame path never
+modifies the existing colour channel. Transport refusal preserves diagnostic
+publication. Added portable native reader, not connected to renderer.cpp, and
+docs/world-frame-transport.md with byte offsets and explicit freshness limitations.
+
+Verified headless Java/native binary round trip; pair consistency during concurrent
+Java reads; restart/resize; wrong-size producer refusal retaining prior file; eight
+native malformed-file refusals retaining prior output. Fabric build and existing
+capture tests pass. No deployment, game launches or runtime requests in this turn;
+Windows/Proton consumer sharing, linked pose fidelity, continuous throughput and
+native depth composition remain unverified. Next: freshness-aware host selection
+and upload, before projection-normalised depth composition.
+
 ## 2026-10-07 — strict block-distance acceptance, not copy-completion success
 
 The next goal remains actual world-depth acceptance, not native composition.

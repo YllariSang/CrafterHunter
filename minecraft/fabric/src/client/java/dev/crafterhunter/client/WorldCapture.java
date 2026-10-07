@@ -563,6 +563,21 @@ public final class WorldCapture {
             // Bind these files to this identity, not a later/leftover capture.
             if (wantColour) metadata += "colourSha256=" + sha256(colour) + "\n";
             if (wantDepth) metadata += "depthSha256=" + sha256(depth) + "\n";
+            if (wantColour && wantDepth && inFlightMatrixKnown) {
+                // Request-paced only. This is not yet a live compositor source.
+                try {
+                    WorldFrameChannel.publish(Path.of("/dev/shm/crafterhunter/world.frame"),
+                        width, height, generation, identity, inFlightQueuedNanos,
+                        inFlightNear[0], inFlightFar[0], inFlightMatrix,
+                        new float[] {inFlightX, inFlightY, inFlightZ, inFlightXRot, inFlightYRot},
+                        colour, depth);
+                    metadata += "worldFrameChannel=/dev/shm/crafterhunter/world.frame\n";
+                } catch (IOException | IllegalArgumentException refused) {
+                    // Preserve diagnostic captures even if shared memory is full,
+                    // geometry exceeds the transport cap or rename is unsupported.
+                    metadata += "worldFrameChannel=refused: " + refused + "\n";
+                }
+            }
             Files.writeString(outputDirectory.resolve("world-capture.meta"), metadata,
                 StandardCharsets.UTF_8);
 
