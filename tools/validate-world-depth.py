@@ -78,18 +78,35 @@ def linearise(z_window, near, far, convention="standard"):
     return near * far / denominator
 
 
-def distance_from_matrix(z_window, matrix, near, far):
+def distance_from_matrix(z_window, matrix, near, far, remap="classic"):
     """Same distance, from the recorded projection matrix's own coefficients.
 
-    GL's perspective matrix carries m22 = -(f+n)/(f-n), m32 = -2fn/(f-n) and m23 = -1,
-    which gives d = 2fn / (m22*(1/zw... )) -- stated directly rather than derived in
-    prose so it can be checked: for window depth zw, the two forms must agree.
+    Two framebuffers can differ in the window mapping - the step from NDC to
+    the depth values actually stored - and the mapping is not written inside
+    the matrix, so both candidates are tried and whichever agrees with a
+    closed form is the one reported:
+
+      ``classic``     : OpenGL's default, ``zw = (ndc + 1)/2``.
+      ``zero-to-one`` : ``glClipControl(ZERO_TO_ONE)``, ``zw = ndc`` - which
+                        is what this game's matrix and its measured window
+                        values together implement: m22 = n/(f-n),
+                        m32 = nf/(f-n), and depthMax = n/d at the hand.
+
+    In both branches z_clip = m22*z_view + m32 and w_clip = -z_view, so only
+    the inversion differs. Column-major, as GLSL and JOML both store it:
+    index 10 is m22, 14 is m32.
     """
-    # Column-major, as GLSL and JOML both store it: index 10 is m22, 14 is m32.
     m22 = matrix[10]
     m32 = matrix[14]
-    if abs(m22) < 1e-12:
+    if abs(m22) < 1e-12 and abs(m32) < 1e-12:
         return None
+    if remap == "zero-to-one":
+        # zw = z_clip/w_clip = (m22*z_view + m32)/(-z_view)
+        #  => z_view * (zw + m22) = -m32, and d = -z_view = m32/(zw + m22)
+        denominator = z_window + m22
+        if abs(denominator) < 1e-12:
+            return None
+        return m32 / denominator
     # z_clip = m22*z_view + m32, w_clip = -z_view, zw = (z_clip/w_clip + 1)/2
     # Solve for z_view:  2*zw*(-z_view) = m22*z_view + m32 + (-z_view)
     #  => z_view * (-2zw - m22 + 1) = m32   ... with z_view negative in front
@@ -100,17 +117,20 @@ def distance_from_matrix(z_window, matrix, near, far):
     return -z_view
 
 
-def convention_worst(matrix, near, far, convention, samples=(0.0, 0.25, 0.5, 0.75, 0.999)):
+def convention_worst(matrix, near, far, convention, remap,
+                     samples=(0.0, 0.25, 0.5, 0.75, 0.999)):
     """Worst relative disagreement between one closed form and the matrix.
 
     ``distance_from_matrix`` inverts the recorded coefficients directly and assumes
-    no convention, so it is the referee between the two closed forms. None means the
-    matrix has no usable perspective coefficients at all.
+    no convention, so it is the referee between the two closed forms; the window
+    mapping is varied alongside the convention because the matrix fixes which pair
+    is self-consistent. None means the matrix has no usable perspective
+    coefficients at all.
     """
     worst = 0.0
     for zw in samples:
         a = linearise(zw, near, far, convention)
-        b = distance_from_matrix(zw, matrix, near, far)
+        b = distance_from_matrix(zw, matrix, near, far, remap)
         if b is None:
             return None
         scale = max(1.0, abs(a), abs(b))
@@ -119,25 +139,29 @@ def convention_worst(matrix, near, far, convention, samples=(0.0, 0.25, 0.5, 0.7
 
 
 def detect_convention(matrix, near, far):
-    """Which closed form the recorded matrix implements, if either.
+    """Which closed form and window mapping the recorded matrix implements.
 
     A standard projection and a reversed-Z projection are both perfectly good
-    matrices and their depth values are both in [0,1]; the difference is which end
-    means what, and getting it backwards reconstructs near distances as far ones
-    without a single value looking wrong. Trying both forms against the matrix
-    turns that from a silent wrong answer into a reported measurement. Returns
-    ``(convention, worst)`` or ``(None, {convention: worst})`` when neither fits.
+    matrices and their depth values are both in [0,1]; the same is true of the two
+    window mappings (classic GL ``(ndc+1)/2`` and glClipControl zero-to-one). Each
+    matrix family measured here - and both families a driver can produce - is
+    self-consistent with exactly one (convention, mapping) pair. Getting it
+    backwards reconstructs near distances as far ones without a single value
+    looking wrong; trying all four against the matrix turns that from a silent
+    wrong answer into a reported measurement. Returns ``((convention, remap),
+    worst)``, or ``(None, {label: worst})`` when none fits.
     """
-    worst_by_convention = {}
-    for convention in ("standard", "reversed"):
-        worst = convention_worst(matrix, near, far, convention)
-        if worst is None:
-            return None, {"standard": None, "reversed": None}
-        worst_by_convention[convention] = worst
-    for convention in ("standard", "reversed"):
-        if worst_by_convention[convention] < 1e-3:
-            return convention, worst_by_convention
-    return None, worst_by_convention
+    labels = [(c, r) for c in ("standard", "reversed")
+              for r in ("classic", "zero-to-one")]
+    worst_by_combo = {}
+    for convention, remap in labels:
+        worst_by_combo[(convention, remap)] = convention_worst(
+            matrix, near, far, convention, remap)
+    for key in labels:
+        worst = worst_by_combo[key]
+        if worst is not None and worst < 1e-3:
+            return key, worst
+    return None, worst_by_combo
 
 
 def load_depth(path, width, height):
@@ -217,23 +241,31 @@ def main():
               "cannot be computed from a matrix\nwhose planes are unknown.")
         return 1
 
-    convention, worst_by_convention = detect_convention(matrix, near, far)
+    # Success returns ((convention, remap), worst-float); failure returns
+    # (None, {label: worst}). The shape carries which one happened.
+    detected, detection_detail = detect_convention(matrix, near, far)
     print(f"\nprojection: near {near} far {far} fov {meta.get('fov')} "
           f"(recorded, not rebuilt)")
-    if convention is None:
+    if detected is None:
         print("            BLOCKED: neither the standard nor the reversed-Z closed")
-        print("            form matches the recorded matrix "
-              f"(worst relative {worst_by_convention}),")
+        print("            form matches the recorded matrix under either window")
+        print(f"            mapping (worst relative {detection_detail}),")
         print("            so every distance below would be unreliable. Reported,")
         print("            not smoothed over.")
         return 1
+    convention, remap = detected
     names = {
         "standard": "standard (window 0=near, 1=far)",
         "reversed": "reversed-Z (window 1=near, 0=far)",
     }
-    print(f"            convention : {names[convention]}, measured against the")
-    print(f"            recorded matrix (worst relative "
-          f"{worst_by_convention[convention]:.2e});")
+    mappings = {
+        "classic": "classic GL (zw = (ndc+1)/2)",
+        "zero-to-one": "zero-to-one (zw = ndc)",
+    }
+    print(f"            convention : {names[convention]}, window mapping")
+    print(f"            {mappings[remap]}, both measured against")
+    print(f"            the recorded matrix (worst relative "
+          f"{detection_detail:.2e});")
     print(f"            the writer claims depthConvention="
           f"{meta.get('depthConvention')}")
 

@@ -18,6 +18,13 @@ the validator as a subprocess:
     (This failed before the fix: "closed form and recorded matrix DISAGREE".)
   * a matrix with no perspective coefficients: must block.
   * no recorded matrix at all: must block, refusing to rebuild from fov.
+  * the matrix Minecraft 26.2 actually records (run 20261006T172918Z):
+    zero-to-one reversed, m22 = n/(f-n), m32 = nf/(f-n), window zw = ndc.
+    This blocked on live data even after the convention fix, because the
+    referee assumed the classic zw = (ndc+1)/2 mapping for every matrix -
+    both conventions compared at ~1.0 worst-relative against a matrix they
+    are both algebraically right about. (This failed before the fix:
+    "BLOCKED: neither the standard nor the reversed-Z".)
 
 Usage: test-validate-world-depth.py
 """
@@ -60,6 +67,29 @@ def reversed_matrix(near, far):
     m[14] = 2.0 * far * near / (far - near)
     m[15] = 0.0
     return m
+
+
+def measured_matrix(near, far):
+    """The matrix Minecraft 26.2 actually recorded (archive 20261006T172918Z).
+
+    Zero-to-one reversed-Z: m22 = n/(f-n), m32 = nf/(f-n), w_clip = -z_view,
+    and the framebuffer stores zw = ndc (glClipControl ZERO_TO_ONE), not the
+    classic (ndc+1)/2. Every printed digit of the live capture matches these
+    expressions for n=0.05, f=1024.
+    """
+    m = [0.0] * 16
+    m[0] = 1.0
+    m[5] = 1.0
+    m[10] = near / (far - near)
+    m[11] = -1.0
+    m[14] = near * far / (far - near)
+    m[15] = 0.0
+    return m
+
+
+def zw_zero_to_one(distance, near, far):
+    """Window depth this matrix family produces at a given view distance."""
+    return near * (far - distance) / ((far - near) * distance)
 
 
 def linearise(zw, near, far, convention):
@@ -177,6 +207,19 @@ def main():
             "missing matrix blocks instead of rebuilding from fov",
             out.returncode == 1 and
             "the projection was not recorded" in out.stdout,
+            out))
+
+        # 5. the matrix this game actually records - the live gate blocked here
+        known = 4.64
+        meta = write_fixture(tmp / "measured", measured_matrix(NEAR, FAR),
+                             sample_zw=zw_zero_to_one(known, NEAR, FAR))
+        out = run(meta, known, SAMPLE_X, SAMPLE_Y)
+        results.append(check(
+            "measured zero-to-one reversed matrix detected and distance validated",
+            out.returncode == 0
+            and "reversed-Z (window 1=near, 0=far)" in out.stdout
+            and "zero-to-one" in out.stdout
+            and "OK: reconstructed distance" in out.stdout,
             out))
 
     if all(results):
