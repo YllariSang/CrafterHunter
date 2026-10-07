@@ -144,7 +144,9 @@ public final class WorldCapture {
     }
 
     /**
-     * Called from the world-render hook at the end of every world frame.
+     * Called from the world-render hook, which fires after the level pass and
+     * before the game clears the main target's depth - the only instant where the
+     * world's colour and its depth are both present in the main target.
      *
      * @param nowNanos monotonic clock, for ageing the capture
      */
@@ -756,16 +758,17 @@ public final class WorldCapture {
      * Whether the first-person hand is inside this capture, stated rather than
      * left to the reader.
      *
-     * <p>{@code renderItemInHand} is called from inside the level pass, so at the
-     * world-render hook the hand has <b>already been drawn</b> for a first-person
-     * camera: excluding the HUD does not exclude the hand, and a capture measured
-     * as "world only" while holding an item would be measuring the item too. This
-     * is derived from the recorded perspective and the hook's position in the
-     * frame, not from inspecting pixels.
+     * <p>The hook issues between the level pass and the game's own main-depth
+     * clear, which is <b>upstream</b> of {@code renderItemInHand}: the hand has not
+     * been drawn yet, in any perspective. The wording still keys off the recorded
+     * perspective because that is what the reader needs to know first - a
+     * first-person frame here is world-only by construction, not by inspection.
+     * This is derived from the hook's position in the frame, not from pixels.
      */
     private String handInFrame() {
         return switch (inFlightPerspective) {
-            case "FIRST_PERSON" -> "included: renderItemInHand runs inside renderLevel";
+            case "FIRST_PERSON" ->
+                "excluded: capture issues before renderItemInHand (level pass complete, depth pre-clear)";
             case "THIRD_PERSON_BACK", "THIRD_PERSON_FRONT" ->
                 "excluded: a third-person camera draws no first-person hand";
             default -> "unknown: perspective is " + inFlightPerspective;
