@@ -76,11 +76,16 @@ if [ -f "$meta" ] || [ -f "$summary" ]; then
   done
 fi
 
-[ -f "$summary" ] || fail "no summary at $summary"
-grep -q 'hookSeen=true' "$summary" \
-  || fail "the world-render hook never fired (hookSeen is not true in $summary)"
-
-printf 'hook is live at the world-render boundary\n\n'
+# The summary is written from the hook every 500ms, but this file may be left
+# over from a PREVIOUS session. Grepping hookSeen=true here once printed
+# "hook is live" from a summary the current session never wrote (run
+# 2026-10-07, where the game had loaded a jar with no hook at all). Whether the
+# hook fired *since the request* is decided inside run_mode, against the
+# moment the request was published; here, only report whether a summary
+# exists at all.
+if [ ! -f "$summary" ]; then
+  printf 'note: no summary at %s yet - the hook has never written\n\n' "$summary"
+fi
 
 # One mode: request it, wait for a publish, and report what happened.
 # grep -c prints the count and still exits 1 when the count is 0, so `|| echo 0`
@@ -99,7 +104,8 @@ run_mode() {
 
   rm -f "$meta"
   # Publish a complete command by same-directory rename, never partial writes.
-  local temporary
+  local temporary publish_epoch
+  publish_epoch=$(date +%s)
   temporary=$(mktemp "$game/world.request.XXXXXX")
   printf '%s 1\n' "$verb" > "$temporary"
   mv "$temporary" "$request"
@@ -124,6 +130,19 @@ run_mode() {
     printf '           colourLanded=%s depthLanded=%s\n' \
       "$(grep '^colourLanded=' "$summary" | cut -d= -f2-)" \
       "$(grep '^depthLanded=' "$summary" | cut -d= -f2-)"
+    # The summary refreshes from the hook every 500ms, so a summary written
+    # after the request proves the hook ran and still did not publish; one
+    # older than the request means this session's hook has not fired at all.
+    local summary_epoch
+    summary_epoch=$(stat -c %Y "$summary" 2>/dev/null || echo 0)
+    if [ "$summary_epoch" -ge "$publish_epoch" ]; then
+      printf '           hook    : fired since the request (summary refreshed),\n'
+      printf '                       so the capture ran and did not publish\n'
+    else
+      printf '           hook    : NOT fired since the request - summary last written '
+      date -d "@$summary_epoch" '+%F %T' 2>/dev/null || printf 'at epoch %s' "$summary_epoch"
+      printf '\n                       (enter a world, or the loaded jar has no hook)\n'
+    fi
     if [ "$gl_new" -gt 0 ]; then
       printf '           driver said: %s\n' \
         "$(grep -a 'glReadPixels' "$log" | tail -1 | sed 's/.*message=//' | cut -c1-90)"
