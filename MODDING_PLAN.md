@@ -43,8 +43,9 @@ separate-process architecture.
   Loom 1.18-SNAPSHOT. Launcher authentication and live guest compatibility
   remain to be confirmed.
 - Implemented and accepted live: localhost transport, read-only MHW camera
-  telemetry driving the Minecraft camera, Minecraft colour/depth composition into
-  MHW's renderer with validated occlusion and frame synchronization, a player
+  telemetry driving the Minecraft camera, native stone composition into
+  MHW's renderer with validated occlusion and frame synchronization, diagnostic
+  Minecraft colour-frame transfer (not validated guest colour/depth composition), a player
   proxy, and host terrain queries answered from the game's own collision routine.
 - Missing: a visible, controllable Steve inside MHW, Minecraft collision on MHW
   ground, monster combat in both directions, building, quest and story

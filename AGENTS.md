@@ -27,6 +27,13 @@ Minecraft block at known distances. Buffer capacity is not row stride. Match
 attachments and camera metadata by capture identity. Do not directly compare
 Minecraft linear depth to MHW reversed-Z depth.
 
+Capture now hooks the optional LevelRenderer always-on-top depth clear, with a
+once-per-frame GameRenderer pre-hand-clear fallback when that pass is absent.
+Run `python3 tools/test-world-capture-hook.py` against the local Loom 26.2 jar
+when changing this boundary. `captureBoundary` records the issue-time hook.
+This fix is headless-checked, not runtime-accepted; obtain fresh nonzero terrain
+depth and known-block distance evidence before advancing the acceptance gate.
+
 ## Work discipline
 
 - One bounded change at a time; regression tests must expose the original bug.

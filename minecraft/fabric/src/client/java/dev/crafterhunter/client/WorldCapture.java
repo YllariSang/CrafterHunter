@@ -81,6 +81,23 @@ public final class WorldCapture {
         return INSTANCE;
     }
 
+    private boolean worldBoundarySeen;
+    private String worldBoundary;
+    private String inFlightBoundary;
+
+    public void beginWorldFrame() {
+        worldBoundarySeen = false;
+    }
+
+    /** Service exactly once: early clear if present, otherwise the hand clear. */
+    public void beforeWorldDepthClear(String boundary) {
+        if (worldBoundarySeen) return;
+        worldBoundarySeen = true;
+        worldBoundary = boundary;
+        markHookSeen();
+        onWorldRendered(System.nanoTime());
+    }
+
     private final Path requestFile = FabricLoader.getInstance().getGameDir()
         .resolve("crafterhunter").resolve("world.request");
     private final Path outputDirectory = FabricLoader.getInstance().getGameDir()
@@ -302,6 +319,7 @@ public final class WorldCapture {
         // The identity is fixed now, before either copy is issued. Every callback
         // carries this value, and publication requires both halves to match it.
         final long identity = ++lastIdentity;
+        inFlightBoundary = worldBoundary;
 
         // Camera pose and projection are sampled HERE, at issue, not at publish. The
         // camera moves between the two, and a depth buffer paired with the wrong
@@ -420,8 +438,7 @@ public final class WorldCapture {
         inFlightNear[0] = Float.NaN;
         inFlightFar[0] = Float.NaN;
 
-        // Perspective is recorded rather than assumed, because the first-person hand
-        // is drawn inside the world pass and no hook here excludes it.
+        // Both supported capture boundaries precede the first-person hand pass.
         try {
             inFlightPerspective = String.valueOf(minecraft.options.getCameraType());
         } catch (RuntimeException problem) {
@@ -601,6 +618,7 @@ public final class WorldCapture {
         text.append("depthConvention=").append(DepthReadbackPlan.depthConvention()).append('\n');
         text.append("depthRead=").append(depthReadDetail).append('\n');
         text.append("anchorSource=").append(inFlightAnchorSource).append('\n');
+        text.append("captureBoundary=").append(inFlightBoundary).append('\n');
         text.append(String.format(Locale.ROOT, "anchor=%.4f %.4f %.4f%n",
             inFlightX, inFlightY, inFlightZ));
         text.append(String.format(Locale.ROOT, "anchorRot=%.3f %.3f%n",

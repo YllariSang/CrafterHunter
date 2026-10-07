@@ -9,7 +9,8 @@
     "HudMixin",
     "KeyboardMixin",
     "PlayerMixin",
-    "WorldCaptureMixin"
+    "WorldCaptureMixin",
+    "LevelWorldCaptureMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -1,5 +1,39 @@
 # CrafterHunter mod journal
 
+## 2026-10-07 — capture before the earlier always-on-top depth clear
+
+Read-only inspection of the latest capture (14:50 local, identity 1) found
+depthMin=depthMax=0 and depthDistinctApprox=1 despite both copies completing.
+Loom's 26.2 LevelRenderer bytecode exposes a destructive clear in
+lambda$addAlwaysOnTopPass$0 before executeAlwaysOnTop. This frame-graph pass
+executes before LevelRenderer returns, so the existing GameRenderer pre-hand-clear
+hook was already too late when this pass ran. This is a concrete earlier erase,
+not evidence that the OpenGL readback recipe needs replacing again.
+
+Added LevelWorldCaptureMixin immediately before that earlier clear. The pass is
+conditional (hasAnyAlwaysOnTop); the GameRenderer hook remains as fallback when
+it is absent. A per-renderLevel guard services capture exactly once, reset at
+HEAD. Metadata records captureBoundary for the issued identity, not whichever
+boundary a later frame reached. Both mixins require one injection match; the
+synthetic method is explicitly version-pinned. No native renderer, transport,
+GPU lifetime policy, installed game files or saves were changed. Corrected the
+plan's overclaim about accepted full guest colour/depth composition.
+
+Headless checks: python3 tools/test-world-capture-hook.py pins the early-clear
+method, its bytecode ordering, optional-pass predicate, fallback wiring and
+registered mixins (the old hand-only hook fails this check); bash
+tools/test-fabric-frame.sh passed; python3 tools/test-validate-world-depth.py
+passed all eight fixtures; Fabric ./gradlew build passed; git diff --check passed.
+
+Not verified: runtime mixin application or nonzero scene depth after this change.
+No deployment or game launch performed. Next agent: deploy only with permission,
+restart the guest, archive a fresh paired capture with captureBoundary and
+matching identity/projection/colour/depth, and test an existing Minecraft block
+at independently known camera-space distances. Verify orientation against the
+scene, not capacity or callbacks. The previous 4.9001036-degree FOV remains an
+unexplained observation, not a corrected projection or a proven FOV bug. Do not
+change native composition or begin gameplay integration until that gate passes.
+
 ## 2026-10-04 — scope and recon
 
 User target: real Minecraft inside MHW Iceborne with world, monster, and story
