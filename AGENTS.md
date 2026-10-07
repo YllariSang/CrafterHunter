@@ -5,6 +5,9 @@
 The goal is real Minecraft gameplay inside MHW on Linux/Proton: Minecraft owns
 Steve/items/building; MHW owns its monsters, quests and world. Exactly one game
 must own movement/input at a time. Combat and quest integration are NOT implemented.
+Playable mode must preserve Minecraft's native F5 first-person, rear third-person
+and front-facing third-person cameras. Use the actual render camera, not player
+angles alone; camera displacement/collision and model visibility must follow MC.
 
 Verified checkpoint: Minecraft colour-frame transfer and diagnostic sky-only
 composition. This is not isolated Steve rendering or depth-correct guest geometry.
@@ -41,6 +44,10 @@ An opt-in upload-only native diagnostic now has local freshness and bounded
 generation/identity selection (docs/world-frame-transport.md); it is not bound
 to native composition or runtime-accepted. Keep diagnostic sky-only and
 stone rendering unchanged until native paired composition has its own evidence.
+CPU reconstruction/reprojection now lives in world_reprojection.hpp; see
+docs/world-reprojection.md. It replays the two archived bedrock distances, not
+live GPU composition. Snapshot v1 lacks a full issue-time view transform and
+explicit depth-mapping provenance: capture those before deriving host alignment.
 Follow `docs/world-depth-acceptance.md` for the two real-block measurements.
 Use `tools/validate-world-depth.py --acceptance`: diagnostic exit zero alone
 does not accept a milestone. New captures include colour/depth SHA-256 hashes

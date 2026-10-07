@@ -1,5 +1,29 @@
 # CrafterHunter mod journal
 
+## 2026-10-07 — projection reference and real archived-block replay
+
+Added column-major inverse/unprojection and explicit eye-to-host/current-host-VP
+projection reference, with host-space reversed-Z occlusion. Refuses invalid/clear
+depth, unusable matrices, behind-camera and out-of-frustum points. Window mapping
+and clear value are explicit caller inputs, not guessed from matrix coefficients.
+Upload-only staging now retains matching inverse projection and refuses singular
+projections before allocation; neither existing drawing path binds new views.
+
+Native read-only replay of the two hash-bound archived bedrock captures reconstructs
+4.894803 and 12.121316 blocks versus independently known 4.895355 and 12.122026.
+Ray/face intersection is checked, not just infinite Z-plane distance. Headless math
+tests cover pixel centres, bottom-up orientation, off-axis rays, translation/rotation,
+window mappings, clipping and invalid cases; native build and paired transport
+regressions pass. No replacement Minecraft geometry or
+assets generated, no deployment or runtime requests. This is not live GPU alignment.
+
+Snapshot v1 lacks full issue-time view/effects and depth-mapping provenance. The
+next gate is obtaining those and validating guest/host anchor conversion, not
+guessing an exact camera from player Euler angles. docs/world-reprojection.md and
+AGENTS.md record the boundary for the next agent.
+User confirms the target includes all native F5 camera modes; added that requirement
+to the agent contract. First/third-person gameplay remains unimplemented.
+
 ## 2026-10-07 — freshness-gated paired upload, not composition
 
 Added host-local watchdog and bounded generation retirement for world snapshots.

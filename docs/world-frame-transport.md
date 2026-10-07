@@ -66,7 +66,10 @@ Single static captures normally expire before another manual request arrives.
 Future live checks must use advancing paired requests, inspect these logs and
 verify GPU contents; successful cross-compilation does not establish uploads.
 
-Next bounded step: projection
-normalisation/reprojection with real host camera/depth. Guest layer isolation and
+CPU projection inversion/reprojection is now implemented and archived-block checked;
+see [world-reprojection.md](world-reprojection.md). Native staging prepares the
+matching inverse projection, but no reprojection shader draws yet. Next capture
+the full issue-time guest view transform and explicit depth convention, then
+establish anchor conversion against real host camera/depth. Guest layer isolation and
 input ownership remain separate gates; this snapshot still contains Minecraft
 terrain/sky, not isolated Steve.

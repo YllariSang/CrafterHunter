@@ -22,6 +22,7 @@
 #include "frame_clock.hpp"
 #include "world_frame.hpp"
 #include "world_freshness.hpp"
+#include "world_reprojection.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace sel = crafterhunter::depth;
@@ -170,6 +171,7 @@ crafterhunter::world::Freshness worldFreshness;
 ComPtr<ID3D11Texture2D> worldColourTexture, worldDepthTexture;
 ComPtr<ID3D11ShaderResourceView> worldColourView, worldDepthView;
 crafterhunter::world::Snapshot worldMetadata;
+crafterhunter::reprojection::Matrix worldInverseProjection{};
 ULONGLONG nextWorldPoll=0;
 bool worldUploadEnabled=false;
 void log(const char* format, ...);
@@ -180,6 +182,7 @@ void clearWorldUpload() {
     worldColourView.Reset(); worldDepthView.Reset();
     worldColourTexture.Reset(); worldDepthTexture.Reset();
     worldMetadata=crafterhunter::world::Snapshot{};
+    worldInverseProjection={};
 }
 
 void serviceWorldUpload() {
@@ -207,6 +210,11 @@ void serviceWorldUpload() {
         return;
     }
     if (result!=R::Advanced) return;
+    crafterhunter::reprojection::Matrix projection{},inverseProjection{};
+    for(unsigned i=0;i<16;++i) projection[i]=snapshot.projection[i];
+    if (!crafterhunter::reprojection::inverse(projection,inverseProjection)) {
+        clearWorldUpload(); log("paired world projection refused: singular or nonfinite"); return;
+    }
     // Create both immutable textures and views privately. Publish neither on a
     // partial D3D failure; the metadata belongs to this exact uploaded pair.
     D3D11_TEXTURE2D_DESC desc{};
@@ -227,6 +235,7 @@ void serviceWorldUpload() {
     std::vector<std::uint8_t>().swap(snapshot.colour); // metadata only; release CPU attachments
     std::vector<std::uint8_t>().swap(snapshot.depth);
     worldMetadata=std::move(snapshot);
+    worldInverseProjection=inverseProjection;
     if (!worldFreshness.live(GetTickCount64())) { clearWorldUpload(); return; }
     log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition disabled",
         static_cast<unsigned long long>(worldMetadata.generation),static_cast<unsigned long long>(worldMetadata.identity),
