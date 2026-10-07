@@ -36,6 +36,7 @@ Usage: test-validate-world-depth.py
 """
 
 import struct
+import hashlib
 import subprocess
 import sys
 import tempfile
@@ -182,7 +183,15 @@ def write_fixture(directory, matrix, sample_zw, scene=None):
     return meta
 
 
-def run(meta, known_dist, x, y):
+def seal_pair(meta):
+    """Synthetic equivalent of the writer's issue-identity-bound publication."""
+    fields = "mode=BOTH\ncaptureBoundary=pre-always-on-top-clear\n"
+    for filename, key in (("world-colour.rgba", "colourSha256"), ("world-depth.f32", "depthSha256")):
+        fields += key + "=" + hashlib.sha256((meta.parent / filename).read_bytes()).hexdigest() + "\n"
+    meta.write_text(meta.read_text() + fields)
+
+
+def run(meta, known_dist, x, y, acceptance=False):
     command = [sys.executable, str(VALIDATOR),
                "--meta", str(meta),
                "--depth", str(meta.parent / "world-depth.f32"),
@@ -190,6 +199,8 @@ def run(meta, known_dist, x, y):
     if known_dist is not None:
         command += ["--known-dist", str(known_dist),
                     "--x", str(x), "--y", str(y)]
+    if acceptance:
+        command.append("--acceptance")
     return subprocess.run(command, capture_output=True, text=True)
 
 
@@ -207,7 +218,7 @@ def check(name, condition, output):
 def main():
     results = []
 
-    with tempfile.TemporaryDirectory(dir="/tmp/opencode") as tmp:
+    with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
 
         # 1. standard window depth
@@ -300,6 +311,35 @@ def main():
             "structureless depth reports UNDECIDABLE instead of a winner",
             out.returncode == 0 and "UNDECIDABLE" in out.stdout,
             out))
+
+        meta = write_fixture(tmp / "strict", measured_matrix(NEAR, FAR),
+                             zw_zero_to_one(known, NEAR, FAR), scene="aligned")
+        out = run(meta, known, SAMPLE_X, SAMPLE_Y, True)
+        results.append(check("acceptance refuses unbound old captures", out.returncode == 1, out))
+        seal_pair(meta)
+        out = run(meta, known, SAMPLE_X, SAMPLE_Y, True)
+        results.append(check("acceptance validates bound pair and known distance", out.returncode == 0, out))
+        out = run(meta, None, None, None, True)
+        results.append(check("acceptance refuses missing ground truth", out.returncode == 1, out))
+        out = run(meta, known * 2, SAMPLE_X, SAMPLE_Y, True)
+        results.append(check("acceptance refuses incorrect block distance", out.returncode == 1, out))
+        out = run(meta, known, -1, SAMPLE_Y)
+        results.append(check("negative pixel refused, not Python wrapped", out.returncode == 2, out))
+        out = run(meta, float("nan"), SAMPLE_X, SAMPLE_Y)
+        results.append(check("NaN ground truth refused", out.returncode == 2, out))
+        depth_path = meta.parent / "world-depth.f32"
+        depth_path.write_bytes(bytes(WIDTH * HEIGHT * 4))
+        out = run(meta, known, SAMPLE_X, SAMPLE_Y, True)
+        results.append(check("acceptance rejects mismatched depth artifact", out.returncode == 1 and "mismatched" in out.stdout, out))
+        seal_pair(meta)
+        out = run(meta, known, SAMPLE_X, SAMPLE_Y, True)
+        results.append(check("completed all-zero depth cannot pass acceptance", out.returncode == 1 and "non-flat" in out.stdout, out))
+
+        meta = write_fixture(tmp / "strict-flat", measured_matrix(NEAR, FAR),
+                             zw_zero_to_one(known, NEAR, FAR), scene="flat")
+        seal_pair(meta)
+        out = run(meta, known, SAMPLE_X, SAMPLE_Y, True)
+        results.append(check("one plausible pixel cannot excuse undecidable orientation", out.returncode == 1 and "UNDECIDABLE" in out.stdout, out))
 
     if all(results):
         print(f"all {len(results)} checks passed")

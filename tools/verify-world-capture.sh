@@ -211,8 +211,8 @@ if [ "$colour_ok" -eq 0 ] && [ "$depth_ok" -ne 0 ]; then
 fi
 
 if [ "$paired_ok" -eq 0 ]; then
-  printf 'Both attachments publish individually and together. Paired capture works.\n'
-  printf 'Next: tools/validate-world-depth.py against a block of known distance.\n'
+  printf 'Both attachments published. This proves completion, NOT valid scene depth.\n'
+  printf 'Next: tools/validate-world-depth.py --acceptance against a known block surface.\n'
   exit 0
 fi
 

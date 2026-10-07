@@ -1,5 +1,35 @@
 # CrafterHunter mod journal
 
+## 2026-10-07 — strict block-distance acceptance, not copy-completion success
+
+The next goal remains actual world-depth acceptance, not native composition.
+Implemented an opt-in --acceptance mode in the existing depth validator:
+requires BOTH, captureBoundary, positive generation/identity, matched file hashes,
+finite in-range non-flat depth, a finite recorded projection, CONFIRMED colour/depth
+orientation, and independently known camera-forward surface distance. Diagnostic
+mode remains available for old artifacts without pretending its exit zero proves
+the acceptance gate. Pixel bounds and positive finite ground truth are now checked;
+negative Python indices previously sampled a different pixel silently.
+
+WorldCapture now publishes SHA-256 hashes of the exact raw attachments with each
+metadata identity. They detect stale/mixed or partially overwritten files, not
+physical pixel validity. No asynchronous resource-lifetime policy, hook, live frame
+channel or native compositor changed. The runtime script now explicitly calls a
+publish completion rather than claiming valid paired rendering.
+
+Added docs/world-depth-acceptance.md and an AGENTS handoff: two existing opaque
+Minecraft block measurements, independent surface coordinates, raw bottom-up pixel
+indexing, fresh screenshots/logs and archive, with the previous FOV observation
+still unresolved. No new meshes, synthetic game scenes or gameplay writes.
+
+Verified headless: 17 validator regressions pass (including all-zero depth,
+undecidable orientation despite a plausible pixel, mismatched files, absent ground
+truth, wrong distance, negative pixel and NaN); bytecode hook check passes;
+frame/readback-plan tests pass; runtime script bash syntax passes; Fabric build
+passes. No deployment, launcher tasks, runtime request writes or live acceptance
+performed. Next: permission-scoped deployment/restart and the documented real-block
+gate; do not mark Steve/depth-correct guest composition complete from these tests.
+
 ## 2026-10-07 — capture before the earlier always-on-top depth clear
 
 Read-only inspection of the latest capture (14:50 local, identity 1) found

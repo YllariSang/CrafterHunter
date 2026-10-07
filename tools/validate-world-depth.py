@@ -25,6 +25,8 @@ Usage: validate-world-depth.py [--meta PATH] [--depth PATH] [--colour PATH]
 """
 
 import argparse
+import hashlib
+import math
 import struct
 import sys
 from pathlib import Path
@@ -279,7 +281,9 @@ def main():
                         help="raw RGBA colour from the same capture, the referee "
                              "for the depth row order")
     parser.add_argument("--known-dist", type=float, default=None,
-                        help="true distance in metres to a block you can see")
+                        help="camera-forward distance to the sampled block surface, NOT Euclidean range")
+    parser.add_argument("--acceptance", action="store_true",
+                        help="require a matched pair, measured orientation and known block distance")
     parser.add_argument("--x", type=int, default=None, help="pixel column of that block")
     parser.add_argument("--y", type=int, default=None, help="pixel row of that block")
     args = parser.parse_args()
@@ -291,6 +295,29 @@ def main():
     height = as_int(meta, "height")
     if not width or not height:
         raise SystemExit("capture metadata has no usable dimensions")
+    if width < 1 or height < 1 or width > 8192 or height > 8192:
+        parser.error("capture dimensions outside supported bounds")
+    if (args.x is None) != (args.y is None):
+        parser.error("--x and --y must be supplied together")
+    if args.x is not None and not (0 <= args.x < width and 0 <= args.y < height):
+        parser.error("sample pixel outside capture dimensions")
+    if args.known_dist is not None and (not math.isfinite(args.known_dist) or args.known_dist <= 0):
+        parser.error("known distance must be positive and finite")
+    if args.acceptance:
+        if args.known_dist is None or args.x is None:
+            print("BLOCKED: acceptance requires --known-dist, --x and --y")
+            return 1
+        if meta.get("mode") != "BOTH" or not meta.get("captureBoundary"):
+            print("BLOCKED: acceptance requires a paired capture with issue-time boundary")
+            return 1
+        for key in ("identity", "generation"):
+            if not meta.get(key) or as_int(meta, key, 0) <= 0:
+                print(f"BLOCKED: missing capture {key}")
+                return 1
+        for path, key in ((args.depth, "depthSha256"), (args.colour, "colourSha256")):
+            if not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != meta.get(key):
+                print(f"BLOCKED: {key} missing or mismatched; files are not the recorded pair")
+                return 1
 
     print(f"capture   : identity {meta.get('identity')} "
           f"generation {meta.get('generation')}")
@@ -314,7 +341,10 @@ def main():
               "numbers that\nlook measured and are not. Capture again; if it still "
               "does not record,\nthe accessor is not reaching the level projection.")
         return 1
-    if not near or not far or near <= 0 or far <= near:
+    if len(matrix) != 16 or not all(math.isfinite(value) for value in matrix):
+        print("BLOCKED: projection matrix must contain 16 finite coefficients")
+        return 1
+    if not near or not far or not math.isfinite(near) or not math.isfinite(far) or near <= 0 or far <= near:
         print(f"\nBLOCKED: projection parameters are unusable (zNear={meta.get('zNear')} "
               f"zFar={meta.get('zFar')}),\nthough the matrix was recorded. Distances "
               "cannot be computed from a matrix\nwhose planes are unknown.")
@@ -354,6 +384,9 @@ def main():
     if not finite:
         raise SystemExit("depth contains no finite values")
     lo, hi = min(finite), max(finite)
+    if args.acceptance and (len(finite) != len(depth) or lo < 0 or hi > 1 or lo == hi):
+        print("BLOCKED: acceptance requires finite, in-range, non-flat scene depth")
+        return 1
     print(f"depth     : range [{lo:.6f}, {hi:.6f}], "
           f"{len(finite)}/{len(depth)} finite")
     if not (0.0 <= lo and hi <= 1.0):
@@ -370,6 +403,7 @@ def main():
     # The colour file is the referee; its absence leaves the claim a claim,
     # and a claim contradicted by the referee fails the capture outright.
     orientation_ok = True
+    orientation_confirmed = False
     claim = meta.get("depthRowOrder")
     colour_claim = meta.get("colourRowOrder")
     expected = None
@@ -389,12 +423,17 @@ def main():
             print(f"            MEASURED {verdict} against colour: {detail}; the row-order")
             print("            claims are incomplete, so there is nothing to confirm.")
         elif verdict == expected:
+            orientation_confirmed = True
             print(f"            MEASURED {verdict} against colour: {detail};")
             print(f"            claims depth '{claim}' / colour '{colour_claim}' - CONFIRMED.")
         else:
             print(f"            MEASURED {verdict} against colour: {detail};")
             print(f"            claims depth '{claim}' / colour '{colour_claim}' - CONTRADICTED.")
             orientation_ok = False
+
+    if args.acceptance and not orientation_confirmed:
+        print("BLOCKED: acceptance requires colour/depth orientation CONFIRMED, not UNDECIDABLE")
+        return 1
 
     # ---- distances
     print("\ndistance at sampled pixels (window depth -> metres):")

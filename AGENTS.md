@@ -33,6 +33,10 @@ Run `python3 tools/test-world-capture-hook.py` against the local Loom 26.2 jar
 when changing this boundary. `captureBoundary` records the issue-time hook.
 This fix is headless-checked, not runtime-accepted; obtain fresh nonzero terrain
 depth and known-block distance evidence before advancing the acceptance gate.
+Follow `docs/world-depth-acceptance.md` for the two real-block measurements.
+Use `tools/validate-world-depth.py --acceptance`: diagnostic exit zero alone
+does not accept a milestone. New captures include colour/depth SHA-256 hashes
+binding the artifact bytes to the issue-time metadata identity.
 
 ## Work discipline
 

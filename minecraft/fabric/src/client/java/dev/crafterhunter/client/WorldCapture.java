@@ -388,6 +388,15 @@ public final class WorldCapture {
         }
     }
 
+    private static String sha256(byte[] bytes) {
+        try {
+            return java.util.HexFormat.of().formatHex(
+                java.security.MessageDigest.getInstance("SHA-256").digest(bytes));
+        } catch (java.security.NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 unavailable", impossible);
+        }
+    }
+
     private long lastIdentity;
     private long colourLength;
     private long depthLength;
@@ -551,6 +560,9 @@ public final class WorldCapture {
             }
 
             String metadata = describe(width, height, identity, nowNanos, colour, depth, wantDepth);
+            // Bind these files to this identity, not a later/leftover capture.
+            if (wantColour) metadata += "colourSha256=" + sha256(colour) + "\n";
+            if (wantDepth) metadata += "depthSha256=" + sha256(depth) + "\n";
             Files.writeString(outputDirectory.resolve("world-capture.meta"), metadata,
                 StandardCharsets.UTF_8);
 
