@@ -1,5 +1,25 @@
 # CrafterHunter mod journal
 
+## 2026-10-07 — freshness-gated paired upload, not composition
+
+Added host-local watchdog and bounded generation retirement for world snapshots.
+Startup/restart requires identity advance; duplicates cannot refresh liveness,
+regression and retired generations are refused, and generation exhaustion fails
+closed. Native upload-only diagnostic is off by default (world-upload.enabled).
+It polls at 250 ms intervals, atomically stages immutable RGBA8/R32_FLOAT textures
+and views with matching issue-time metadata, releases CPU attachments, and clears
+staging on expiry/refusal/failure/disable. It never binds these textures for drawing.
+Stone shader, scene-depth selection and existing colour-only composition unchanged.
+
+Headless transport tests include startup stale-file refusal, duplicate expiry,
+recovery by advance, local clock rollback, restart warmup, retired-generation
+refusal and bounded exhaustion. MinGW renderer build, existing shader compilation,
+depth selection, frame-source, frame-clock and composite checks pass. No installation or
+runtime request writes; real Proton file sharing and GPU upload contents remain
+unverified. This is request-paced scaffolding, not 60 fps or visible Steve.
+Next: projection-normalised reprojection, then scoped live upload/composition
+acceptance with advancing identities, real blocks and current host-camera evidence.
+
 ## 2026-10-07 — manual block-depth gate and bounded paired transport
 
 User screenshots plus archived captures establish two distances to existing

@@ -32,8 +32,7 @@ No live channel is deleted. Diagnostics still publish if this transport is refus
 The portable C++ reader opens once, validates the header and exact file size before
 allocating, then reads both attachments through that same handle. Atomic inode
 replacement prevents mixing header/colour/depth generations on Linux. A refusal
-never replaces the caller's prior output. This reader is deliberately NOT wired
-into renderer.cpp: successful structural parsing does not prove valid depth,
+never replaces the caller's prior output. Successful structural parsing does not prove valid depth,
 freshness, camera alignment or renderability. Issue nanos are a Java-process clock,
 not a cross-process latency measurement. A future compositor must use local receipt
 freshness plus explicit generation/identity handling, and reject stale snapshots.
@@ -44,7 +43,30 @@ restart/resize, concurrent publication, wrong payload refusal and eight malforme
 native-reader cases. These are transport fixtures, not replacement game geometry.
 Windows/Proton file sharing and live producer/consumer behaviour remain unverified.
 
-Next bounded step: host-side fresh-snapshot selection and upload, then projection
+Host-side fresh-snapshot selection and upload are now implemented, not runtime
+accepted. The diagnostic is off by default: existence of
+`nativePC/plugins/CSharp/CrafterHunter/render/world-upload.enabled` opts in.
+It polls at most four times per second, opens each atomic snapshot anew (no frozen
+inode mapping), and requires identity advance after startup or generation change.
+The first file seen is warmup, never presumed fresh. Duplicate identities do not
+refresh a one-second host-local watchdog; lower identities and retired generations
+are refused. Four retired generations are remembered; further churn disables
+selection until the diagnostic is disabled/re-enabled or the renderer restarts.
+This bound prevents old generations from being forgotten and accepted as new.
+
+Both immutable D3D11 textures and SRVs are created privately; only a complete pair
+replaces staged resources and matching metadata. Colour is RGBA8 UNORM and depth
+is R32_FLOAT, still raw bottom-up guest data. CPU attachment storage is released
+after upload. Missing/malformed input, warmup, refusal, expiry or GPU failure clears
+the staged pair. No shader binds these views: neither stone nor diagnostic sky-only
+composition changes. Logs identify warmup, uploaded generation/identity/size, and
+clear events. This path copies whole snapshots and allocates textures per advance:
+it is request-paced verification scaffolding, NOT the final 60 fps architecture.
+Single static captures normally expire before another manual request arrives.
+Future live checks must use advancing paired requests, inspect these logs and
+verify GPU contents; successful cross-compilation does not establish uploads.
+
+Next bounded step: projection
 normalisation/reprojection with real host camera/depth. Guest layer isolation and
 input ownership remain separate gates; this snapshot still contains Minecraft
 terrain/sky, not isolated Steve.

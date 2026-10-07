@@ -20,6 +20,8 @@
 #include "frame_source.hpp"
 #include "frame_composite.hpp"
 #include "frame_clock.hpp"
+#include "world_frame.hpp"
+#include "world_freshness.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace sel = crafterhunter::depth;
@@ -162,6 +164,74 @@ ComPtr<ID3D11Buffer> frameConstants;
 // stretching would shear Steve and break the depth comparison with it.
 struct FrameMapping { float uvRect[4]; float frameFlags[4]; };
 FrameMapping frameMapping{};
+
+// Upload-only diagnostic, never bound by either existing draw path.
+crafterhunter::world::Freshness worldFreshness;
+ComPtr<ID3D11Texture2D> worldColourTexture, worldDepthTexture;
+ComPtr<ID3D11ShaderResourceView> worldColourView, worldDepthView;
+crafterhunter::world::Snapshot worldMetadata;
+ULONGLONG nextWorldPoll=0;
+bool worldUploadEnabled=false;
+void log(const char* format, ...);
+
+void clearWorldUpload() {
+    if (worldMetadata.identity) log("paired world upload cleared generation=%llu identity=%llu (upload-only)",
+        static_cast<unsigned long long>(worldMetadata.generation), static_cast<unsigned long long>(worldMetadata.identity));
+    worldColourView.Reset(); worldDepthView.Reset();
+    worldColourTexture.Reset(); worldDepthTexture.Reset();
+    worldMetadata=crafterhunter::world::Snapshot{};
+}
+
+void serviceWorldUpload() {
+    const bool enabled=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/world-upload.enabled")!=INVALID_FILE_ATTRIBUTES;
+    if (!enabled) {
+        if (worldUploadEnabled) { clearWorldUpload(); worldFreshness={}; nextWorldPoll=0; }
+        worldUploadEnabled=false; return;
+    }
+    worldUploadEnabled=true;
+    const auto now=GetTickCount64();
+    if (!worldFreshness.live(now)) clearWorldUpload();
+    if (now<nextWorldPoll) return;
+    nextWorldPoll=now+250; // request-paced diagnostic, not a per-frame video reader
+    crafterhunter::world::Snapshot snapshot;
+    if (!crafterhunter::world::read("Z:\\dev\\shm\\crafterhunter\\world.frame", snapshot)
+            && !crafterhunter::world::read("/dev/shm/crafterhunter/world.frame", snapshot)) {
+        clearWorldUpload(); return;
+    }
+    const auto result=worldFreshness.observe(snapshot.generation,snapshot.identity,now);
+    using R=crafterhunter::world::Freshness::Result;
+    if (result==R::Warmup || result==R::Refused) {
+        clearWorldUpload();
+        if (result==R::Warmup) log("paired world warmup generation=%llu identity=%llu; require advance",
+            static_cast<unsigned long long>(snapshot.generation),static_cast<unsigned long long>(snapshot.identity));
+        return;
+    }
+    if (result!=R::Advanced) return;
+    // Create both immutable textures and views privately. Publish neither on a
+    // partial D3D failure; the metadata belongs to this exact uploaded pair.
+    D3D11_TEXTURE2D_DESC desc{};
+    desc.Width=snapshot.width; desc.Height=snapshot.height;
+    desc.MipLevels=1; desc.ArraySize=1; desc.SampleDesc.Count=1;
+    desc.Usage=D3D11_USAGE_IMMUTABLE; desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+    ComPtr<ID3D11Texture2D> colour,depth;
+    ComPtr<ID3D11ShaderResourceView> colourView,depthView;
+    D3D11_SUBRESOURCE_DATA data{}; data.SysMemPitch=snapshot.stride;
+    desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM; data.pSysMem=snapshot.colour.data();
+    if (FAILED(device->CreateTexture2D(&desc,&data,&colour))
+            || FAILED(device->CreateShaderResourceView(colour.Get(),nullptr,&colourView))) { clearWorldUpload(); return; }
+    desc.Format=DXGI_FORMAT_R32_FLOAT; data.pSysMem=snapshot.depth.data();
+    if (FAILED(device->CreateTexture2D(&desc,&data,&depth))
+            || FAILED(device->CreateShaderResourceView(depth.Get(),nullptr,&depthView))) { clearWorldUpload(); return; }
+    worldColourTexture=std::move(colour); worldDepthTexture=std::move(depth);
+    worldColourView=std::move(colourView); worldDepthView=std::move(depthView);
+    std::vector<std::uint8_t>().swap(snapshot.colour); // metadata only; release CPU attachments
+    std::vector<std::uint8_t>().swap(snapshot.depth);
+    worldMetadata=std::move(snapshot);
+    if (!worldFreshness.live(GetTickCount64())) { clearWorldUpload(); return; }
+    log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition disabled",
+        static_cast<unsigned long long>(worldMetadata.generation),static_cast<unsigned long long>(worldMetadata.identity),
+        worldMetadata.width,worldMetadata.height);
+}
 
 int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui);
 bool createFramePipeline();
@@ -1113,6 +1183,7 @@ extern "C" __declspec(dllexport) void CH_Block(const float* inverse, const float
 extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* viewProjection) {
     if (!initialized && !initialize(singleton)) return 0;
     ++frame;
+    serviceWorldUpload();
     ComPtr<ID3D11Texture2D> back;
     if (FAILED(swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back.GetAddressOf())))) return 0;
     D3D11_TEXTURE2D_DESC d{}; back->GetDesc(&d);
@@ -1178,5 +1249,6 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     ageSourceChosen = false; lastRemapNanos = 0; channelPathReported = false;
     minecraftUploaded = 0; minecraftWidth = 0; minecraftHeight = 0;
     frameSource.close();
+    clearWorldUpload(); worldFreshness={}; nextWorldPoll=0; worldUploadEnabled=false;
     initialized = false; swapchain = nullptr;
 }

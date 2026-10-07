@@ -37,8 +37,9 @@ Update: manual bedrock captures on 2026-10-07 passed the two-distance gate
 (about 4.895 and 12.122 blocks), both at the pre-hand-clear fallback boundary.
 The optional always-on-top boundary and linked-camera scenes remain unaccepted.
 Next transport is request-paced paired snapshots; see docs/world-frame-transport.md.
-The portable reader is not wired to native composition; add local freshness and
-generation/identity selection before any upload. Keep diagnostic sky-only and
+An opt-in upload-only native diagnostic now has local freshness and bounded
+generation/identity selection (docs/world-frame-transport.md); it is not bound
+to native composition or runtime-accepted. Keep diagnostic sky-only and
 stone rendering unchanged until native paired composition has its own evidence.
 Follow `docs/world-depth-acceptance.md` for the two real-block measurements.
 Use `tools/validate-world-depth.py --acceptance`: diagnostic exit zero alone
