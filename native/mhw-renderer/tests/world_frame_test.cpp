@@ -2,6 +2,7 @@
 #include "world_freshness.hpp"
 #include <cassert>
 #include <cstdio>
+#include <filesystem>
 
 int main(int argc, char** argv) {
     assert(argc==3);
@@ -29,8 +30,15 @@ int main(int argc, char** argv) {
     assert(frame.nearPlane==0.05f && frame.farPlane==1024);
     assert(frame.projection[11]==-1 && frame.projection[14]==0.05000244f);
     assert(frame.pose[0]==917.5f && frame.pose[3]==9.75f);
+    assert(frame.clipMapping==1 && frame.clipOrigin==1 && frame.cameraMode==1);
+    assert(frame.cameraPosition[0]==917.546812345 && frame.viewRotation[15]==1);
+    assert(frame.rangeMin==0 && frame.rangeMax==1 && frame.clearDepth==0);
     for(auto pixel:frame.colour) assert(pixel==1);
     for(auto pixel:frame.depth) assert(pixel==1);
+    for(unsigned mode=0;mode<3;++mode) {
+        const auto path=std::filesystem::path(argv[1]).parent_path()/ ("camera-"+std::to_string(mode)+".frame");
+        assert(read(path.string().c_str(),frame) && frame.cameraMode==mode);
+    }
     assert(read(argv[2],frame));
     assert(frame.width==4 && frame.generation==100 && frame.identity==1);
     std::ifstream input(argv[1],std::ios::binary);
@@ -41,13 +49,17 @@ int main(int argc, char** argv) {
         assert(!read(rejected.c_str(),frame));
         assert(frame.generation==100); // failed read cannot replace good output
     };
-    auto bad=bytes; bad[4]=2; refuse(bad); // unknown version
+    auto bad=bytes; bad[4]=1; refuse(bad); // legacy version lacks render transform
     bad=bytes; bad[12]=0; refuse(bad); // unknown row order
     bad=bytes; bad[24]=1; refuse(bad); // wrong stride
     bad=bytes; bad[56]=1; refuse(bad); // attachment size disagreement
     bad=bytes; bad[40]=0; refuse(bad); // missing identity
-    bad=bytes; bad[164]=1; refuse(bad); // reserved layout changed
+    bad=bytes; bad[280]=1; refuse(bad); // reserved layout changed
+    bad=bytes; bad[164]=0; refuse(bad); // unknown clip convention
+    bad=bytes; bad[168]=0; refuse(bad); // unknown origin
+    bad=bytes; bad[264]=3; refuse(bad); // invalid perspective
+    bad=bytes; bad[276]=0; refuse(bad); // unknown provenance
     bad=bytes; bad.resize(300); refuse(bad); // incomplete depth
     bad=bytes; bad.push_back(0); refuse(bad); // trailing data
-    std::puts("PASS: Java/native round trip, metadata, resize, eight malformed-frame refusals");
+    std::puts("PASS: v2 Java/native round trip, exact camera/mapping, all F5 modes, resize, twelve malformed-frame refusals");
 }

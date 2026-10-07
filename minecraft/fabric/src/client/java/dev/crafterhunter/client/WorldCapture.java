@@ -22,6 +22,11 @@ import net.minecraft.client.renderer.Projection;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.renderer.GameRenderer;
 import org.joml.Matrix4f;
+import org.joml.Matrix4fc;
+import org.lwjgl.opengl.GL;
+import org.lwjgl.opengl.GL11C;
+import org.lwjgl.opengl.GL45C;
+import com.mojang.blaze3d.opengl.GlTexture;
 
 /**
  * Reads Minecraft's world colour and its depth from the same world-render frame.
@@ -87,6 +92,25 @@ public final class WorldCapture {
 
     public void beginWorldFrame() {
         worldBoundarySeen = false;
+        worldProjectionKnown = false;
+        worldViewKnown = false;
+    }
+
+    private final float[] worldProjection = new float[16];
+    private final float[] worldView = new float[16];
+    private final double[] worldPosition = new double[3];
+    private float worldPitch, worldYaw;
+    private boolean worldProjectionKnown, worldViewKnown;
+    public void recordWorldProjection(Matrix4fc matrix) {
+        matrix.get(worldProjection);
+        worldProjectionKnown = true;
+    }
+    public void recordWorldView(CameraRenderState camera, Matrix4fc view) {
+        if (!camera.initialized || camera.pos == null) return;
+        view.get(worldView);
+        worldPosition[0]=camera.pos.x; worldPosition[1]=camera.pos.y; worldPosition[2]=camera.pos.z;
+        worldPitch=camera.xRot; worldYaw=camera.yRot;
+        worldViewKnown=true;
     }
 
     /** Service exactly once: early clear if present, otherwise the hand clear. */
@@ -132,6 +156,11 @@ public final class WorldCapture {
     private float[] inFlightFar = {Float.NaN};
     private float[] inFlightMatrix = new float[16];
     private boolean inFlightMatrixKnown;
+    private final float[] inFlightView = new float[16];
+    private final double[] inFlightPosition = new double[3];
+    private boolean inFlightViewKnown;
+    private int inFlightClipMapping, inFlightClipOrigin, inFlightCameraMode;
+    private float inFlightDepthRangeMin, inFlightDepthRangeMax;
     private String inFlightProjectionSource = "none";
     private String inFlightPerspective = "?";
     private long inFlightQueuedNanos;
@@ -443,6 +472,11 @@ public final class WorldCapture {
     private void recordCamera(Minecraft minecraft, long identity) {
         inFlightAnchorSource = "none";
         inFlightMatrixKnown = false;
+        inFlightViewKnown = false;
+        inFlightClipMapping = 0;
+        inFlightClipOrigin = 0;
+        inFlightDepthRangeMin = Float.NaN;
+        inFlightDepthRangeMax = Float.NaN;
         inFlightProjectionSource = "none";
         inFlightNear[0] = Float.NaN;
         inFlightFar[0] = Float.NaN;
@@ -514,6 +548,38 @@ public final class WorldCapture {
                 inFlightProjectionSource = "camera-projection failed: " + problem;
             }
         }
+        // Frozen copies from the exact render call and final GPU-upload argument.
+        // No extractRenderState(partialTicks=1) approximation for the paired channel.
+        if (worldProjectionKnown && worldViewKnown) {
+            System.arraycopy(worldProjection,0,inFlightMatrix,0,16);
+            System.arraycopy(worldView,0,inFlightView,0,16);
+            System.arraycopy(worldPosition,0,inFlightPosition,0,3);
+            inFlightX=(float)worldPosition[0]; inFlightY=(float)worldPosition[1]; inFlightZ=(float)worldPosition[2];
+            inFlightXRot=worldPitch; inFlightYRot=worldYaw;
+            inFlightMatrixKnown=true;
+            inFlightViewKnown=true;
+            inFlightAnchorSource="level-render-argument";
+            inFlightProjectionSource="level-gpu-upload-argument (includes view effects)";
+        }
+        try {
+            inFlightCameraMode=switch(minecraft.options.getCameraType()) {
+                case FIRST_PERSON -> 0;
+                case THIRD_PERSON_BACK -> 1;
+                case THIRD_PERSON_FRONT -> 2;
+            };
+            if (minecraft.gameRenderer.mainRenderTarget().getDepthTexture() instanceof GlTexture
+                    && (GL.getCapabilities().OpenGL45 || GL.getCapabilities().GL_ARB_clip_control)) {
+                int mapping=GL11C.glGetInteger(GL45C.GL_CLIP_DEPTH_MODE);
+                int origin=GL11C.glGetInteger(GL45C.GL_CLIP_ORIGIN);
+                inFlightClipMapping=mapping==GL45C.GL_ZERO_TO_ONE ? 1 : mapping==GL45C.GL_NEGATIVE_ONE_TO_ONE ? 2 : 0;
+                inFlightClipOrigin=origin==GL45C.GL_LOWER_LEFT ? 1 : origin==GL45C.GL_UPPER_LEFT ? 2 : 0;
+                double[] range=new double[2];
+                GL11C.glGetDoublev(GL11C.GL_DEPTH_RANGE,range);
+                inFlightDepthRangeMin=(float)range[0]; inFlightDepthRangeMax=(float)range[1];
+            }
+        } catch (RuntimeException | LinkageError unavailable) {
+            inFlightClipMapping=0; inFlightClipOrigin=0;
+        }
     }
 
     private void publish(long nowNanos) {
@@ -563,13 +629,16 @@ public final class WorldCapture {
             // Bind these files to this identity, not a later/leftover capture.
             if (wantColour) metadata += "colourSha256=" + sha256(colour) + "\n";
             if (wantDepth) metadata += "depthSha256=" + sha256(depth) + "\n";
-            if (wantColour && wantDepth && inFlightMatrixKnown) {
+            if (wantColour && wantDepth && inFlightMatrixKnown && inFlightViewKnown
+                    && inFlightClipMapping!=0 && inFlightClipOrigin!=0) {
                 // Request-paced only. This is not yet a live compositor source.
                 try {
                     WorldFrameChannel.publish(Path.of("/dev/shm/crafterhunter/world.frame"),
                         width, height, generation, identity, inFlightQueuedNanos,
                         inFlightNear[0], inFlightFar[0], inFlightMatrix,
                         new float[] {inFlightX, inFlightY, inFlightZ, inFlightXRot, inFlightYRot},
+                        inFlightView, inFlightPosition, inFlightClipMapping, inFlightClipOrigin,
+                        inFlightCameraMode, inFlightDepthRangeMin, inFlightDepthRangeMax,
                         colour, depth);
                     metadata += "worldFrameChannel=/dev/shm/crafterhunter/world.frame\n";
                 } catch (IOException | IllegalArgumentException refused) {
@@ -577,6 +646,8 @@ public final class WorldCapture {
                     // geometry exceeds the transport cap or rename is unsupported.
                     metadata += "worldFrameChannel=refused: " + refused + "\n";
                 }
+            } else if (wantColour && wantDepth) {
+                metadata += "worldFrameChannel=refused: missing exact view/projection or GL clip provenance\n";
             }
             Files.writeString(outputDirectory.resolve("world-capture.meta"), metadata,
                 StandardCharsets.UTF_8);
@@ -651,6 +722,18 @@ public final class WorldCapture {
         text.append(String.format(Locale.ROOT, "anchorRot=%.3f %.3f%n",
             inFlightXRot, inFlightYRot));
         text.append("perspective=").append(inFlightPerspective).append('\n');
+        text.append("viewMatrixKnown=").append(inFlightViewKnown).append('\n');
+        text.append("clipDepthMapping=").append(inFlightClipMapping).append('\n');
+        text.append("clipOrigin=").append(inFlightClipOrigin).append('\n');
+        text.append("depthRange=").append(inFlightDepthRangeMin).append(' ').append(inFlightDepthRangeMax).append('\n');
+        text.append("depthClear=0.0 (pinned LevelRenderer main-pass clear)\n");
+        if (inFlightViewKnown) {
+            text.append("viewRotationMatrix=");
+            for(float value:inFlightView) text.append(value).append(' ');
+            text.append("\ncameraPositionExact=");
+            for(double value:inFlightPosition) text.append(value).append(' ');
+            text.append('\n');
+        }
         text.append("handInFrame=").append(handInFrame()).append('\n');
         // Provenance for the projection, in the same spirit as anchorSource above:
         // a projection of unknown origin cannot be distinguished from a guessed one.

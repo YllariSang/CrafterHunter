@@ -9,13 +9,17 @@
 #include <vector>
 
 namespace crafterhunter::world {
-constexpr std::uint32_t Magic = 0x50574843, Version = 1, HeaderBytes = 256, MaxDimension = 4096;
+constexpr std::uint32_t Magic = 0x50574843, Version = 2, HeaderBytes = 320, MaxDimension = 4096;
 struct Snapshot {
     std::uint32_t width{}, height{}, stride{};
     std::uint64_t generation{}, identity{}, issueNanos{};
     float nearPlane{}, farPlane{};
     std::array<float, 16> projection{};
     std::array<float, 5> pose{}; // x,y,z,pitch,yaw in Minecraft units/degrees
+    std::array<float,16> viewRotation{};
+    std::array<double,3> cameraPosition{};
+    std::uint32_t clipMapping{},clipOrigin{},cameraMode{};
+    float clearDepth{},rangeMin{},rangeMax{};
     std::vector<std::uint8_t> colour, depth;
 };
 inline std::uint32_t u32(const std::uint8_t* p) {
@@ -23,6 +27,7 @@ inline std::uint32_t u32(const std::uint8_t* p) {
 }
 inline std::uint64_t u64(const std::uint8_t* p) { return u32(p) | std::uint64_t(u32(p + 4)) << 32; }
 inline float f32(const std::uint8_t* p) { auto bits = u32(p); float value; std::memcpy(&value, &bits, 4); return value; }
+inline double f64(const std::uint8_t* p) { auto bits = u64(p); double value; std::memcpy(&value, &bits, 8); return value; }
 // Opening once holds one inode across an atomic replacement: header and pixels
 // cannot come from different publications. A refusal never replaces output.
 inline bool read(const char* path, Snapshot& output) {
@@ -54,7 +59,22 @@ inline bool read(const char* path, Snapshot& output) {
         candidate.pose[i]=f32(h.data()+144+i*4);
         if (!std::isfinite(candidate.pose[i])) return false;
     }
-    for (unsigned i=164; i<HeaderBytes; ++i) if (h[i]) return false;
+    candidate.clipMapping=u32(h.data()+164); candidate.clipOrigin=u32(h.data()+168);
+    candidate.clearDepth=f32(h.data()+172);
+    for(unsigned i=0;i<16;++i) {
+        candidate.viewRotation[i]=f32(h.data()+176+i*4);
+        if(!std::isfinite(candidate.viewRotation[i])) return false;
+    }
+    for(unsigned i=0;i<3;++i) {
+        candidate.cameraPosition[i]=f64(h.data()+240+i*8);
+        if(!std::isfinite(candidate.cameraPosition[i])) return false;
+    }
+    candidate.cameraMode=u32(h.data()+264);
+    candidate.rangeMin=f32(h.data()+268); candidate.rangeMax=f32(h.data()+272);
+    if(candidate.clipMapping<1 || candidate.clipMapping>2 || candidate.clipOrigin<1 || candidate.clipOrigin>2
+            || candidate.clearDepth!=0 || candidate.cameraMode>2 || candidate.rangeMin!=0 || candidate.rangeMax!=1
+            || u32(h.data()+276)!=1) return false;
+    for (unsigned i=280; i<HeaderBytes; ++i) if (h[i]) return false;
     candidate.colour.resize(bytes); candidate.depth.resize(bytes);
     if (!file.read(reinterpret_cast<char*>(candidate.colour.data()), bytes)
             || !file.read(reinterpret_cast<char*>(candidate.depth.data()), bytes)) return false;

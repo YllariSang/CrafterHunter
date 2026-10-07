@@ -1,4 +1,4 @@
-# Paired world snapshot v1
+# Paired world snapshot v2
 
 Implemented, headless-tested; not installed or runtime-composited.
 The existing live colour-only channel and native stone renderer are untouched.
@@ -7,20 +7,38 @@ recorded projection metadata. This is not an automatic 60 fps stream.
 
 The file `/dev/shm/crafterhunter/world.frame` contains one little-endian header,
 bottom-up RGBA8 colour, then bottom-up raw D32_FLOAT window depth. Source rows
-are tightly packed; matrix coefficients are column-major. Near/far and the matrix
-define the depth convention. Never compare these floats directly to MHW depth.
+are tightly packed; matrix coefficients are column-major. Clip-control mode/origin
+and depth range are explicit: the matrix alone cannot define the window-depth
+mapping. Never compare these floats directly to MHW depth.
 
 | Offset | Field |
 | --- | --- |
-| 0, 4, 8, 12 | u32 magic `0x50574843`, version 1, header size 256, flags 1 (bottom-up) |
+| 0, 4, 8, 12 | u32 magic `0x50574843`, version 2, header size 320, flags 1 (bottom-up) |
 | 16, 20, 24, 28 | u32 width, height, row stride, reserved zero |
 | 32, 40, 48 | u64 generation, capture identity, issue-time Java monotonic nanos |
 | 56, 64 | u64 colour and depth byte counts |
 | 72, 76 | f32 near, far |
 | 80 | 16 f32 projection coefficients |
 | 144 | five f32 camera x, y, z, pitch, yaw in Minecraft units/degrees |
-| 164–255 | reserved zeros |
-| 256 | colour, followed immediately by depth |
+| 164, 168 | u32 clip mapping (1 zero-to-one, 2 minus-one-to-one), origin (1 lower-left, 2 upper-left) |
+| 172 | f32 clear depth 0 (pinned 26.2 main-pass clear) |
+| 176 | 16 f32 actual level view-rotation coefficients |
+| 240 | three f64 actual render camera x, y, z |
+| 264 | u32 native camera mode (0 first-person, 1 rear third-person, 2 front third-person) |
+| 268, 272, 276 | f32 depth-range min/max (currently requires 0/1), u32 provenance 1 (render arguments) |
+| 280–319 | reserved zeros |
+| 320 | colour, followed immediately by depth |
+
+Version 1 is rejected; rebuild/restart both endpoints together for v2. Exact camera
+position plus view rotation specifies `eye = rotation * (guestWorld - cameraPos)`.
+The projection is the final GameRenderer upload argument, after bob/hurt/nausea
+effects, not the earlier camera projection. LevelRenderer's actual camera and view
+arguments are copied before it renders; at readback issue these values are frozen
+for that capture identity. No player-eye or resampled-state fallback is published
+on v2. Missing view/projection or unavailable GL clip queries refuse paired transport
+while retaining diagnostic output and leaving the previous atomic snapshot intact.
+The host watchdog still expires that old file; it must not be treated as an update.
+Clear-depth provenance is bytecode-pinned, not a query of unrelated GL clear state.
 
 Each attachment is width × height × 4 bytes. Dimensions are capped at 4096 each;
 one snapshot is at most 128 MiB plus header. One private same-directory temporary
@@ -40,7 +58,9 @@ freshness plus explicit generation/identity handling, and reject stale snapshots
 Headless check: `bash tools/test-world-frame-transport.sh`. Java writes actual
 binary fixtures read by C++; verifies matrix/pose/depth offsets, complete pair,
 restart/resize, concurrent publication, wrong payload refusal and eight malformed
-native-reader cases. These are transport fixtures, not replacement game geometry.
+native-reader cases (now twelve), all three native camera-mode values, exact f64
+position/view offsets and rejection of absent provenance. These are transport
+fixtures, not replacement game geometry.
 Windows/Proton file sharing and live producer/consumer behaviour remain unverified.
 
 Host-side fresh-snapshot selection and upload are now implemented, not runtime
@@ -68,8 +88,9 @@ verify GPU contents; successful cross-compilation does not establish uploads.
 
 CPU projection inversion/reprojection is now implemented and archived-block checked;
 see [world-reprojection.md](world-reprojection.md). Native staging prepares the
-matching inverse projection, but no reprojection shader draws yet. Next capture
-the full issue-time guest view transform and explicit depth convention, then
-establish anchor conversion against real host camera/depth. Guest layer isolation and
+matching inverse projection and eye-to-guest transform, but no reprojection shader
+draws yet. View/depth provenance is implemented, not runtime accepted; next obtain
+fresh v2 captures in each F5 mode and establish anchor conversion against real
+host camera/depth. Guest layer isolation and
 input ownership remain separate gates; this snapshot still contains Minecraft
 terrain/sky, not isolated Steve.

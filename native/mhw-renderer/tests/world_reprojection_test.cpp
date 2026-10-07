@@ -17,6 +17,15 @@ int main(int argc,char** argv) {
     }
     assert(argc==1);
     const Matrix identity{1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+    Matrix eyeWorld{};
+    assert(eyeToWorld(identity,{917.546812345,-58.38,343.1757},eyeWorld));
+    const auto worldPoint=transform(eyeWorld,{0,0,-5,1});
+    assert(worldPoint[0]==917.546812345 && worldPoint[2]==338.1757);
+    auto viewRotation=identity; viewRotation[0]=0; viewRotation[2]=-1; viewRotation[8]=1; viewRotation[10]=0;
+    assert(eyeToWorld(viewRotation,{10,20,30},eyeWorld));
+    const auto turned=transform(eyeWorld,{0,0,-5,1});
+    assert(turned[0]==15 && turned[1]==20 && turned[2]==30);
+    viewRotation[3]=1; assert(!eyeToWorld(viewRotation,{10,20,30},eyeWorld));
     // Actual recorded Minecraft projection coefficients (949x1028, FOV 70).
     Matrix p{1.5470351,0,0,0,0,1.428148,0,0,0,0,4.883051e-5,-1,0,0,0.05000244,0},inv{};
     assert(inverse(p,inv));

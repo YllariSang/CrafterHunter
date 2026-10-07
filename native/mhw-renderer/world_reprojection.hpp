@@ -65,6 +65,18 @@ inline bool reconstruct(const Matrix& inverseProjection,ClipDepth mapping,double
     candidate[3]=1; eye=candidate; return true;
 }
 struct HostPixel { double u{},v{},depth{}; }; // host top-down UV and host window depth
+// Minecraft renders camera-relative world positions through the level view matrix.
+// Preserve f64 camera position; inverse(view) alone omits third-person displacement.
+inline bool eyeToWorld(const Matrix& view,const std::array<double,3>& position,Matrix& output) {
+    for(double value:position) if(!std::isfinite(value)) return false;
+    if(std::abs(view[3])>1e-6 || std::abs(view[7])>1e-6 || std::abs(view[11])>1e-6
+            || std::abs(view[15]-1)>1e-6) return false;
+    Matrix candidate{};
+    if(!inverse(view,candidate)) return false;
+    for(unsigned i=0;i<3;++i) candidate[12+i]+=position[i];
+    if(!finite(candidate)) return false;
+    output=candidate; return true;
+}
 // eyeToHostWorld must include the VERIFIED guest view inverse and world-anchor
 // conversion. Host VP must be the current draw's matrix, not a lagged CPU guess.
 inline bool project(const Vector& eye,const Matrix& eyeToHostWorld,

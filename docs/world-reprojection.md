@@ -50,12 +50,14 @@ view in Minecraft-owned mode. Third-person includes camera displacement/collisio
 and Steve's normal guest model visibility; first-person hands need their own later
 layer. These are acceptance requirements, NOT implemented gameplay features.
 
-Snapshot v1 contains pose angles, NOT the complete issue-time view transform,
+Historical snapshot v1 contained pose angles, NOT the complete issue-time view transform,
 view effects, clip-control provenance or shared-world anchor/session mapping.
 Do not derive an exact view matrix from player yaw/pitch and assume it includes
-camera bobbing, third-person displacement and scripted camera effects. Next obtain
-the actual issue-time guest view transform and explicit depth convention, version
-the paired transport, and validate anchor conversion against current host camera
+camera bobbing, third-person displacement and scripted camera effects. Snapshot v2
+now observes the actual level camera/view arguments and final effect-modified
+projection upload, with queried GL clip mapping/origin and depth range. It is
+headless-checked, not runtime-accepted in F5 modes. Next validate fresh v2 captures
+and anchor conversion against current host camera
 evidence. Only then wire GPU reprojection to the existing validated pre-UI/depth
 pass. Retain freshness gating and guest clear-pixel exclusion; reprojection alone
 does not solve disocclusion holes, transparent pixels, or isolate Steve from terrain.

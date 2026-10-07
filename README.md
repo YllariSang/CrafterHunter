@@ -44,6 +44,12 @@ is unknown, compositing a full Minecraft frame at native resolution and 60 fps.
 Terrain queries are answered today from the game's own collision routine; see
 [docs/terrain-query.md](docs/terrain-query.md).
 
+Current sub-checkpoint (2026-10-07): real Minecraft depth was validated against
+bedrock at two known distances. Paired snapshot v2 now carries exact render-camera
+and final projection metadata; native freshness/upload and CPU reprojection are
+headless-checked, not runtime-accepted guest composition. Steve/control and native
+F5 camera integration remain unimplemented. See [paired-frame status](docs/world-frame-transport.md).
+
 Collision, Steve's model, inventory integration, and cross-game combat are still
 future work. The earlier [A/B/C comparison](docs/block-compare-test.md) remains
 documented as development history.

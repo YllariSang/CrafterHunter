@@ -172,6 +172,7 @@ ComPtr<ID3D11Texture2D> worldColourTexture, worldDepthTexture;
 ComPtr<ID3D11ShaderResourceView> worldColourView, worldDepthView;
 crafterhunter::world::Snapshot worldMetadata;
 crafterhunter::reprojection::Matrix worldInverseProjection{};
+crafterhunter::reprojection::Matrix worldEyeToGuest{};
 ULONGLONG nextWorldPoll=0;
 bool worldUploadEnabled=false;
 void log(const char* format, ...);
@@ -183,6 +184,7 @@ void clearWorldUpload() {
     worldColourTexture.Reset(); worldDepthTexture.Reset();
     worldMetadata=crafterhunter::world::Snapshot{};
     worldInverseProjection={};
+    worldEyeToGuest={};
 }
 
 void serviceWorldUpload() {
@@ -210,9 +212,10 @@ void serviceWorldUpload() {
         return;
     }
     if (result!=R::Advanced) return;
-    crafterhunter::reprojection::Matrix projection{},inverseProjection{};
-    for(unsigned i=0;i<16;++i) projection[i]=snapshot.projection[i];
-    if (!crafterhunter::reprojection::inverse(projection,inverseProjection)) {
+    crafterhunter::reprojection::Matrix projection{},inverseProjection{},view{},eyeToGuest{};
+    for(unsigned i=0;i<16;++i) { projection[i]=snapshot.projection[i]; view[i]=snapshot.viewRotation[i]; }
+    if (!crafterhunter::reprojection::inverse(projection,inverseProjection)
+            || !crafterhunter::reprojection::eyeToWorld(view,snapshot.cameraPosition,eyeToGuest)) {
         clearWorldUpload(); log("paired world projection refused: singular or nonfinite"); return;
     }
     // Create both immutable textures and views privately. Publish neither on a
@@ -236,6 +239,7 @@ void serviceWorldUpload() {
     std::vector<std::uint8_t>().swap(snapshot.depth);
     worldMetadata=std::move(snapshot);
     worldInverseProjection=inverseProjection;
+    worldEyeToGuest=eyeToGuest;
     if (!worldFreshness.live(GetTickCount64())) { clearWorldUpload(); return; }
     log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition disabled",
         static_cast<unsigned long long>(worldMetadata.generation),static_cast<unsigned long long>(worldMetadata.identity),

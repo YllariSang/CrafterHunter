@@ -1,5 +1,31 @@
 # CrafterHunter mod journal
 
+## 2026-10-07 — exact render arguments and paired snapshot v2
+
+Local Loom 26.2 bytecode establishes GameRenderer copies CameraRenderState's
+projection, applies bob/hurt and nausea transforms, then uploads that modified
+Matrix4f before invoking LevelRenderer.render with actual camera and view arguments.
+The previous resampled CameraRenderState projection missed those effects. Added
+observational ModifyArg on the final upload (returns the identical object), and
+LevelRenderer HEAD capture of the actual view and double-precision camera position.
+Per-world-frame reset prevents last-frame metadata surviving a missing hook.
+
+Paired v2 header carries final projection, actual view rotation, f64 position, all
+three F5 modes, queried GL clip-control mapping/origin and depth range, and pinned
+main-pass clear 0 provenance. Missing exact arguments/backend metadata refuses
+transport, not GPU-lifetime policy or diagnostic publication. Native rejects v1
+and unknown provenance, prepares inverse projection/view and eye-to-guest transform
+for upload-only staging. Existing stone and colour-only drawing unchanged.
+
+Headless bytecode checks pin effect-before-upload-before-level ordering, exact hook
+signature, reset and main-pass clear. Java/native round trip covers all F5 mode
+values, f64 precision, view/mapping offsets, restart/resize and twelve malformed
+refusals. Fabric/native builds, capture completion/readback-plan tests, 17 depth
+validator regressions and affine view/position reprojection checks pass.
+This does NOT establish real F5 camera alignment, native GPU contents or
+visible Steve. No deployment or live requests. Next fresh v2 runtime camera evidence
+and guest/host shared anchor conversion before depth-aware composition.
+
 ## 2026-10-07 — projection reference and real archived-block replay
 
 Added column-major inverse/unprojection and explicit eye-to-host/current-host-VP

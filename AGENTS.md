@@ -46,8 +46,10 @@ to native composition or runtime-accepted. Keep diagnostic sky-only and
 stone rendering unchanged until native paired composition has its own evidence.
 CPU reconstruction/reprojection now lives in world_reprojection.hpp; see
 docs/world-reprojection.md. It replays the two archived bedrock distances, not
-live GPU composition. Snapshot v1 lacks a full issue-time view transform and
-explicit depth-mapping provenance: capture those before deriving host alignment.
+live GPU composition. Snapshot v2 now carries actual level view/camera arguments,
+final effect-modified projection upload and queried GL clip mapping/origin/range.
+This is headless-checked only: fresh v2 captures in all F5 modes and shared-world
+anchor conversion must be validated before binding the paired layer for drawing.
 Follow `docs/world-depth-acceptance.md` for the two real-block measurements.
 Use `tools/validate-world-depth.py --acceptance`: diagnostic exit zero alone
 does not accept a milestone. New captures include colour/depth SHA-256 hashes

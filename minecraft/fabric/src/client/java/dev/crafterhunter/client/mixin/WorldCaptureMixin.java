@@ -6,6 +6,8 @@ import net.minecraft.client.renderer.GameRenderer;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
+import org.joml.Matrix4f;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
@@ -37,6 +39,13 @@ public abstract class WorldCaptureMixin {
     @Inject(method = "renderLevel", at = @At("HEAD"), require = 1)
     private void crafterhunter$beginWorld(DeltaTracker delta, CallbackInfo callback) {
         WorldCapture.instance().beginWorldFrame();
+    }
+
+    @ModifyArg(method = "renderLevel", require = 1, index = 0,
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/ProjectionMatrixBuffer;getBuffer(Lorg/joml/Matrix4f;)Lcom/mojang/blaze3d/buffers/GpuBufferSlice;"))
+    private Matrix4f crafterhunter$recordUploadedProjection(Matrix4f matrix) {
+        WorldCapture.instance().recordWorldProjection(matrix);
+        return matrix; // observe, never modify Minecraft's camera
     }
 
     // The always-on-top pass is conditional. When absent, the hand clear is
