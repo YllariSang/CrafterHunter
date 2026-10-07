@@ -2202,3 +2202,74 @@ works under the launcher, so the live capture (colour-only, depth-only, paired, 
 block at known distances, camera sync LIVE, screenshots) is handed to the user to run
 with both games. Unchanged: the fail-closed retention policy, the shared-memory
 transport, and the MHW compositor.
+
+## 2026-10-07 — projection recorded from the camera; the gate blocks on scene depth
+
+The projection metadata was NaN because the old chain read
+`GameRenderer.levelProjectionMatrixBuffer.lastUploadedProjection`, a field the level
+upload path nulls by calling `getBuffer(Matrix4f)` — structurally dead, so the numbers
+were never there to record. `CameraProjectionAccessor` (a new `@Accessor("projection")`
+on `Camera`, validated by the mixin AP at build) reaches the matrix the camera actually
+holds; `WorldCapture.recordCamera` now writes `fov`, `zNear`, `zFar`, the 16 matrix
+floats and `projectionSource=camera-projection`, and both dead accessors plus their
+mixins.json entries are deleted. Measured live: `fov=54.37698`, `zNear=0.05`,
+`zFar=1024.0`, and a matrix that is exactly the zero-to-one reversed family —
+`m22 = n/(f-n) = 4.883051E-5`, `m32 = nf/(f-n) = 0.05000244`, `m23 = -1` (both computed
+from the recorded planes to every printed digit). Committed `affc2b6`, pushed.
+
+`tools/validate-world-depth.py` now *detects* the depth convention by trying both
+closed forms against the recorded matrix instead of assuming one, and blocks reporting
+`worst relative` for each when neither fits; `tools/test-validate-world-depth.py`
+(4 fixtures) is the regression that fails on the pre-fix validator at the reversed
+case. The live gate then exposed the next gap honestly: on this matrix the validator
+BLOCKED with both conventions near `1.0` worst-relative, because the referee
+`distance_from_matrix` hardcodes the classic `zw = (ndc+1)/2` window remap while the
+measured buffer is `zw = ndc` (ZERO_TO_ONE). For this family the `reversed` closed form
+`d = nf/(zw*(f-n) + n)` is algebraically exact — it reconstructs the recorded corner
+values correctly — so the referee, not the closed form, is wrong. That fix needs a
+fixture carrying the measured matrix, which is the regression test this bug deserves.
+
+The gate run itself (`out/archive/20261006T172918Z/`, both games LIVE, camera ~17
+pkt/s) passed everything that does not depend on scene depth: COLOUR, DEPTH and PAIRED
+all published with both attachments complete, no GL errors, `packNonDefault=rowLength=949`,
+exit 0, per-run archive so nothing overwrote run 1. The HUD was deliberately *on*
+during capture — F3 debug, the CrafterHunter overlay and the hotbar are all visible on
+screen and all absent from `world-colour.png` (HUD excluded, verified by comparison);
+the crosshair and the held item are present in the capture and are recorded as such,
+not treated as exclusions. `perspective=FIRST_PERSON`, `handInFrame=included` as
+before.
+
+BLOCKED stage, with fresh evidence: **the terrain is not in the depth attachment.**
+95.0% of the depth buffer (928,016 / 976,572) is exact clear `0.0`. The only non-zero
+content is (a) a hand-shaped rectangle in file rows 0–~320, cols 757–948 — screen
+bottom-right under the recorded bottom-up order, `zw` 0.069–0.082 → 0.61–0.72 m, and
+(b) a ~10x12 px blob at rows 512–523, cols 466–475, `zw ≈ 0.0498` → 1.00 m — the
+crosshair, which writes depth inside the captured pass. The crosshair pixel therefore
+reconstructs 1.00 m although the camera sits 3.5666 m above the ground plane and its
+view axis must meet ground near 4.6 m, and `depthMax=0.08206147` is identical to the
+previous run's — camera-attached geometry, not scene. Colour, meanwhile, is complete
+(99.99% non-zero, full terrain). So the colour image is being obtained through a path
+that carries the world, and the depth read is against an attachment that only the held
+item and the crosshair ever draw into; where the terrain's own depth lives (the
+intermediate target its colour is composited from) is the investigation for the next
+round, before any transport or compositor change.
+
+Known-distance ground truth was not forced: F3 is bound (`key.debug.overlay:
+key.keyboard.f3`) and readable, but the player's ray has no Targeted Block within
+reach, and the feet height (`y=128.00000`) is not confirmed at the camera's crosshair
+hit point — a plane intersection from `anchor`+`anchorRot`+matrix would be computed
+against the same projection under test. The distance claim waits for scene depth and
+an independent ground height. Orientation likewise stays open: the validator reports
+`depthRowOrder` as the writer's claim because gradient statistics are identical under
+both orientations; the colour-based decision is not implemented.
+
+Verified headless: `./gradlew build`, all `tools/test-*` (frame, depth,
+frame-selection, world-depth 4/4), `bash -n tools/verify-world-capture.sh`;
+`~/.minecraft/mods/crafterhunter-fabric-0.3.0.jar` byte-identical to the build
+(`sha256 89743ae88c7fe3820cff8da499e20490df9d900dd92114323ab308513cdf5f0b`), previous
+jar preserved in `~/.minecraft/crafterhunter/old-mods/`. Verified live: the archive
+above — three modes published, projection recorded, HUD excluded from colour, camera
+LIVE throughout. Not verified: scene depth (blocked, evidence above), distances
+(validator BLOCKED, referee gap), the convention-vs-matrix match on the real matrix
+(needs the measured-matrix fixture), colour/depth orientation as a *measurement*, and
+the known-distance check itself.
