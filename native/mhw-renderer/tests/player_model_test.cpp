@@ -1,4 +1,5 @@
 #include "player_model.hpp"
+#include "player_uv_debug.hpp"
 #include "world_alignment.hpp"
 #include "world_freshness.hpp"
 #include <cassert>
@@ -17,6 +18,15 @@ static void put64(std::vector<std::uint8_t>& b,unsigned offset,std::uint64_t n) 
 static void f32(std::vector<std::uint8_t>& b,unsigned offset,float n) { std::uint32_t bits; std::memcpy(&bits,&n,4); put32(b,offset,bits); }
 static void f64(std::vector<std::uint8_t>& b,unsigned offset,double n) { std::uint64_t bits; std::memcpy(&bits,&n,8); put64(b,offset,bits); }
 int main(int argc,char** argv) {
+    for(bool slim:{false,true}) {
+        auto skin=player::uvDebugSkin(slim);
+        // Front/back head, torso, R/L arms, R/L legs occupy independent texel regions.
+        const unsigned samples[][3]={{12,12,1},{28,12,1},{24,24,2},{36,24,2},
+            {45,24,3},{37,56,4},{5,24,5},{21,56,6}};
+        for(auto& s:samples) assert(skin[(s[1]*64+s[0])*4]==s[2]*32);
+        assert(skin[(9*64+12)*4+2]<skin[(14*64+12)*4+2]); // V increases down the face.
+        assert(skin[(8*64+8)*4]==255); // Orientation marker at front top-left.
+    }
     const std::uint8_t rgba[]={1,2,3,4,5,6,7,8};
     const std::uint8_t padded[]={1,2,3,4,99,99,99,99,5,6,7,8,99,99,99,99};
     assert(player::skinChecksum(rgba,1,2,4)==0x3fca88c5u);

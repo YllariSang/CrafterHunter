@@ -23,6 +23,11 @@ with tempfile.TemporaryDirectory() as directory:
     assert not (render/"player-compose.enabled").exists()
     assert not (mc/"crafterhunter/player-export.enabled").exists()
     assert (render/"world-upload.enabled").exists() # Shared upload is never torn down by player stop.
+    for mode in ('uv','net','real'):
+        subprocess.run([sys.executable,str(root/'tools/control-player-uv.py'),mode,'--render',str(render)],check=True)
+        assert (render/'player-uv-debug.enabled').exists()==(mode=='uv')
+        assert (render/'player-skin-net-debug.enabled').exists()==(mode=='net')
+        assert (render/'world-upload.enabled').exists()
 
 source=(root/"native/mhw-renderer/renderer.cpp").read_text()
 shader=source.split('constexpr char PlayerShader[] = R"hlsl(',1)[1].split(')hlsl";',1)[0]
@@ -36,6 +41,7 @@ assert "context->PSSetShaderResources(0,2,material)" in source
 assert "context->PSGetShaderResources(0,1" in source
 assert "mapped.RowPitch" in source and "player::skinChecksum" in source
 assert "o.uv=vertex.uv" in shader and "colour.a<0.5" in shader
+assert "float4 checked=PlayerPS(input)" in shader and "float4(input.uv,0,checked.a)" in shader
 export=(root/"minecraft/fabric/src/client/java/dev/crafterhunter/client/PlayerModelExport.java").read_text()
 for required in ["renderer.extractRenderState", "renderer.submit(state", "model.setupAnim(state)",
         "part.translateAndRotate", "cube.polygons", "v.worldX()", "loadPose(oldPoses.get(i))", "StandardCopyOption.ATOMIC_MOVE"]:

@@ -25,6 +25,7 @@
 #include "world_reprojection.hpp"
 #include "world_alignment.hpp"
 #include "player_model.hpp"
+#include "player_uv_debug.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace sel = crafterhunter::depth;
@@ -753,6 +754,11 @@ float4 PlayerPS(PlayerPixel input):SV_Target {
     if(!isfinite(host) || input.pos.z<=host+0.000001 || colour.a<0.5) discard;
     return float4(colour.rgb,1);
 }
+float4 PlayerUVPS(PlayerPixel input):SV_Target {
+    // Retain exactly the production depth/UI/alpha rejection before visualizing UV.
+    float4 checked=PlayerPS(input);
+    return float4(input.uv,0,checked.a);
+}
 )hlsl";
 constexpr char FrameShader[] = R"hlsl(
 cbuffer Parameters : register(b0) {
@@ -1356,6 +1362,9 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     static bool skinBindingReported=false;
     static ComPtr<ID3D11VertexShader> vs;
     static ComPtr<ID3D11PixelShader> ps;
+    static ComPtr<ID3D11PixelShader> uvPS;
+    static ComPtr<ID3D11ShaderResourceView> debugSkinView;
+    static std::uint64_t debugGeneration=0,debugAsset=0;
     static ComPtr<ID3D11Buffer> placement,vertexBuffer,boneBuffer;
     static ComPtr<ID3D11ShaderResourceView> vertexView,boneView,skinView;
     static ComPtr<ID3D11SamplerState> pointSampler;
@@ -1431,6 +1440,27 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
             asset.parts,static_cast<unsigned>(asset.vertices.size()),asset.width,asset.height);
     }
     if(!player::matches(asset,next,worldMetadata.generation)) return false;
+    const bool uvDebug=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-uv-debug.enabled")!=INVALID_FILE_ATTRIBUTES;
+    const bool netDebug=!uvDebug && GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-skin-net-debug.enabled")!=INVALID_FILE_ATTRIBUTES;
+    if(uvDebug && !uvPS) {
+        ComPtr<ID3DBlob> blob,error;
+        if(FAILED(D3DCompile(PlayerShader,sizeof(PlayerShader)-1,"CrafterHunter",nullptr,nullptr,
+                "PlayerUVPS","ps_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&blob,&error))
+                || FAILED(device->CreatePixelShader(blob->GetBufferPointer(),blob->GetBufferSize(),nullptr,&uvPS))) return false;
+    }
+    if(netDebug && (debugGeneration!=asset.generation || debugAsset!=asset.identity)) {
+        // Actual exported slim arm UV width is 3/64; normal is 4/64.
+        bool slim=false;
+        for(const auto& v:asset.vertices) if(v.u==47.f/64 || v.u==55.f/64) slim=true;
+        auto pixels=player::uvDebugSkin(slim);
+        D3D11_TEXTURE2D_DESC t{}; t.Width=t.Height=64; t.MipLevels=t.ArraySize=t.SampleDesc.Count=1;
+        t.Format=DXGI_FORMAT_R8G8B8A8_UNORM; t.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SUBRESOURCE_DATA d{pixels.data(),256,0}; ComPtr<ID3D11Texture2D> texture;
+        if(FAILED(device->CreateTexture2D(&t,&d,&texture))
+                || FAILED(device->CreateShaderResourceView(texture.Get(),nullptr,&debugSkinView))) return false;
+        debugGeneration=asset.generation; debugAsset=asset.identity;
+        log("DEBUG player skin net active slim=%d: generated texture only; production asset unchanged",slim);
+    }
     if(pose.sequence!=next.sequence || pose.generation!=next.generation || pose.asset!=next.asset) {
         struct Bone { float matrix[16]; std::uint32_t visible[4]; };
         std::vector<Bone> bones(next.bones.size());
@@ -1486,13 +1516,13 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     context->OMSetRenderTargets(1,target.GetAddressOf(),privateDSV.Get()); context->OMSetDepthStencilState(depthState.Get(),0);
     context->OMSetBlendState(nullptr,nullptr,0xFFFFFFFF);
     context->IASetInputLayout(nullptr); context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    context->VSSetShader(vs.Get(),nullptr,0); context->PSSetShader(ps.Get(),nullptr,0);
+    context->VSSetShader(vs.Get(),nullptr,0); context->PSSetShader(uvDebug?uvPS.Get():ps.Get(),nullptr,0);
     context->HSSetShader(nullptr,nullptr,0); context->DSSetShader(nullptr,nullptr,0); context->GSSetShader(nullptr,nullptr,0);
     context->VSSetConstantBuffers(0,1,placement.GetAddressOf()); context->VSSetConstantBuffers(1,1,&camera);
     context->PSSetConstantBuffers(0,1,placement.GetAddressOf()); context->PSSetConstantBuffers(2,1,&ui);
-    ID3D11ShaderResourceView* model[]={vertexView.Get(),boneView.Get()},*material[]={skinView.Get(),scene.Get()};
+    ID3D11ShaderResourceView* model[]={vertexView.Get(),boneView.Get()},*material[]={netDebug?debugSkinView.Get():skinView.Get(),scene.Get()};
     context->VSSetShaderResources(2,2,model); context->PSSetShaderResources(0,2,material);
-    if(!skinBindingReported && GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-skin-check.enabled")!=INVALID_FILE_ATTRIBUTES) {
+    if(!uvDebug && !netDebug && !skinBindingReported && GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-skin-check.enabled")!=INVALID_FILE_ATTRIBUTES) {
         ComPtr<ID3D11ShaderResourceView> bound;
         ComPtr<ID3D11PixelShader> boundShader;
         context->PSGetShaderResources(0,1,bound.GetAddressOf());

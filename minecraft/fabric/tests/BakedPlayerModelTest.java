@@ -14,6 +14,37 @@ import dev.crafterhunter.client.PlayerModelChannel;
 
 /** Actual local 26.2 baked geometry/animation, no cameras or game launch. */
 public class BakedPlayerModelTest {
+    // Independent standard 64x64 skin-net expectations; coordinates are texels.
+    static void checkUV(String path, net.minecraft.client.model.geom.ModelPart.Cube cube,boolean slim) {
+        String name=path.substring(path.lastIndexOf('/')+1);
+        int arm=slim?3:4;
+        int[] net=switch(name) {
+            case "head" -> new int[]{0,0,8,8,8}; case "hat" -> new int[]{32,0,8,8,8};
+            case "body" -> new int[]{16,16,8,12,4}; case "jacket" -> new int[]{16,32,8,12,4};
+            case "right_arm" -> new int[]{40,16,arm,12,4}; case "right_sleeve" -> new int[]{40,32,arm,12,4};
+            case "left_arm" -> new int[]{32,48,arm,12,4}; case "left_sleeve" -> new int[]{48,48,arm,12,4};
+            case "right_leg" -> new int[]{0,16,4,12,4}; case "right_pants" -> new int[]{0,32,4,12,4};
+            case "left_leg" -> new int[]{16,48,4,12,4}; case "left_pants" -> new int[]{0,48,4,12,4};
+            default -> throw new AssertionError("unknown baked part "+path);
+        };
+        int u=net[0],v=net[1],w=net[2],h=net[3],d=net[4];
+        int[][] rect={{u+d,v,w,d},{u+d+w,v,w,d},{u,v+d,d,h},
+            {u+d,v+d,w,h},{u+d+w,v+d,d,h},{u+2*d+w,v+d,w,h}};
+        for(int i=0;i<6;i++) {
+            float minU=1,maxU=0,minV=1,maxV=0;
+            for(var vertex:cube.polygons[i].vertices()) {
+                minU=Math.min(minU,vertex.u()); maxU=Math.max(maxU,vertex.u());
+                minV=Math.min(minV,vertex.v()); maxV=Math.max(maxV,vertex.v());
+                // Vertical faces: local model +Y is downward, exactly as texture V.
+                if(i>=2 && ((vertex.y()==cube.minY && vertex.v()!=rect[i][1]/64f)
+                        || (vertex.y()==cube.maxY && vertex.v()!=(rect[i][1]+rect[i][3])/64f)))
+                    throw new AssertionError("V inversion "+path+" face="+i);
+            }
+            if(minU!=rect[i][0]/64f || maxU!=(rect[i][0]+rect[i][2])/64f
+                    || minV!=rect[i][1]/64f || maxV!=(rect[i][1]+rect[i][3])/64f)
+                throw new AssertionError("skin net mismatch "+path+" face="+i);
+        }
+    }
     public static void main(String[] args) throws Exception {
         for (boolean slim : new boolean[]{false,true}) {
             var root=LayerDefinition.create(PlayerModel.createMesh(CubeDeformation.NONE,slim),64,64).bakeRoot();
@@ -21,6 +52,7 @@ public class BakedPlayerModelTest {
             int[] cubes={0},faces={0};
             root.visit(new PoseStack(),(pose,path,index,cube)->{
                 cubes[0]++;
+                checkUV(path,cube,slim);
                 Set<String> normals=new HashSet<>();
                 for(var face:cube.polygons) {
                     faces[0]++;

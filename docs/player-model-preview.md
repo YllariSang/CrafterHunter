@@ -104,6 +104,50 @@ about area transitions, disconnect or collision follows from these tests.
 
 ## Runtime submission gate, then manual orbit acceptance
 
+### UV milestone: two opt-in debug views
+
+Local 26.2 bytecode (`ModelPart.Cube`, `Polygon`, `Cube.compile`) establishes
+that polygon U/V are divided by baked texture width/height (64x64 here).
+Cube.compile transforms XYZ/normals only and passes U/V unchanged. The exporter
+uses those same polygon vertices; bone transforms do not operate on UVs.
+Model -Z is the front and model +Y points down before the renderer's transforms.
+Mirrored cube winding/UV corner pairing is already baked. No per-face or global
+V inversion is required: GL readback texel row zero is uploaded as D3D row zero,
+and both sample row zero at V near zero. This is texture-row indexing, not the
+framebuffer-origin convention. HLSL's perspective-correct interpolation and point
+sampling introduce no V flip. Normal/slim regression tests check all six face
+rectangles of all 12 parts and vertical-face V direction against the skin net.
+
+With the player preview running and calibrated, switch without restarting:
+
+```bash
+python3 tools/control-player-uv.py uv
+python3 tools/control-player-uv.py net
+python3 tools/control-player-uv.py real
+```
+
+`uv` displays RGB=(U,V,0), retaining production UI/depth/real-skin alpha rejection.
+`net` binds a separate procedural 64x64 debug texture to the same PlayerPS;
+the received real skin and asset are never overwritten. `real` removes both
+debug flags and restores the real skin/PlayerPS. UV mode takes priority if both
+flags exist. These modes are DEBUG ONLY, opt-in even in the deployed Release DLL.
+
+Net legend (8-bit RGB): red = head 32, torso 64, right arm 96, left arm 128,
+right leg 160, left leg 192. Green = top 32, bottom 64, model -X side 96,
+front 128, model +X side 160, back 192. Blue increases from 32 to 224 down
+each face rectangle. A single white top-left texel identifies corner orientation.
+Base and outer skin-layer nets carry the same part/face scheme. Slim arm nets
+are selected from the exported 3/64 UV spans (normal spans are 4/64).
+
+Manual: keep Minecraft fixed; orbit MHW to front/back/sides, then above/below
+where accessible. Compare part/face colors and the blue gradient/white marker.
+For vertical faces green increases downward in UV mode; net mode blue increases
+downward. Mirrored parts may reverse horizontal direction as already baked.
+Return to `real`, compare face/suit details with Minecraft F5 front/back, then
+verify host occlusion. Headless math is correct; live debug views and final
+appearance remain unaccepted until screenshots show those mappings. The actual
+skin is grayscale; do not infer a blank texture from its white head alone.
+
 ### Optional native skin-boundary check
 
 Create `render/player-skin-check.enabled` in the installed MHW plugin before

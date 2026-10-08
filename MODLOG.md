@@ -2678,3 +2678,26 @@ Installed only native DLL, build/install SHA256
 previous DLL retained in
 /home/yllaris/.local/share/crafterhunter-backups/native-skin-check.GJDQOW.
 Diagnostic flag enabled before next launch; no saves/worlds modified.
+# 2026-10-08 — diagnostic-only player UV milestone
+
+Inspected actual local 26.2 ModelPart.Cube/Polygon/Cube.compile bytecode: UVs are
+normalized by texture dimensions; transforms apply only to XYZ/normals and pass
+the baked U/V unchanged. Mirroring/face corner pairing is already baked. Existing
+row-zero texture upload/readback and sampling preserve V; framebuffer-origin
+rules do not imply a skin flip. No production UV change justified.
+
+Added opt-in UV gradient PlayerUVPS (retains production depth/UI/alpha rejection)
+and separate deterministic 64x64 debug skin net, selectable with
+tools/control-player-uv.py uv|net|real. Real asset bytes/cache remain untouched.
+Each part/face carries independent color channels, blue vertical gradient and
+white corner marker. Debug selection does not alter geometry, pose, anchor,
+transport, calibration or depth policies. Default installed mode is real.
+
+Passed normal/slim actual baked 12-part/72-face UV rectangle and V-direction
+tests, player native/Java roundtrip and debug pattern tests, controller toggles,
+all nine shader entry points, native Release build, world reprojection/alignment
+and depth selection. Live gradient/net orbit and final skin appearance NOT yet
+accepted; games were closed, not agent-launched.
+Installed only native DLL SHA256
+d4986afc486ac713c6eaa527f0a59d7416d0c72e676f69945ea81fd5d42ee67d;
+backup /home/yllaris/.local/share/crafterhunter-backups/player-uv-debug.ZBWs0E.
