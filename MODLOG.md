@@ -1,5 +1,29 @@
 # CrafterHunter mod journal
 
+## 2026-10-08 — player-feet calibration, existing compositor preserved
+
+User supplied visible village point-cloud screenshots, then requested both games
+closed before the next scoped fix. MHW was already closed; Minecraft received
+SIGTERM (no SIGKILL), and both process absences were checked before changes.
+No save/world files were edited. Games remain closed.
+
+Camera-to-camera calibration puts the guest player's eye at the host viewpoint,
+not at a visible player reference. Added snapshot v3 within the existing 320-byte
+header: finite interpolated local-player feet at 280, provenance at 304. Level
+render HEAD samples the same frame's partial tick; issue-time frozen copies travel
+with both attachments. v2 archives remain readable but cannot player-calibrate/draw.
+Native calibration now maps guest feet to existing SPL Player.MainPlayer.Position
+in metres. Camera continuity guards, first-person calibration requirement, fixed
+F5 anchor, shader/depth selection and renderer architecture are unchanged. Missing
+host player invalidates; no guessed height offset, movement writes or input handoff.
+
+Passed Fabric and managed/native builds; Java/native v2/v3 pairing, nonfinite and
+provenance refusals, feet-to-feet/F5 anchor regression, existing reprojection,
+capture-boundary, preview, shader, depth selection, SPL lifecycle and Rust tests.
+Not deployed or runtime accepted. Sparse holes and front-camera source coverage
+remain limitations; the hunter may occlude a coincident Steve. No claim that this
+fix alone makes Steve visible in every F5 view or completes playable MVP.
+
 ## 2026-10-08 — visible-workspace preview reaches paired draw submission
 
 With both user-launched games on inactive workspace 2 and the terminal on

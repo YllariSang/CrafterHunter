@@ -9,7 +9,7 @@
 #include <vector>
 
 namespace crafterhunter::world {
-constexpr std::uint32_t Magic = 0x50574843, Version = 2, HeaderBytes = 320, MaxDimension = 4096;
+constexpr std::uint32_t Magic = 0x50574843, Version = 3, HeaderBytes = 320, MaxDimension = 4096;
 struct Snapshot {
     std::uint32_t width{}, height{}, stride{};
     std::uint64_t generation{}, identity{}, issueNanos{};
@@ -18,6 +18,8 @@ struct Snapshot {
     std::array<float, 5> pose{}; // x,y,z,pitch,yaw in Minecraft units/degrees
     std::array<float,16> viewRotation{};
     std::array<double,3> cameraPosition{};
+    std::array<double,3> playerPosition{};
+    bool playerKnown{};
     std::uint32_t clipMapping{},clipOrigin{},cameraMode{};
     float clearDepth{},rangeMin{},rangeMax{};
     std::vector<std::uint8_t> colour, depth;
@@ -38,7 +40,8 @@ inline bool read(const char* path, Snapshot& output) {
     file.seekg(0);
     std::array<std::uint8_t, HeaderBytes> h{};
     if (!file.read(reinterpret_cast<char*>(h.data()), h.size())) return false;
-    if (u32(h.data()) != Magic || u32(h.data()+4) != Version || u32(h.data()+8) != HeaderBytes
+    const auto version=u32(h.data()+4);
+    if (u32(h.data()) != Magic || (version!=2 && version!=Version) || u32(h.data()+8) != HeaderBytes
             || u32(h.data()+12) != 1 || u32(h.data()+28) != 0) return false;
     Snapshot candidate;
     candidate.width = u32(h.data()+16); candidate.height = u32(h.data()+20); candidate.stride = u32(h.data()+24);
@@ -74,7 +77,16 @@ inline bool read(const char* path, Snapshot& output) {
     if(candidate.clipMapping<1 || candidate.clipMapping>2 || candidate.clipOrigin<1 || candidate.clipOrigin>2
             || candidate.clearDepth!=0 || candidate.cameraMode>2 || candidate.rangeMin!=0 || candidate.rangeMax!=1
             || u32(h.data()+276)!=1) return false;
-    for (unsigned i=280; i<HeaderBytes; ++i) if (h[i]) return false;
+    unsigned reserved=280;
+    if(version==3) {
+        if(u32(h.data()+304)!=1) return false;
+        for(unsigned i=0;i<3;++i) {
+            candidate.playerPosition[i]=f64(h.data()+280+i*8);
+            if(!std::isfinite(candidate.playerPosition[i])) return false;
+        }
+        candidate.playerKnown=true; reserved=308;
+    }
+    for (unsigned i=reserved; i<HeaderBytes; ++i) if (h[i]) return false;
     candidate.colour.resize(bytes); candidate.depth.resize(bytes);
     if (!file.read(reinterpret_cast<char*>(candidate.colour.data()), bytes)
             || !file.read(reinterpret_cast<char*>(candidate.depth.data()), bytes)) return false;

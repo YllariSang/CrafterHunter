@@ -46,7 +46,7 @@ assert render.index("Method bobView:") < render.index(upload)
 assert 'target = "Lnet/minecraft/client/renderer/ProjectionMatrixBuffer;getBuffer(Lorg/joml/Matrix4f;)' in fallback
 assert "recordWorldProjection(matrix)" in fallback and "return matrix;" in fallback
 assert 'method = "render", at = @At("HEAD"), require = 1' in source
-assert "recordWorldView(camera, view)" in source
+assert "recordWorldView(camera, view, delta.getGameTimeDeltaPartialTick(false))" in source
 assert "CameraRenderState;Lorg/joml/Matrix4fc;" in render
 main = re.search(r"  private void lambda\$addMainPass\$0\([^\n]+\);\n(.*?)(?=\n  (?:private|public|protected))", code, re.S).group(1)
 assert re.search(r"dconst_0[ \t]*\n\s*\d+: invokevirtual[^\n]*CommandEncoder.clearColorAndDepthTextures", main)
@@ -54,4 +54,8 @@ capture = (ROOT / "minecraft/fabric/src/client/java/dev/crafterhunter/client/Wor
 assert "worldProjectionKnown = false" in capture and "worldViewKnown = false" in capture
 assert "GL45C.GL_CLIP_DEPTH_MODE" in capture and "GL45C.GL_CLIP_ORIGIN" in capture
 assert "GL11C.GL_DEPTH_RANGE" in capture
+assert "worldPlayerKnown = false" in capture
+assert "getCameraEntity()==player" in capture
+assert "player.getPosition(partialTick)" in capture
+assert "System.arraycopy(worldPlayerPosition,0,inFlightPlayerPosition,0,3)" in capture
 print("PASS: final projection after view effects, exact level view/camera argument, per-frame reset and GL clip provenance")

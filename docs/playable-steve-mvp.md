@@ -44,7 +44,7 @@ MHW depth, without replacing working rendering infrastructure.
 
 `paired-compose.enabled` selects the new GPU reprojection draw instead of the old
 sky-only colour draw. `world-upload.enabled` remains required. `align.request`
-explicitly maps a fresh first-person guest camera to the current MHW camera origin;
+explicitly maps fresh capture-matched Minecraft player feet to MHW player feet;
 F5 does not change this anchor. Shader unprojects real depth with its issue-time
 inverse projection, transforms through exact captured view/position and the fixed
 anchor, converts host metres to GPU centimetres, and projects with the same draw's
@@ -59,6 +59,16 @@ it submits 366,996 vertices per composed frame. Holes/disocclusion and size chan
 are expected. Guest terrain is included, not removed; no replacement model/assets.
 First-person hands are excluded by the existing capture boundary. No lighting
 integration, alpha-correct transparency or 60 fps claim.
+
+Player anchoring requires snapshot v3 and the matching managed/native builds.
+The actual render camera remains separate: its eye height and F5 displacement
+survive the existing transform. Camera continuity still owns lifecycle guards;
+missing host player data invalidates calibration. No guessed eye-height offset.
+This correction is built/headless-tested, not installed or visually accepted.
+The hunter remains rendered and can legitimately occlude a coincident Steve;
+after calibration, move Steve slightly sideways in Minecraft to distinguish them.
+F5 front captures the opposite direction: uncaptured terrain cannot be reconstructed
+by this single-view preview. Player anchoring does not resolve that limitation.
 
 Fabric `world-stream.enabled` supplies same-frame pairs at a requested maximum
 4 Hz, one copy pair in flight, matching native 250ms polling. Streaming skips

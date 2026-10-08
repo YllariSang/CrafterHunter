@@ -32,6 +32,20 @@ public final class WorldFrameChannelTest {
         for(int mode=0;mode<3;++mode) {
             WorldFrameChannel.publish(file,8,4,99,1,1234,0.05f,1024,matrix,pose,view,position,1,1,mode,0,1,colour,depth);
             Files.copy(file,file.resolveSibling("camera-"+mode+".frame"));
+            double[] feet={917.546812345,-60,343.1757};
+            WorldFrameChannel.publish(file,8,4,99,1,1234,0.05f,1024,matrix,pose,view,position,
+                1,1,mode,0,1,feet,colour,depth);
+            Files.copy(file,file.resolveSibling("player-"+mode+".frame"));
+            byte[] paired=Files.readAllBytes(file);
+            if(ByteBuffer.wrap(paired).order(ByteOrder.LITTLE_ENDIAN).getInt(4)!=3)
+                throw new AssertionError("player reference must be versioned");
+            feet[1]=Double.NaN;
+            try {
+                WorldFrameChannel.publish(file,8,4,99,1,1234,0.05f,1024,matrix,pose,view,position,
+                    1,1,mode,0,1,feet,colour,depth);
+                throw new AssertionError("nonfinite player accepted");
+            } catch(IllegalArgumentException expected) { }
+            if(!Arrays.equals(paired,Files.readAllBytes(file))) throw new AssertionError("bad player replaced pair");
         }
         for(int refusal=0;refusal<3;++refusal) {
             try {

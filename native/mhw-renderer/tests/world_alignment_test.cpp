@@ -40,6 +40,18 @@ int main() {
     assert(!alignment::worldMatrix(a,7,9,world));
     a.reset(); assert(!alignment::worldMatrix(a,7,9,world));
     alignment::Session session;
+    // Player feet, not either render camera, define the calibration origin.
+    // A camera-origin anchor maps the player to the host viewpoint and fails this.
+    alignment::Session playerSession;
+    playerSession.observe({4,8,2},100); // host camera is displaced from the hunter
+    const alignment::Position guestFeet{917,-60,348},hostFeet{4,5,6};
+    assert(playerSession.calibrate(guestFeet,hostFeet,7,0));
+    for(double cameraZ : {348.0,344.0,352.0}) {
+        assert(alignment::eyeMatrix(playerSession.anchor,7,playerSession.epoch,identity,
+            {917,-58.38,cameraZ},eye));
+        auto feet=reprojection::transform(eye,{0,-1.62,348-cameraZ,1});
+        for(unsigned i=0;i<3;++i) assert(std::abs(feet[i]-hostFeet[i])<1e-10);
+    }
     assert(!session.calibrate({1,2,3},{4,5,6},7,0));
     session.observe({4,5,6},100);
     assert(session.calibrate({1,2,3},{4,5,6},7,0));

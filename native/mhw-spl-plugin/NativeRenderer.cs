@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using SharpPluginLoader.Core;
 using SharpPluginLoader.Core.Rendering;
+using SharpPluginLoader.Core.Entities;
 
 namespace CrafterHunter.MHW;
 
@@ -15,6 +16,7 @@ internal static class NativeRenderer
     private static FrameDelegate? _frame;
     private static StopDelegate? _stop;
     private static AlignmentHostDelegate? _alignmentHost;
+    private static AlignmentHostDelegate? _alignmentPlayer;
     private static BlockDelegate? _block;
     private static bool _checked;
     private static string _folder = "";
@@ -51,6 +53,8 @@ internal static class NativeRenderer
         _stop = Marshal.GetDelegateForFunctionPointer<StopDelegate>(NativeLibrary.GetExport(library, "CH_Stop"));
         _alignmentHost = NativeLibrary.TryGetExport(library, "CH_AlignmentHost", out var alignmentExport)
             ? Marshal.GetDelegateForFunctionPointer<AlignmentHostDelegate>(alignmentExport) : null;
+        _alignmentPlayer = NativeLibrary.TryGetExport(library, "CH_AlignmentPlayer", out var playerExport)
+            ? Marshal.GetDelegateForFunctionPointer<AlignmentHostDelegate>(playerExport) : null;
         _block = Marshal.GetDelegateForFunctionPointer<BlockDelegate>(NativeLibrary.GetExport(library, "CH_Block"));
         Enabled = true;
     }
@@ -127,6 +131,13 @@ internal static class NativeRenderer
         var alignmentPosition = cameraPosition / 100f; // SPL centimetres -> host metres
         _alignmentHost?.Invoke(alignmentPosition?.X ?? float.NaN,
             alignmentPosition?.Y ?? float.NaN, alignmentPosition?.Z ?? float.NaN);
+        // Reuse the existing supported Player.MainPlayer.Position accessor.
+        // Camera continuity still owns the epoch; missing player data fails closed.
+        Vector3? playerPosition = null;
+        try { playerPosition = Player.MainPlayer?.Position / 100f; }
+        catch (Exception) { /* no stale player origin on an unavailable scene */ }
+        _alignmentPlayer?.Invoke(playerPosition?.X ?? float.NaN,
+            playerPosition?.Y ?? float.NaN, playerPosition?.Z ?? float.NaN);
         _frame!(render.Instance, in matrix);
     }
 

@@ -72,6 +72,17 @@ Use `tools/validate-world-depth.py --acceptance`: diagnostic exit zero alone
 does not accept a milestone. New captures include colour/depth SHA-256 hashes
 binding the artifact bytes to the issue-time metadata identity.
 
+Update: paired draw submission and visible village samples were observed with
+both games on the active workspace. Off-workspace capture dropped to about 1 Hz;
+guards invalidated calibration, correctly. Do not relax them. Player-feet
+calibration is now built/headless-tested using snapshot v3 and existing SPL
+Player.MainPlayer.Position; NOT installed/runtime-accepted. v2 archives read but
+cannot calibrate/draw this preview. Install all three rebuilt artifacts together.
+No F5 re-anchor, guessed eye-height, shader rewrite or gameplay expansion. The
+hunter can occlude coincident Steve; sparse holes and opposite-view source
+coverage remain limitations. Next [MANUAL] after installation: player visibility,
+fixed feet alignment and occlusion with F7/F9 OFF; no playable-MVP claim yet.
+
 ## Work discipline
 
 - One bounded change at a time; regression tests must expose the original bug.

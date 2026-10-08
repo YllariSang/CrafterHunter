@@ -33,11 +33,16 @@ int main(int argc, char** argv) {
     assert(frame.clipMapping==1 && frame.clipOrigin==1 && frame.cameraMode==1);
     assert(frame.cameraPosition[0]==917.546812345 && frame.viewRotation[15]==1);
     assert(frame.rangeMin==0 && frame.rangeMax==1 && frame.clearDepth==0);
+    assert(!frame.playerKnown); // legacy v2 can be inspected, never player-calibrated
     for(auto pixel:frame.colour) assert(pixel==1);
     for(auto pixel:frame.depth) assert(pixel==1);
     for(unsigned mode=0;mode<3;++mode) {
         const auto path=std::filesystem::path(argv[1]).parent_path()/ ("camera-"+std::to_string(mode)+".frame");
         assert(read(path.string().c_str(),frame) && frame.cameraMode==mode);
+        const auto playerPath=std::filesystem::path(argv[1]).parent_path()/ ("player-"+std::to_string(mode)+".frame");
+        assert(read(playerPath.string().c_str(),frame) && frame.playerKnown && frame.cameraMode==mode);
+        assert(frame.playerPosition[0]==917.546812345 && frame.playerPosition[1]==-60
+            && frame.playerPosition[2]==343.1757);
     }
     assert(read(argv[2],frame));
     assert(frame.width==4 && frame.generation==100 && frame.identity==1);
@@ -61,5 +66,12 @@ int main(int argc, char** argv) {
     bad=bytes; bad[276]=0; refuse(bad); // unknown provenance
     bad=bytes; bad.resize(300); refuse(bad); // incomplete depth
     bad=bytes; bad.push_back(0); refuse(bad); // trailing data
-    std::puts("PASS: v2 Java/native round trip, exact camera/mapping, all F5 modes, resize, twelve malformed-frame refusals");
+    const auto playerPath=std::filesystem::path(argv[1]).parent_path()/"player-0.frame";
+    std::ifstream playerInput(playerPath,std::ios::binary);
+    std::vector<char> playerBytes((std::istreambuf_iterator<char>(playerInput)),{});
+    bad=playerBytes; bad[304]=0; refuse(bad); // player provenance missing
+    bad=playerBytes; bad[308]=1; refuse(bad); // v3 reserved fields stay zero
+    bad=playerBytes; bad[4]=2; refuse(bad); // player fields cannot masquerade as v2
+    bad=playerBytes; bad[286]=char(0xf8); bad[287]=char(0x7f); refuse(bad); // NaN feet
+    std::puts("PASS: v2/v3 Java/native round trip, exact camera/player references, all F5 modes, resize and malformed-frame refusals");
 }

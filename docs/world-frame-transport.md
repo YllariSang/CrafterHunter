@@ -1,4 +1,4 @@
-# Paired world snapshot v2
+# Paired world snapshot v3 (v2 read compatibility)
 
 Implemented, headless-tested; not installed or runtime-composited.
 The existing live colour-only channel and native stone renderer are untouched.
@@ -13,7 +13,7 @@ mapping. Never compare these floats directly to MHW depth.
 
 | Offset | Field |
 | --- | --- |
-| 0, 4, 8, 12 | u32 magic `0x50574843`, version 2, header size 320, flags 1 (bottom-up) |
+| 0, 4, 8, 12 | u32 magic `0x50574843`, version 3, header size 320, flags 1 (bottom-up) |
 | 16, 20, 24, 28 | u32 width, height, row stride, reserved zero |
 | 32, 40, 48 | u64 generation, capture identity, issue-time Java monotonic nanos |
 | 56, 64 | u64 colour and depth byte counts |
@@ -26,10 +26,19 @@ mapping. Never compare these floats directly to MHW depth.
 | 240 | three f64 actual render camera x, y, z |
 | 264 | u32 native camera mode (0 first-person, 1 rear third-person, 2 front third-person) |
 | 268, 272, 276 | f32 depth-range min/max (currently requires 0/1), u32 provenance 1 (render arguments) |
-| 280–319 | reserved zeros |
+| 280 | three f64 player feet x, y, z, interpolated at the level render's partial tick |
+| 304 | u32 player provenance 1 (local player is the active camera entity) |
+| 308–319 | reserved zeros |
 | 320 | colour, followed immediately by depth |
 
-Version 1 is rejected; rebuild/restart both endpoints together for v2. Exact camera
+Version 1 is rejected. Version 2 still reads for archived camera/depth evidence,
+but lacks player provenance and cannot calibrate or draw the player-anchored
+preview. Missing player references publish v2, never a fabricated v3 origin.
+Rebuild/restart Fabric, managed plugin and native renderer together for v3.
+Player feet are copied at LevelRenderer HEAD using the level delta's partial tick,
+then frozen with the view/camera/projection for that capture identity, not sampled
+when GPU callbacks finish. Nonfinite feet or unknown provenance refuse v3.
+Exact camera
 position plus view rotation specifies `eye = rotation * (guestWorld - cameraPos)`.
 The projection is the final GameRenderer upload argument, after bob/hurt/nausea
 effects, not the earlier camera projection. LevelRenderer's actual camera and view

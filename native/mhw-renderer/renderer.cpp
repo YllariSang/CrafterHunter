@@ -178,6 +178,8 @@ ULONGLONG nextWorldPoll=0;
 bool worldUploadEnabled=false;
 crafterhunter::alignment::Session alignmentSession;
 crafterhunter::alignment::Position alignmentHost{};
+crafterhunter::alignment::Position alignmentPlayer{};
+bool alignmentPlayerKnown=false;
 ULONGLONG alignmentNextLog=0;
 ComPtr<ID3D11VertexShader> pairedVS;
 ComPtr<ID3D11PixelShader> pairedPS;
@@ -210,11 +212,12 @@ void serviceAlignment() {
     // never retries after a crash and never deletes a newly published request.
     if(MoveFileExA(request,claimed,0)) {
         const bool ok=worldFreshness.live(GetTickCount64()) && worldMetadata.identity
-            && alignmentSession.calibrate(worldMetadata.cameraPosition,alignmentHost,
+            && worldMetadata.playerKnown && alignmentPlayerKnown
+            && alignmentSession.calibrate(worldMetadata.playerPosition,alignmentPlayer,
                 worldMetadata.generation,worldMetadata.cameraMode);
         DeleteFileA(claimed);
         log("alignment calibration %s epoch=%llu generation=%llu identity=%llu; diagnostic only",
-            ok ? "accepted" : "refused (requires fresh paired upload and first-person)",
+            ok ? "accepted (player feet)" : "refused (requires fresh paired player reference, host player and first-person)",
             static_cast<unsigned long long>(alignmentSession.epoch),
             static_cast<unsigned long long>(worldMetadata.generation),
             static_cast<unsigned long long>(worldMetadata.identity));
@@ -1234,7 +1237,8 @@ bool drawFrameComposite(ID3D11Texture2D* back) {
 }
 
 bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
-    if(pairedFailed || !worldColourView || !worldDepthView || worldMetadata.clipOrigin!=1
+    if(pairedFailed || !worldColourView || !worldDepthView || !worldMetadata.playerKnown
+            || !alignmentPlayerKnown || worldMetadata.clipOrigin!=1
             || !worldFreshness.live(GetTickCount64()) || !alignmentSession.anchor.armed) return false;
     crafterhunter::reprojection::Matrix view{},eyeToHost{};
     for(unsigned i=0;i<16;++i) view[i]=worldMetadata.viewRotation[i];
@@ -1393,6 +1397,14 @@ extern "C" __declspec(dllexport) void CH_AlignmentHost(float x,float y,float z) 
     }
 }
 
+extern "C" __declspec(dllexport) void CH_AlignmentPlayer(float x,float y,float z) {
+    alignmentPlayer={x,y,z};
+    alignmentPlayerKnown=std::isfinite(x) && std::isfinite(y) && std::isfinite(z);
+    if(!alignmentPlayerKnown && alignmentSession.anchor.armed) {
+        alignmentSession.anchor.reset(); log("alignment invalidated: host player unavailable");
+    }
+}
+
 extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* viewProjection) {
     if (!initialized && !initialize(singleton)) return 0;
     ++frame;
@@ -1466,6 +1478,6 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     clearWorldUpload(); worldFreshness={}; nextWorldPoll=0; worldUploadEnabled=false;
     pairedVS.Reset(); pairedPS.Reset(); pairedConstants.Reset(); pairedDepth.Reset();
     pairedDSV.Reset(); pairedDepthState.Reset(); pairedFailed=false;
-    alignmentSession={}; alignmentHost={}; alignmentNextLog=0;
+    alignmentSession={}; alignmentHost={}; alignmentPlayer={}; alignmentPlayerKnown=false; alignmentNextLog=0;
     initialized = false; swapchain = nullptr;
 }

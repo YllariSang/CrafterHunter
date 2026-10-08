@@ -94,23 +94,33 @@ public final class WorldCapture {
         worldBoundarySeen = false;
         worldProjectionKnown = false;
         worldViewKnown = false;
+        worldPlayerKnown = false;
     }
 
     private final float[] worldProjection = new float[16];
     private final float[] worldView = new float[16];
     private final double[] worldPosition = new double[3];
+    private final double[] worldPlayerPosition = new double[3];
+    private final double[] inFlightPlayerPosition = new double[3];
+    private boolean worldPlayerKnown, inFlightPlayerKnown;
     private float worldPitch, worldYaw;
     private boolean worldProjectionKnown, worldViewKnown;
     public void recordWorldProjection(Matrix4fc matrix) {
         matrix.get(worldProjection);
         worldProjectionKnown = true;
     }
-    public void recordWorldView(CameraRenderState camera, Matrix4fc view) {
+    public void recordWorldView(CameraRenderState camera, Matrix4fc view, float partialTick) {
         if (!camera.initialized || camera.pos == null) return;
         view.get(worldView);
         worldPosition[0]=camera.pos.x; worldPosition[1]=camera.pos.y; worldPosition[2]=camera.pos.z;
         worldPitch=camera.xRot; worldYaw=camera.yRot;
         worldViewKnown=true;
+        var player=Minecraft.getInstance().player;
+        if(player!=null && Minecraft.getInstance().getCameraEntity()==player && Float.isFinite(partialTick)) {
+            var feet=player.getPosition(partialTick);
+            worldPlayerPosition[0]=feet.x; worldPlayerPosition[1]=feet.y; worldPlayerPosition[2]=feet.z;
+            worldPlayerKnown=Double.isFinite(feet.x) && Double.isFinite(feet.y) && Double.isFinite(feet.z);
+        }
     }
 
     /** Service exactly once: early clear if present, otherwise the hand clear. */
@@ -484,6 +494,8 @@ public final class WorldCapture {
      * because an anchor of unknown provenance is worse than none.
      */
     private void recordCamera(Minecraft minecraft, long identity) {
+        inFlightPlayerKnown=worldPlayerKnown;
+        if(inFlightPlayerKnown) System.arraycopy(worldPlayerPosition,0,inFlightPlayerPosition,0,3);
         inFlightAnchorSource = "none";
         inFlightMatrixKnown = false;
         inFlightViewKnown = false;
@@ -653,7 +665,7 @@ public final class WorldCapture {
                         new float[] {inFlightX, inFlightY, inFlightZ, inFlightXRot, inFlightYRot},
                         inFlightView, inFlightPosition, inFlightClipMapping, inFlightClipOrigin,
                         inFlightCameraMode, inFlightDepthRangeMin, inFlightDepthRangeMax,
-                        colour, depth);
+                        inFlightPlayerKnown ? inFlightPlayerPosition : null, colour, depth);
                     metadata += "worldFrameChannel=/dev/shm/crafterhunter/world.frame\n";
                 } catch (IOException | IllegalArgumentException refused) {
                     // Preserve diagnostic captures even if shared memory is full,

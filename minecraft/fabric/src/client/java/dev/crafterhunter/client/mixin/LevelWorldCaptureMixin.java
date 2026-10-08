@@ -20,7 +20,7 @@ public abstract class LevelWorldCaptureMixin {
     private void crafterhunter$recordView(GraphicsResourceAllocator allocator, DeltaTracker delta,
             boolean outline, CameraRenderState camera, Matrix4fc view, GpuBufferSlice fog,
             Vector4f colour, boolean worldFog, CallbackInfo callback) {
-        WorldCapture.instance().recordWorldView(camera, view);
+        WorldCapture.instance().recordWorldView(camera, view, delta.getGameTimeDeltaPartialTick(false));
     }
     // Version-pinned synthetic method: require a match, never silently skip it.
     @Inject(method = "lambda$addAlwaysOnTopPass$0", remap = false, require = 1,

@@ -38,6 +38,8 @@ assert "mul(guestInverseProjection" in shader and "mul(eyeToHost,eye)" in shader
 assert "hostDepth.Load" in shader and "input.pos.z<=host+" in shader
 assert "depth<=mapping.y" in shader and "SV_ClipDistance0" in shader
 assert "worldMetadata.clipOrigin!=1" in source # unsupported origin fails closed
+assert "worldMetadata.playerKnown && alignmentPlayerKnown" in source
+assert "calibrate(worldMetadata.playerPosition,alignmentPlayer," in source
 assert "D3D11_COMPARISON_GREATER" in source # guest self-occlusion
 assert "row<3 ? 100 : 1" in source # host GPU centimetres, including translation
 # Source-grid draw counts cover awkward resolutions without out-of-bounds loads.
