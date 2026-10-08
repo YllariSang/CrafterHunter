@@ -7,6 +7,9 @@ trap 'rm -rf "$test_dir"' EXIT
 g++ -std=c++20 -Wall -Wextra -Werror -I "$project_root/native/mhw-renderer" \
   "$project_root/native/mhw-renderer/tests/world_reprojection_test.cpp" -o "$test_dir/reprojection"
 "$test_dir/reprojection"
+g++ -std=c++20 -Wall -Wextra -Werror -I "$project_root/native/mhw-renderer" \
+  "$project_root/native/mhw-renderer/tests/world_alignment_test.cpp" -o "$test_dir/alignment"
+"$test_dir/alignment"
 if (( $# )); then
   python3 "$project_root/tools/check-reprojection-archives.py" "$test_dir/reprojection" "$@"
 fi
