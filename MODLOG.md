@@ -1,5 +1,28 @@
 # CrafterHunter mod journal
 
+## 2026-10-08 — failed preview investigation, live gate still blocked
+
+Fresh native logs show accepted calibrations followed by the combined host
+jump/gap/invalid-pose refusal, with one-second upload intervals and no paired
+draw submission. Those logs do not record the triggering pose or observation
+interval, so an exact root cause cannot be claimed retroactively. Both games
+and the bridge were closed when this investigation reached runtime checks.
+
+Added narrowly scoped refusal classification with old/new host positions,
+distance and host-clock times; preserved all existing thresholds and reset
+behavior. Added same-generation producer issue-time intervals, consumer
+observation intervals and identity steps to distinguish producer throttling
+from consumer sampling. Upload-driven anchor loss is now explicitly logged.
+Regression checks retain exact 1 s/25 m boundaries and distinguish NaN,
+rollback, gap and jump. No gameplay or composition behavior changed.
+
+Local 26.2 bytecode shows AFK/minimized frame throttles of 10/30 FPS, not
+1 FPS; pauseOnLostFocus is already false. This rules out that option alone,
+not other scheduling stalls. PortUnreachable proves an unavailable listener,
+not whether it exited or was never started. The paired frame channel is
+shared memory, independent of bridge UDP. Runtime gates remain unaccepted;
+these diagnostics are required before choosing a non-speculative fix.
+
 ## 2026-10-08 — opt-in real paired GPU composition slice, not playable acceptance
 
 User narrowed work to Playable Steve MVP and required implementation rather than

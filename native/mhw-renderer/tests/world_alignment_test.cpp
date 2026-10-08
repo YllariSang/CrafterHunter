@@ -45,9 +45,13 @@ int main() {
     assert(session.calibrate({1,2,3},{4,5,6},7,0));
     assert(!session.calibrate({1,2,3},{4,5,6},7,1));
     session.observe({5,5,6},200); assert(session.anchor.armed);
-    session.observe({50,5,6},300); assert(!session.anchor.armed && session.epoch==2);
+    using R=alignment::Session::Refusal;
+    assert(session.observe({50,5,6},300)==R::Jump); assert(!session.anchor.armed && session.epoch==2);
     assert(session.calibrate({1,2,3},{50,5,6},7,0));
-    session.observe({50,5,6},1501); assert(!session.anchor.armed);
-    session.observe({50,5,6},1000); assert(session.epoch==4);
+    assert(session.observe({50,5,6},1501)==R::Gap); assert(!session.anchor.armed);
+    assert(session.observe({50,5,6},1000)==R::ClockRollback); assert(session.epoch==4);
+    assert(session.observe({50,5,6},2000)==R::None); // exact 1 s remains accepted
+    assert(session.observe({75,5,6},2001)==R::None); // exact 25 m remains accepted
+    assert(session.observe({std::numeric_limits<double>::quiet_NaN(),5,6},2002)==R::InvalidPose);
     std::puts("PASS: anchor translation/scale, inverse, F5 fixed-block invariance and generation/scene/reset refusal");
 }

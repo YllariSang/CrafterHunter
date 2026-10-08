@@ -16,21 +16,27 @@ struct Anchor {
 // Host-local lifecycle. Missing frames are detected on the next observation;
 // callers must additionally gate diagnostics on their frame freshness watchdog.
 struct Session {
+    enum class Refusal { None, InvalidPose, ClockRollback, Gap, Jump };
     Anchor anchor{};
     Position previous{};
     std::uint64_t epoch{1},lastMillis{};
     bool seen{};
-    void observe(const Position& host,std::uint64_t now) {
+    Refusal observe(const Position& host,std::uint64_t now) {
         bool usable=true;
         for(double v:host) usable=usable && std::isfinite(v);
         double distance2=0;
         for(unsigned i=0;i<3;++i) distance2+=(host[i]-previous[i])*(host[i]-previous[i]);
-        if(!usable || (seen && (now<lastMillis || now-lastMillis>1000 || distance2>625))) {
+        const auto reason=!usable ? Refusal::InvalidPose : !seen ? Refusal::None
+            : now<lastMillis ? Refusal::ClockRollback
+            : now-lastMillis>1000 ? Refusal::Gap
+            : distance2>625 ? Refusal::Jump : Refusal::None;
+        if(reason!=Refusal::None) {
             anchor.reset();
             if(epoch!=UINT64_MAX) ++epoch;
             else epoch=0; // exhausted: refuse calibration until process restart
         }
         previous=host; lastMillis=now; seen=usable;
+        return reason;
     }
     bool calibrate(const Position& guest,const Position& host,std::uint64_t generation,
             std::uint32_t mode) {

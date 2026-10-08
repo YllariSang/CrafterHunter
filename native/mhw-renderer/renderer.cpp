@@ -188,7 +188,11 @@ ComPtr<ID3D11DepthStencilState> pairedDepthState;
 bool pairedFailed=false;
 void log(const char* format, ...);
 
-void clearWorldUpload() {
+void clearWorldUpload(const char* reason="upload unavailable") {
+    if(alignmentSession.anchor.armed)
+        log("alignment invalidated: %s generation=%llu identity=%llu",reason,
+            static_cast<unsigned long long>(worldMetadata.generation),
+            static_cast<unsigned long long>(worldMetadata.identity));
     alignmentSession.anchor.reset();
     if (worldMetadata.identity) log("paired world upload cleared generation=%llu identity=%llu (upload-only)",
         static_cast<unsigned long long>(worldMetadata.generation), static_cast<unsigned long long>(worldMetadata.identity));
@@ -241,7 +245,7 @@ void serviceWorldUpload() {
     }
     worldUploadEnabled=true;
     const auto now=GetTickCount64();
-    if (!worldFreshness.live(now)) clearWorldUpload();
+    if (!worldFreshness.live(now)) clearWorldUpload("paired freshness expired or awaiting producer advance");
     if (now<nextWorldPoll) return;
     nextWorldPoll=now+250; // request-paced diagnostic, not a per-frame video reader
     crafterhunter::world::Snapshot snapshot;
@@ -258,6 +262,16 @@ void serviceWorldUpload() {
         return;
     }
     if (result!=R::Advanced) return;
+    // Compare intervals only within their own clock domains. Java nanoTime
+    // and Windows GetTickCount64 are not a shared absolute time base.
+    static std::uint64_t cadenceGeneration=0,cadenceIdentity=0,cadenceIssue=0,cadenceReceipt=0;
+    if(cadenceGeneration==snapshot.generation && snapshot.issueNanos>=cadenceIssue && now>=cadenceReceipt)
+        log("paired cadence identity-step=%llu producer-issue-ms=%.3f consumer-observation-ms=%llu",
+            static_cast<unsigned long long>(snapshot.identity-cadenceIdentity),
+            (snapshot.issueNanos-cadenceIssue)/1000000.0,
+            static_cast<unsigned long long>(now-cadenceReceipt));
+    cadenceGeneration=snapshot.generation; cadenceIdentity=snapshot.identity;
+    cadenceIssue=snapshot.issueNanos; cadenceReceipt=now;
     crafterhunter::reprojection::Matrix projection{},inverseProjection{},view{},eyeToGuest{};
     for(unsigned i=0;i<16;++i) { projection[i]=snapshot.projection[i]; view[i]=snapshot.viewRotation[i]; }
     if (!crafterhunter::reprojection::inverse(projection,inverseProjection)
@@ -1362,8 +1376,21 @@ extern "C" __declspec(dllexport) void CH_Block(const float* inverse, const float
 extern "C" __declspec(dllexport) void CH_AlignmentHost(float x,float y,float z) {
     alignmentHost={x,y,z};
     const bool wasArmed=alignmentSession.anchor.armed;
-    alignmentSession.observe(alignmentHost,GetTickCount64());
-    if(wasArmed && !alignmentSession.anchor.armed) log("alignment invalidated: host jump/gap/invalid pose");
+    const auto previous=alignmentSession.previous;
+    const auto last=alignmentSession.lastMillis;
+    const auto now=GetTickCount64();
+    const auto reason=alignmentSession.observe(alignmentHost,now);
+    if(wasArmed && !alignmentSession.anchor.armed) {
+        using R=crafterhunter::alignment::Session::Refusal;
+        const char* name=reason==R::InvalidPose ? "invalid pose" : reason==R::ClockRollback
+            ? "clock rollback" : reason==R::Gap ? "host observation gap" : "host jump";
+        double distance2=0;
+        for(unsigned i=0;i<3;++i) distance2+=(alignmentHost[i]-previous[i])*(alignmentHost[i]-previous[i]);
+        log("alignment invalidated: %s previous-ms=%llu current-ms=%llu gap-ms=%llu distance-metres=%.6f previous=(%.6f,%.6f,%.6f) current=(%.6f,%.6f,%.6f)",
+            name,static_cast<unsigned long long>(last),static_cast<unsigned long long>(now),
+            static_cast<unsigned long long>(now>=last ? now-last : 0),std::sqrt(distance2),
+            previous[0],previous[1],previous[2],alignmentHost[0],alignmentHost[1],alignmentHost[2]);
+    }
 }
 
 extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* viewProjection) {
