@@ -1,5 +1,19 @@
 # CrafterHunter mod journal
 
+## 2026-10-08 — player-model artifacts installed, runtime gate still open
+
+After all builds/headless checks passed, closed only Minecraft game PID 322466
+with SIGTERM (MHW was already absent); launchers were left untouched. Installed
+a704151's Fabric 0.3.0 JAR and native renderer DLL in their existing mod/plugin
+locations. No managed binary change was needed. Byte comparisons match builds.
+Fabric SHA-256: 68d76bd7d5a396e2fd78b861ce1e2a7394d772894b4560f4d0a07766dbdc660a.
+Native SHA-256: 27a25c38dcd611b9f52d2512281e5b8a71df836dc00b1e7639129732935610eb.
+Scoped previous artifacts: ~/.local/share/crafterhunter-backups/player-model-install.5s1taW/;
+native flag/license/DLL rollback: native/mhw-renderer/build/rollback.xhRcfa/.
+Player flags remain opt-in, game saves/worlds and launch configuration unchanged.
+Games not relaunched. Live skin/export/submission are NOT proven; the orbit test
+must wait for fresh complete-player upload and draw-submission evidence.
+
 ## 2026-10-08 — baked complete player model, headless checkpoint
 
 User observed that the paired preview only includes surfaces visible to the
