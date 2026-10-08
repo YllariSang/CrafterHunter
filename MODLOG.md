@@ -1,5 +1,18 @@
 # CrafterHunter mod journal
 
+## 2026-10-08 — player-anchor artifacts installed
+
+User requested automatic installation after verified changes. Confirmed no MHW
+or Minecraft game process/window; launcher and Gradle daemon were left untouched.
+Installed b041c2d's matching managed/native DLLs in the existing MHW CrafterHunter
+plugin directory and Fabric 0.3.0 JAR in ~/.minecraft/mods. Existing scoped files
+backed up under ~/.local/share/crafterhunter-backups/player-anchor-install.9ZLcv3/
+(mhw/ and minecraft/); native installer also created build/rollback.HL92qZ.
+All three installed artifacts compare byte-identical to their built sources;
+managed install marker matches the installed SHA-256. Bridge remains active on
+127.0.0.1:38470. No saves/worlds, other mods or launch settings changed; no games
+launched. Player visibility and alignment still require manual acceptance.
+
 ## 2026-10-08 — player-feet calibration, existing compositor preserved
 
 User supplied visible village point-cloud screenshots, then requested both games

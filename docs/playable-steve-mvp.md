@@ -64,7 +64,7 @@ Player anchoring requires snapshot v3 and the matching managed/native builds.
 The actual render camera remains separate: its eye height and F5 displacement
 survive the existing transform. Camera continuity still owns lifecycle guards;
 missing host player data invalidates calibration. No guessed eye-height offset.
-This correction is built/headless-tested, not installed or visually accepted.
+This correction is built/headless-tested and installed, not visually accepted.
 The hunter remains rendered and can legitimately occlude a coincident Steve;
 after calibration, move Steve slightly sideways in Minecraft to distinguish them.
 F5 front captures the opposite direction: uncaptured terrain cannot be reconstructed

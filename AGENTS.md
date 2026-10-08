@@ -90,6 +90,10 @@ fixed feet alignment and occlusion with F7/F9 OFF; no playable-MVP claim yet.
 - Request writers publish complete files by atomic same-directory rename; consumers
   must claim a command before reading/deleting it. Never delete the live frame channel.
 - Builds prove compilation, not visible rendering, synchronization or valid depth.
+- User standing instruction: install verified matching game artifacts after changes,
+  with both games safely closed and scoped backups first. Do not leave a completed
+  build undeployed without reporting a concrete blocker. Do not launch games unless
+  the current task authorizes it.
 - Runtime acceptance requires screenshots plus fresh sequence/capture/log evidence.
 - Packet receipt age measures freshness, not end-to-end latency.
 - Do not expand into combat/inventory while capture is unverified.
