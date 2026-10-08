@@ -51,6 +51,23 @@ final effect-modified projection upload and queried GL clip mapping/origin/range
 This is headless-checked only: fresh v2 captures in all F5 modes and shared-world
 anchor conversion must be validated before binding the paired layer for drawing.
 Follow `docs/world-depth-acceptance.md` for the two real-block measurements.
+Update 2026-10-08: fresh archives 215619Z/215700Z/215730Z establish all three
+F5 capture modes, opposite four-block camera offsets, matched hashes and finite
+colour-aligned depth at the fallback boundary. Not host alignment/camera collision.
+`world_alignment.hpp` is a headless-tested explicit XYZ origin/scale contract,
+gated by guest generation and caller-owned host epoch. It is not wired into runtime.
+Update: host-local align.request calibration and log-only mapped-camera diagnostic
+are implemented, headless-tested and built, NOT installed/runtime-accepted.
+CH_AlignmentHost supplies metres; upload freshness and host jump/gap invalidate.
+No authoritative scene ID or guest ownership handshake is claimed. See the
+diagnostic limitations and pacing prerequisite in docs/world-reprojection.md.
+Next [AGENT]: bounded diagnostic pacing/trace collection and scoped runtime setup;
+then [MANUAL]: shared-block/F5/collision/scene acceptance. Never re-anchor on F5.
+Latest scope: stop expanding diagnostics. Paired GPU surface preview + bounded
+4 Hz Fabric streaming now exist but are NOT deployed/runtime-accepted. Read
+docs/playable-steve-mvp.md. Next [MANUAL]: scoped real composition acceptance;
+do not expand gameplay subsystems until that result. It is not isolated Steve,
+input ownership, host camera control or MHW terrain collision. No MVP done claim.
 Use `tools/validate-world-depth.py --acceptance`: diagnostic exit zero alone
 does not accept a milestone. New captures include colour/depth SHA-256 hashes
 binding the artifact bytes to the issue-time metadata identity.

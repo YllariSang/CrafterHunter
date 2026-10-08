@@ -23,6 +23,7 @@
 #include "world_frame.hpp"
 #include "world_freshness.hpp"
 #include "world_reprojection.hpp"
+#include "world_alignment.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace sel = crafterhunter::depth;
@@ -175,9 +176,20 @@ crafterhunter::reprojection::Matrix worldInverseProjection{};
 crafterhunter::reprojection::Matrix worldEyeToGuest{};
 ULONGLONG nextWorldPoll=0;
 bool worldUploadEnabled=false;
+crafterhunter::alignment::Session alignmentSession;
+crafterhunter::alignment::Position alignmentHost{};
+ULONGLONG alignmentNextLog=0;
+ComPtr<ID3D11VertexShader> pairedVS;
+ComPtr<ID3D11PixelShader> pairedPS;
+ComPtr<ID3D11Buffer> pairedConstants;
+ComPtr<ID3D11Texture2D> pairedDepth;
+ComPtr<ID3D11DepthStencilView> pairedDSV;
+ComPtr<ID3D11DepthStencilState> pairedDepthState;
+bool pairedFailed=false;
 void log(const char* format, ...);
 
 void clearWorldUpload() {
+    alignmentSession.anchor.reset();
     if (worldMetadata.identity) log("paired world upload cleared generation=%llu identity=%llu (upload-only)",
         static_cast<unsigned long long>(worldMetadata.generation), static_cast<unsigned long long>(worldMetadata.identity));
     worldColourView.Reset(); worldDepthView.Reset();
@@ -185,6 +197,40 @@ void clearWorldUpload() {
     worldMetadata=crafterhunter::world::Snapshot{};
     worldInverseProjection={};
     worldEyeToGuest={};
+}
+
+void serviceAlignment() {
+    constexpr char request[]="nativePC/plugins/CSharp/CrafterHunter/render/align.request";
+    constexpr char claimed[]="nativePC/plugins/CSharp/CrafterHunter/render/align.claimed";
+    // Claim before consuming; command has no payload. A stale claimed command
+    // never retries after a crash and never deletes a newly published request.
+    if(MoveFileExA(request,claimed,0)) {
+        const bool ok=worldFreshness.live(GetTickCount64()) && worldMetadata.identity
+            && alignmentSession.calibrate(worldMetadata.cameraPosition,alignmentHost,
+                worldMetadata.generation,worldMetadata.cameraMode);
+        DeleteFileA(claimed);
+        log("alignment calibration %s epoch=%llu generation=%llu identity=%llu; diagnostic only",
+            ok ? "accepted" : "refused (requires fresh paired upload and first-person)",
+            static_cast<unsigned long long>(alignmentSession.epoch),
+            static_cast<unsigned long long>(worldMetadata.generation),
+            static_cast<unsigned long long>(worldMetadata.identity));
+    }
+    if(!alignmentSession.anchor.armed || !worldFreshness.live(GetTickCount64())) return;
+    crafterhunter::reprojection::Matrix view{},mapped{};
+    for(unsigned i=0;i<16;++i) view[i]=worldMetadata.viewRotation[i];
+    if(!crafterhunter::alignment::eyeMatrix(alignmentSession.anchor,worldMetadata.generation,
+            alignmentSession.epoch,view,worldMetadata.cameraPosition,mapped)) {
+        alignmentSession.anchor.reset(); log("alignment invalidated: generation/epoch/transform"); return;
+    }
+    const auto now=GetTickCount64();
+    if(now<alignmentNextLog) return;
+    alignmentNextLog=now+500;
+    const auto origin=crafterhunter::reprojection::transform(mapped,{0,0,0,1});
+    log("alignment epoch=%llu generation=%llu identity=%llu mode=%u mapped-camera-metres=(%.6f,%.6f,%.6f); drawing disabled",
+        static_cast<unsigned long long>(alignmentSession.epoch),
+        static_cast<unsigned long long>(worldMetadata.generation),
+        static_cast<unsigned long long>(worldMetadata.identity),worldMetadata.cameraMode,
+        origin[0],origin[1],origin[2]);
 }
 
 void serviceWorldUpload() {
@@ -253,6 +299,7 @@ void STDMETHODCALLTYPE observeIndexed(ID3D11DeviceContext* ctx, UINT n, UINT sta
 bool uploadNewestFrame();
 int drawFrame(ID3D11Texture2D* back, ID3D11ShaderResourceView* sceneDepth);
 bool drawFrameComposite(ID3D11Texture2D* back);
+bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui);
 int selectSceneDepth(ComPtr<ID3D11ShaderResourceView>& out);
 
 void log(const char* format, ...) {
@@ -488,7 +535,12 @@ void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
         // Minecraft draws after the stone, so a block placed inside Minecraft's
         // geometry stays visible rather than being buried. The order only
         // decides who wins where both would write; neither depends on the other.
-        if (!composedFrame) composedFrame = drawFrameComposite(back.Get());
+        if (!composedFrame && stride==32 && cameraDesc.ByteWidth==1072 && uiDesc.ByteWidth==400) {
+            const bool pairedRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-compose.enabled")!=INVALID_FILE_ATTRIBUTES;
+            // Never silently fall back to the sky overlay when paired drawing refuses.
+            composedFrame=pairedRequested ? drawPaired(back.Get(),camera.Get(),ui.Get())
+                : drawFrameComposite(back.Get());
+        }
     }
     if (!traceDraws || traceCount >= 80) return;
     log("color trace %u %s count=%u format=%u blend=%u target=%p", traceCount, kind, count, td.Format, bd.RenderTarget[0].BlendEnable, back.Get());
@@ -599,6 +651,51 @@ float4 PS(float4 pixel : SV_Position) : SV_Target {
 // "overlapping register semantics". Only Microsoft's compiler sees it: glslang
 // compiles each entry point in isolation and accepts this happily, so
 // tools/test-shader-source.sh is a floor rather than proof.
+// First composition slice: bounded 4x4 source sampling, screen-space splats.
+// These are real captured surfaces, not a replacement Steve mesh. Holes and
+// disocclusion remain expected; no continuous mesh is invented across depth edges.
+constexpr char PairedShader[] = R"hlsl(
+cbuffer Pair : register(b0) {
+    row_major float4x4 guestInverseProjection;
+    row_major float4x4 eyeToHost;
+    float4 sizes; // guest width/height, host width/height
+    float4 mapping; // clip mapping, clear, sampling stride, unused
+};
+cbuffer Host : register(b1) { row_major float4x4 hostVP; };
+cbuffer UI : register(b2) { float4 uiScale; };
+Texture2D<float4> guestColour : register(t0);
+Texture2D<float> guestDepth : register(t1);
+Texture2D<float> hostDepth : register(t2);
+struct Splat { float4 pos:SV_Position; nointerpolation float4 colour:COLOR0; float valid:SV_ClipDistance0; };
+Splat PairedVS(uint id:SV_VertexID) {
+    Splat o; o.pos=float4(0,0,0,1); o.valid=-1; o.colour=0;
+    uint columns=(uint(sizes.x)+3)/4;
+    uint sample=id/6;
+    uint2 xy=uint2(sample%columns,sample/columns)*4;
+    if(any(xy>=uint2(sizes.xy))) return o;
+    float depth=guestDepth.Load(int3(xy,0));
+    if(!isfinite(depth) || depth<=mapping.y || depth>1) return o;
+    float2 ndc=(float2(xy)+0.5)/sizes.xy*2-1;
+    float z=mapping.x==1 ? depth : depth*2-1;
+    float4 eye=mul(guestInverseProjection,float4(ndc,z,1));
+    if(!all(isfinite(eye)) || abs(eye.w)<1e-8) return o;
+    eye/=eye.w;
+    if(eye.z>=0) return o;
+    float4 clip=mul(mul(eyeToHost,eye),hostVP);
+    if(!all(isfinite(clip)) || clip.w<=1e-8 || clip.z<=0 || clip.z>clip.w) return o;
+    static const float2 corners[6]={float2(-1,-1),float2(1,-1),float2(-1,1),float2(-1,1),float2(1,-1),float2(1,1)};
+    // One 4x4 target-pixel splat per sampled source point; preview quality only.
+    clip.xy+=corners[id%6]*4/sizes.zw*clip.w;
+    o.pos=clip; o.colour=guestColour.Load(int3(xy,0)); o.valid=1;
+    return o;
+}
+float4 PairedPS(Splat input):SV_Target {
+    if(any(abs(uiScale.xy-float2(2,-2)/sizes.zw)>0.000001)) discard;
+    float host=hostDepth.Load(int3(int2(input.pos.xy),0));
+    if(!isfinite(host) || input.pos.z<=host+0.000001 || input.colour.a<0.5) discard;
+    return float4(input.colour.rgb,1);
+}
+)hlsl";
 constexpr char FrameShader[] = R"hlsl(
 cbuffer Parameters : register(b0) {
     row_major float4x4 inverseVP;
@@ -1122,6 +1219,75 @@ bool drawFrameComposite(ID3D11Texture2D* back) {
     return true;
 }
 
+bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
+    if(pairedFailed || !worldColourView || !worldDepthView || worldMetadata.clipOrigin!=1
+            || !worldFreshness.live(GetTickCount64()) || !alignmentSession.anchor.armed) return false;
+    crafterhunter::reprojection::Matrix view{},eyeToHost{};
+    for(unsigned i=0;i<16;++i) view[i]=worldMetadata.viewRotation[i];
+    if(!crafterhunter::alignment::eyeMatrix(alignmentSession.anchor,worldMetadata.generation,
+            alignmentSession.epoch,view,worldMetadata.cameraPosition,eyeToHost)) return false;
+    ComPtr<ID3D11ShaderResourceView> scene;
+    if(selectSceneDepth(scene)<0 || !ensureSharedState()) return false;
+    struct Pair { float inverse[16],eye[16],sizes[4],mapping[4]; } pair{};
+    for(unsigned row=0;row<4;++row) for(unsigned col=0;col<4;++col) {
+        pair.inverse[row*4+col]=static_cast<float>(worldInverseProjection[col*4+row]);
+        // Host GPU VP uses raw centimetres; scale all host spatial rows once.
+        pair.eye[row*4+col]=static_cast<float>(eyeToHost[col*4+row]*(row<3 ? 100 : 1));
+    }
+    pair.sizes[0]=worldMetadata.width; pair.sizes[1]=worldMetadata.height;
+    pair.sizes[2]=width; pair.sizes[3]=height;
+    pair.mapping[0]=worldMetadata.clipMapping; pair.mapping[1]=worldMetadata.clearDepth;
+    pair.mapping[2]=4;
+    if(!pairedVS) {
+        ComPtr<ID3DBlob> vs,ps,error;
+        if(FAILED(D3DCompile(PairedShader,sizeof(PairedShader)-1,"CrafterHunter",nullptr,nullptr,
+                "PairedVS","vs_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&vs,&error))
+                || FAILED(D3DCompile(PairedShader,sizeof(PairedShader)-1,"CrafterHunter",nullptr,nullptr,
+                "PairedPS","ps_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&ps,&error))) {
+            log("paired compile refused: %s",error ? static_cast<char*>(error->GetBufferPointer()) : "unknown");
+            pairedFailed=true; return false;
+        }
+        D3D11_BUFFER_DESC bd{}; bd.ByteWidth=sizeof(Pair); bd.Usage=D3D11_USAGE_DEFAULT; bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+        D3D11_DEPTH_STENCIL_DESC dd{}; dd.DepthEnable=TRUE; dd.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ALL; dd.DepthFunc=D3D11_COMPARISON_GREATER;
+        if(FAILED(device->CreateVertexShader(vs->GetBufferPointer(),vs->GetBufferSize(),nullptr,&pairedVS))
+                || FAILED(device->CreatePixelShader(ps->GetBufferPointer(),ps->GetBufferSize(),nullptr,&pairedPS))
+                || FAILED(device->CreateBuffer(&bd,nullptr,&pairedConstants))
+                || FAILED(device->CreateDepthStencilState(&dd,&pairedDepthState))) { pairedFailed=true; return false; }
+    }
+    D3D11_TEXTURE2D_DESC old{}; if(pairedDepth) pairedDepth->GetDesc(&old);
+    if(old.Width!=width || old.Height!=height) {
+        pairedDSV.Reset(); pairedDepth.Reset();
+        D3D11_TEXTURE2D_DESC d{}; d.Width=width; d.Height=height; d.MipLevels=d.ArraySize=d.SampleDesc.Count=1;
+        d.Format=DXGI_FORMAT_D32_FLOAT; d.BindFlags=D3D11_BIND_DEPTH_STENCIL;
+        if(FAILED(device->CreateTexture2D(&d,nullptr,&pairedDepth))
+                || FAILED(device->CreateDepthStencilView(pairedDepth.Get(),nullptr,&pairedDSV))) return false;
+    }
+    ComPtr<ID3D11RenderTargetView> target;
+    if(FAILED(device->CreateRenderTargetView(back,nullptr,&target))) return false;
+    ComPtr<ID3DDeviceContextState> saved; context1->SwapDeviceContextState(drawState.Get(),&saved);
+    context->UpdateSubresource(pairedConstants.Get(),0,nullptr,&pair,0,0);
+    // Do not modify MHW's depth. Private depth orders overlapping guest splats.
+    context->ClearDepthStencilView(pairedDSV.Get(),D3D11_CLEAR_DEPTH,0,0);
+    context->OMSetRenderTargets(1,target.GetAddressOf(),pairedDSV.Get());
+    context->OMSetDepthStencilState(pairedDepthState.Get(),0);
+    context->OMSetBlendState(nullptr,nullptr,0xFFFFFFFF);
+    context->IASetInputLayout(nullptr); context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->VSSetShader(pairedVS.Get(),nullptr,0); context->PSSetShader(pairedPS.Get(),nullptr,0);
+    context->HSSetShader(nullptr,nullptr,0); context->DSSetShader(nullptr,nullptr,0); context->GSSetShader(nullptr,nullptr,0);
+    context->VSSetConstantBuffers(0,1,pairedConstants.GetAddressOf()); context->VSSetConstantBuffers(1,1,&camera);
+    context->PSSetConstantBuffers(0,1,pairedConstants.GetAddressOf()); context->PSSetConstantBuffers(2,1,&ui);
+    ID3D11ShaderResourceView* guest[]={worldColourView.Get(),worldDepthView.Get()};
+    context->VSSetShaderResources(0,2,guest); context->PSSetShaderResources(2,1,scene.GetAddressOf());
+    context->RSSetState(rasterizer.Get());
+    D3D11_VIEWPORT viewport{0,0,static_cast<float>(width),static_cast<float>(height),0,1}; context->RSSetViewports(1,&viewport);
+    ownDraw=true; context->Draw(((worldMetadata.width+3)/4)*((worldMetadata.height+3)/4)*6,0); ownDraw=false;
+    ID3D11ShaderResourceView* empty[3]{}; context->VSSetShaderResources(0,2,empty); context->PSSetShaderResources(0,3,empty);
+    context->OMSetRenderTargets(0,nullptr,nullptr); context1->SwapDeviceContextState(saved.Get(),nullptr);
+    static bool reported=false;
+    if(!reported) { log("paired reprojection draw submitted: real colour/depth samples, host depth test, preview stride 4; NOT runtime acceptance"); reported=true; }
+    return true;
+}
+
 // The Minecraft frame, drawn through the per-pixel rule in frame_composite.hpp.
 //
 // At most one upload per published frame: the guest publishes at 20-60 Hz while
@@ -1193,10 +1359,18 @@ extern "C" __declspec(dllexport) void CH_Block(const float* inverse, const float
     }
 }
 
+extern "C" __declspec(dllexport) void CH_AlignmentHost(float x,float y,float z) {
+    alignmentHost={x,y,z};
+    const bool wasArmed=alignmentSession.anchor.armed;
+    alignmentSession.observe(alignmentHost,GetTickCount64());
+    if(wasArmed && !alignmentSession.anchor.armed) log("alignment invalidated: host jump/gap/invalid pose");
+}
+
 extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* viewProjection) {
     if (!initialized && !initialize(singleton)) return 0;
     ++frame;
     serviceWorldUpload();
+    serviceAlignment();
     ComPtr<ID3D11Texture2D> back;
     if (FAILED(swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back.GetAddressOf())))) return 0;
     D3D11_TEXTURE2D_DESC d{}; back->GetDesc(&d);
@@ -1263,5 +1437,8 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     minecraftUploaded = 0; minecraftWidth = 0; minecraftHeight = 0;
     frameSource.close();
     clearWorldUpload(); worldFreshness={}; nextWorldPoll=0; worldUploadEnabled=false;
+    pairedVS.Reset(); pairedPS.Reset(); pairedConstants.Reset(); pairedDepth.Reset();
+    pairedDSV.Reset(); pairedDepthState.Reset(); pairedFailed=false;
+    alignmentSession={}; alignmentHost={}; alignmentNextLog=0;
     initialized = false; swapchain = nullptr;
 }

@@ -50,6 +50,10 @@ and final projection metadata; native freshness/upload and CPU reprojection are
 headless-checked, not runtime-accepted guest composition. Steve/control and native
 F5 camera integration remain unimplemented. See [paired-frame status](docs/world-frame-transport.md).
 
+2026-10-08: an opt-in real paired-depth GPU reprojection preview is built and
+headless-checked, not deployed or runtime-accepted. The temporary target is
+Playable Steve in one supported area; see [MVP audit and preview limitations](docs/playable-steve-mvp.md).
+
 Collision, Steve's model, inventory integration, and cross-game combat are still
 future work. The earlier [A/B/C comparison](docs/block-compare-test.md) remains
 documented as development history.

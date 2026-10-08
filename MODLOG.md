@@ -1,5 +1,73 @@
 # CrafterHunter mod journal
 
+## 2026-10-08 — opt-in real paired GPU composition slice, not playable acceptance
+
+User narrowed work to Playable Steve MVP and required implementation rather than
+further diagnostics. Audit confirms paired GPU uploads were unused by drawing,
+old colour rendering remained sky-only, host player proxy runs in the opposite
+direction, session/ownership negotiation and guest terrain collision are missing.
+
+Added actual paired reprojection draw at the existing pinned pre-UI signature,
+reusing measured scene-depth selection and saved context state. Real guest depth
+unprojects through captured inverse projection/view/position and explicit anchor;
+host metres become GPU centimetres once. Guest samples test against host reversed
+depth and private depth orders overlapping guest samples. Preview samples every
+fourth texel, not continuous geometry; terrain is included and holes expected.
+New flag never silently falls back to sky-only on refusal. Stone drawing unchanged.
+
+Fabric opt-in bounded streaming supplies at most four paired captures/second,
+one in flight, skipping diagnostic artifact writes without weakening failure
+retention. Preview control start/align/stop uses atomic writes and preserves frame
+channels. Lifecycle cleanup added for all paired GPU resources on CH_Stop.
+No input takeover, host camera writes, terrain import or gameplay claim.
+
+Verified Fabric build; managed/native builds; six shader entry points compile
+under glslang (not proof of D3D runtime compilation); paired transport/freshness,
+reprojection/alignment, Fabric capture and Rust tests pass. Controller regression
+tests cover temporary-root start/align/idempotent stop/channel preservation; shader
+contract checks cover resources, host-depth comparison, origin refusal and bounds.
+No deployment or live demonstration. Next: one scoped manual composition test,
+with screenshots, advancing identities and before/after focused frame rate. See
+docs/playable-steve-mvp.md for audit, hypothesis, acceptance and known limitations.
+
+## 2026-10-08 — host-local calibration diagnostic, no guest drawing
+
+Added opt-in align.request consumption by rename-to-claim, requiring a fresh paired
+upload in first-person. CH_AlignmentHost observes SPL camera in metres; explicit
+calibration fixes guest/host camera origins, and logs transformed camera position
+with generation/identity/F5 mode/host-local epoch. F5 does not recalibrate. Host
+jump >25 m, gap >1 s, clock rollback/invalid pose or lost upload clears the anchor.
+These are continuity heuristics, not an authoritative area/title detector.
+Control tool now publishes complete requests using atomic same-directory replace.
+
+Verified: reprojection/alignment regression tests including jump/gap/rollback and
+third-person calibration refusal, managed plugin build, native MinGW renderer build.
+No deployment/game requests or live acceptance. Stone/depth selection and sky-only
+composition untouched. Full calibration protocol/ownership acknowledgement and
+visual alignment remain missing. Diagnostic needs advancing paired uploads within
+the existing one-second watchdog, so bounded pacing/trace collection comes next
+before asking for manual acceptance. No 60 fps or visible Steve claim.
+
+## 2026-10-08 — explicit shared-world anchor reference, drawing unchanged
+
+Reviewed three user F5 archives (215619Z/215700Z/215730Z): identities 3/6/9
+in generation 700129956865, matched colour/depth hashes, all finite depth,
+colour-aligned bottom-up rows and recorded zero-to-one reversed-Z projection.
+Rear/front camera displacements measure 4.0000002 blocks, opposite about the
+first-person position. This supports render-camera capture, not host alignment.
+
+Added world_alignment.hpp: explicit same-XYZ guest/host origins and positive
+metres-per-block scale; requires armed nonzero matching guest generation/host
+epoch. Composes the actual captured view inverse and camera position without
+per-F5 re-anchoring. Headless tests require an unchanged block to map identically
+through all three camera modes, with translation/scale/inverse and stale/reset
+refusal. Existing reprojection test entry point runs these too.
+
+No native drawing, telemetry protocol, input, deployment or game requests changed.
+This is the mathematical contract only: calibration exchange and host epoch
+lifecycle still need implementation before a manual alignment diagnostic exists.
+Agent/manual next objectives are recorded in AGENTS.md and world-reprojection.md.
+
 ## 2026-10-07 — exact render arguments and paired snapshot v2
 
 Local Loom 26.2 bytecode establishes GameRenderer copies CameraRenderState's

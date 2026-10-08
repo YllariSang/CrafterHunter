@@ -10,9 +10,11 @@ internal static class NativeRenderer
 {
     private delegate int FrameDelegate(nint singleton, in Matrix4x4 viewProjection);
     private delegate void StopDelegate();
+    private delegate void AlignmentHostDelegate(float x, float y, float z);
     private delegate void BlockDelegate(in Matrix4x4 inverse, in Vector4 centre, byte[] pixels, int enabled);
     private static FrameDelegate? _frame;
     private static StopDelegate? _stop;
+    private static AlignmentHostDelegate? _alignmentHost;
     private static BlockDelegate? _block;
     private static bool _checked;
     private static string _folder = "";
@@ -47,6 +49,8 @@ internal static class NativeRenderer
         var library = NativeLibrary.Load(copy);
         _frame = Marshal.GetDelegateForFunctionPointer<FrameDelegate>(NativeLibrary.GetExport(library, "CH_Frame"));
         _stop = Marshal.GetDelegateForFunctionPointer<StopDelegate>(NativeLibrary.GetExport(library, "CH_Stop"));
+        _alignmentHost = NativeLibrary.TryGetExport(library, "CH_AlignmentHost", out var alignmentExport)
+            ? Marshal.GetDelegateForFunctionPointer<AlignmentHostDelegate>(alignmentExport) : null;
         _block = Marshal.GetDelegateForFunctionPointer<BlockDelegate>(NativeLibrary.GetExport(library, "CH_Block"));
         Enabled = true;
     }
@@ -120,6 +124,9 @@ internal static class NativeRenderer
             var bounds = Vector4.Zero;
             _block!(in identity, in bounds, Array.Empty<byte>(), 0);
         }
+        var alignmentPosition = cameraPosition / 100f; // SPL centimetres -> host metres
+        _alignmentHost?.Invoke(alignmentPosition?.X ?? float.NaN,
+            alignmentPosition?.Y ?? float.NaN, alignmentPosition?.Z ?? float.NaN);
         _frame!(render.Instance, in matrix);
     }
 

@@ -134,6 +134,9 @@ public final class WorldCapture {
     private int bufferHeight;
 
     private long nextPollNanos;
+    private boolean streaming;
+    private long nextStreamNanos;
+    private final Path streamFlag = requestFile.resolveSibling("world-stream.enabled");
     private int remaining;
     private int requestedFrames = 1;
     private long captured;
@@ -233,7 +236,18 @@ public final class WorldCapture {
 
         if (remaining == 0 && nowNanos >= nextPollNanos) {
             nextPollNanos = nowNanos + POLL_INTERVAL_NANOS;
+            streaming = Files.isRegularFile(streamFlag);
             readRequest();
+        }
+
+        // Opt-in live source needed by paired composition. One capture in flight,
+        // at most 4 requests/second (matches native 250ms polling). No queue growth.
+        // Timeout/setup/copy failure still permanently disables this instance.
+        if (streaming && remaining == 0 && !inFlight && nowNanos >= nextStreamNanos) {
+            mode = Mode.BOTH;
+            remaining = 1;
+            requestedFrames = 1;
+            nextStreamNanos = nowNanos + POLL_INTERVAL_NANOS;
         }
 
         if (remaining > 0 && !inFlight) {
@@ -617,10 +631,10 @@ public final class WorldCapture {
             Files.createDirectories(outputDirectory);
             // Depth is raw, not PNG: it is data, and re-encoding it would make the
             // row layout and the exact values unrecoverable.
-            if (wantDepth) {
+            if (wantDepth && !streaming) {
                 Files.write(outputDirectory.resolve("world-depth.f32"), depth);
             }
-            if (wantColour) {
+            if (wantColour && !streaming) {
                 Files.write(outputDirectory.resolve("world-colour.rgba"), colour);
                 writePng(colour, width, height);
             }
@@ -649,7 +663,9 @@ public final class WorldCapture {
             } else if (wantColour && wantDepth) {
                 metadata += "worldFrameChannel=refused: missing exact view/projection or GL clip provenance\n";
             }
-            Files.writeString(outputDirectory.resolve("world-capture.meta"), metadata,
+            // Stream snapshots remain atomic in world.frame; diagnostic artifact
+            // hashes must never claim that untouched disk artifacts are this pair.
+            if (!streaming) Files.writeString(outputDirectory.resolve("world-capture.meta"), metadata,
                 StandardCharsets.UTF_8);
 
             captured++;
