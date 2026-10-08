@@ -70,9 +70,24 @@ uses observed jump/gap continuity, not an authoritative area ID/title detector.
 
 ## Next [MANUAL]: only this slice's acceptance
 
-The rebuilt Fabric/managed/native binaries have NOT been installed or live-tested
-by this change. Close both games and use the existing installation workflow first.
-Then run the bridge and enter loaded worlds, offline/private MHW. Keep both windows
+Update 2026-10-08: the composition binaries are installed. Live logs now establish
+paired uploads, stable calibration and an actual paired draw submission, NOT
+visible pixels or visual acceptance. Generation 1113423980880, epoch 1372:
+calibration accepted at host tick 1280720; depth 0 selected with 56.56% coverage;
+paired draw submitted at 1281907. Calibration remained armed through tick
+1366306 (over 85 seconds). Producer intervals settled near 255 ms.
+
+**Keep both game windows visible on the active workspace during this preview.**
+In the local Hyprland/Xwayland environment, leaving both games on workspace 2
+while the terminal was active on workspace 1 produced consecutive captures about
+1000 ms apart (not merely skipped consumer samples). Returning to workspace 2
+restored approximately 4 Hz capture and allowed depth measurement/draw submission.
+F3+P disables focus pausing; it does not guarantee rendering of an off-workspace
+window. The exact compositor/driver throttling mechanism is not established.
+Do not increase watchdogs to hide this setup limitation. Moving away may invalidate
+calibration; return, wait for advancing pairs, then explicitly align again.
+
+Run the bridge and enter loaded worlds, offline/private MHW. Keep both windows
 rendering; guest focus pausing must be disabled. Disable F7 camera and F9 player
 proxy so Minecraft input is not overwritten. Start in Minecraft first-person:
 

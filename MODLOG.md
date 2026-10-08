@@ -1,5 +1,28 @@
 # CrafterHunter mod journal
 
+## 2026-10-08 — visible-workspace preview reaches paired draw submission
+
+With both user-launched games on inactive workspace 2 and the terminal on
+workspace 1, new cadence logs measured consecutive producer identities about
+1000 ms apart, matching consumer intervals. This is producer slowdown, not a
+4 Hz stream sampled at 1 Hz. The user switched to workspace 2; without changing
+thresholds or composition code, producer intervals settled near 255 ms.
+
+Generation 1113423980880: calibration accepted at tick 1280720, epoch 1372;
+scene depth 0 measured 56.56% coverage and selected at 1281847; actual paired
+reprojection draw submitted at 1281907. Epoch 1372 remained armed through
+1366306, over 85 seconds. This passes the immediate upload/calibration/eligibility/
+submission gates in the visible-workspace setup, not visible or aligned rendering.
+The exact guard trigger in the earlier session was not recorded and cannot be
+reconstructed; off-workspace one-second observations demonstrably put both
+freshness and host continuity at their existing thresholds. No guard bypass.
+
+The session-scoped bridge remained active with both roles registered and UDP
+38470 listening. Earlier listener loss remains unexplained: no historical exit
+record proves shutdown versus crash. Updated preview instructions require both
+windows visible on the active workspace. Exact compositor/driver throttling and
+visual depth/alignment/F5 acceptance remain unproven. No gameplay changes.
+
 ## 2026-10-08 — failed preview investigation, live gate still blocked
 
 Fresh native logs show accepted calibrations followed by the combined host
