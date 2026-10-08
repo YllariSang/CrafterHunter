@@ -106,6 +106,47 @@ about area transitions, disconnect or collision follows from these tests.
 
 ### UV milestone: two opt-in debug views
 
+### Host-depth coordinate investigation (not accepted)
+
+Production PlayerPS uses `sceneDepth.Load(int3(int2(SV_Position.xy),0))`.
+SV_Position is render-target pixel coordinates, including the pixel-centre offset.
+Positive integer conversion selects the containing texel; Load uses no normalized
+UV, sampler/filtering, V flip or presentation/window offset. Player viewport is
+(0,0,backbuffer width,height); selected depth must match those dimensions.
+The selected depth resource is bound directly as R32_FLOAT mip 0, not copied or
+resolved. These code facts do not prove that MHW wrote scene geometry using the
+same viewport/camera or that the selected candidate is the right scene image.
+No constant offset or sampling correction has been established.
+
+Debug-only modes, selected after fresh calibration:
+
+```bash
+python3 tools/control-player-uv.py depth-position
+python3 tools/control-player-uv.py depth-source
+python3 tools/control-player-uv.py real
+```
+
+Position displays the exact sampled texel centre normalized by actual depth
+dimensions (red=X, green=Y). Source displays depth from the unchanged production
+Load coordinate, logarithmically: zero black, 2^-24..1 grayscale. Both deliberately
+bypass host-depth rejection ONLY in the diagnostic shader so missing player
+pixels can be examined. Alpha/UI rejection, private self-depth and lifecycle
+guards remain. Neither debug mode is an occlusion acceptance test; return to real
+for that. No production comparison/sampling, skin, geometry, pose or anchor changes.
+
+On mode activation, log exact target/depth size/format, player viewport, current
+host pre-UI viewport, and first observed draw viewport of the selected depth
+writer (may be unmeasured on initial activation). Switch source after position
+has rendered several frames to obtain writer metadata. GPU camera readback once
+per mode activation logs projected bounding-box probes near upper/head area,
+centre/torso area and left/right edges with screen/Load/normalized sample values.
+These probes are approximations based on the full posed mesh bounds, not exact
+anatomical pixel centres. One-time readback can stall; turn diagnostics off after
+collecting evidence. Representative conversion logs alone cannot prove host depth
+content aligns with scene color; capture the same fixed-camera scene in source and
+real mode and compare obstruction edges. Unobstructed/rock/hunter/orbit/offset
+acceptance remains pending. No production offset correction is yet justified.
+
 Local 26.2 bytecode (`ModelPart.Cube`, `Polygon`, `Cube.compile`) establishes
 that polygon U/V are divided by baked texture width/height (64x64 here).
 Cube.compile transforms XYZ/normals only and passes U/V unchanged. The exporter

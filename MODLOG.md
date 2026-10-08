@@ -2701,3 +2701,24 @@ accepted; games were closed, not agent-launched.
 Installed only native DLL SHA256
 d4986afc486ac713c6eaa527f0a59d7416d0c72e676f69945ea81fd5d42ee67d;
 backup /home/yllaris/.local/share/crafterhunter-backups/player-uv-debug.ZBWs0E.
+# 2026-10-08 — host-depth pixel-coordinate investigation, not acceptance
+
+Suspected displaced occlusion after UV/skin gate. Production uses direct integer
+SV_Position.xy mip-0 depth Load; player viewport starts at zero with target size,
+selection requires matching depth size, direct R32_FLOAT SRV, no copy/resolve or
+UV normalization. Current source establishes identity texel mapping, not matching
+MHW depth-writer viewport/image. No measured offset, root cause or production fix.
+
+Added opt-in depth-position/depth-source debug shaders and mode controller. They
+expose exact normalized sampled texel centres/raw-depth visualization on player
+surfaces; host rejection bypass is debug-only, never production acceptance.
+Metadata captures target/depth/pre-UI/selected depth-writer viewport plus four
+posed-mesh projected bounding-box probes using actual GPU camera constants.
+Initial depth-writer measurement can be absent: switch modes after several frames.
+No geometry, pose, anchor, skin, transport or production depth changes.
+
+Passed native build, all 11 shader entries, actual normal/slim player tests and
+Java/native roundtrip, debug controllers, pixel-centre math across resolutions,
+depth selection and reprojection/alignment regression. Runtime measurements and
+controlled occlusion acceptance still pending. MHW closed but Minecraft remains
+open; scoped installation deferred until requested safe shutdown confirmation.

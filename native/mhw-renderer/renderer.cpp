@@ -74,7 +74,10 @@ struct Depth {
     float covered = 0;
     unsigned long long checkedFrame = 0;
     ComPtr<ID3D11Texture2D> staging;
+    D3D11_VIEWPORT debugViewport{};
+    unsigned long long debugViewportFrame=0;
 };
+bool depthCoordinateDebug=false;
 std::vector<Depth> depths;
 using ClearFn = void (STDMETHODCALLTYPE*)(ID3D11DeviceContext*, ID3D11DepthStencilView*, UINT, FLOAT, UINT8);
 ClearFn originalClear = nullptr;
@@ -519,6 +522,19 @@ void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
     // stone was a precondition for Minecraft being visible at all - a debug aid
     // silently deciding whether the player could exist.
     if (ownDraw || ctx != context.Get()) return;
+    if(depthCoordinateDebug) {
+        ComPtr<ID3D11DepthStencilView> dsv;
+        ctx->OMGetRenderTargets(0,nullptr,dsv.GetAddressOf());
+        if(dsv) {
+            ComPtr<ID3D11Resource> resource; dsv->GetResource(&resource);
+            std::lock_guard lock(gate);
+            for(auto& candidate:depths) if(candidate.texture.Get()==resource.Get()
+                    && candidate.debugViewportFrame!=frame) {
+                UINT n=1; ctx->RSGetViewports(&n,&candidate.debugViewport);
+                if(n) candidate.debugViewportFrame=frame;
+            }
+        }
+    }
     ComPtr<ID3D11RenderTargetView> rtv;
     ctx->OMGetRenderTargets(1, &rtv, nullptr);
     if (!rtv) return;
@@ -758,6 +774,23 @@ float4 PlayerUVPS(PlayerPixel input):SV_Target {
     // Retain exactly the production depth/UI/alpha rejection before visualizing UV.
     float4 checked=PlayerPS(input);
     return float4(input.uv,0,checked.a);
+}
+float4 PlayerDepthPositionPS(PlayerPixel input):SV_Target {
+    if(any(abs(uiScale.xy-float2(2,-2)/screen.xy)>0.000001)) discard;
+    if(skin.Sample(skinSampler,input.uv).a<0.5) discard;
+    uint w,h; sceneDepth.GetDimensions(w,h);
+    // Exact centre of the integer texel production Load uses. Debug bypasses
+    // host rejection ONLY to expose otherwise missing samples; private depth remains.
+    float2 sampled=(floor(input.pos.xy)+0.5)/float2(w,h);
+    return float4(sampled,0,1);
+}
+float4 PlayerDepthSourcePS(PlayerPixel input):SV_Target {
+    if(any(abs(uiScale.xy-float2(2,-2)/screen.xy)>0.000001)) discard;
+    if(skin.Sample(skinSampler,input.uv).a<0.5) discard;
+    float host=sceneDepth.Load(int3(int2(input.pos.xy),0));
+    // Debug logarithmic display: clear=black, 2^-24..1 spans grayscale.
+    float grey=host>0 ? saturate((log2(host)+24)/24):0;
+    return float4(grey,grey,grey,1);
 }
 )hlsl";
 constexpr char FrameShader[] = R"hlsl(
@@ -1363,6 +1396,8 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     static ComPtr<ID3D11VertexShader> vs;
     static ComPtr<ID3D11PixelShader> ps;
     static ComPtr<ID3D11PixelShader> uvPS;
+    static ComPtr<ID3D11PixelShader> depthPositionPS,depthSourcePS;
+    static int previousDepthMode=0;
     static ComPtr<ID3D11ShaderResourceView> debugSkinView;
     static std::uint64_t debugGeneration=0,debugAsset=0;
     static ComPtr<ID3D11Buffer> placement,vertexBuffer,boneBuffer;
@@ -1442,6 +1477,22 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     if(!player::matches(asset,next,worldMetadata.generation)) return false;
     const bool uvDebug=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-uv-debug.enabled")!=INVALID_FILE_ATTRIBUTES;
     const bool netDebug=!uvDebug && GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-skin-net-debug.enabled")!=INVALID_FILE_ATTRIBUTES;
+    const int depthMode=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-depth-position.enabled")!=INVALID_FILE_ATTRIBUTES ? 1
+        : GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-depth-source.enabled")!=INVALID_FILE_ATTRIBUTES ? 2:0;
+    depthCoordinateDebug=depthMode!=0;
+    if(depthMode) {
+        auto& shader=depthMode==1?depthPositionPS:depthSourcePS;
+        if(!shader) {
+            ComPtr<ID3DBlob> blob,error;
+            HRESULT compiled=depthMode==1
+                ? D3DCompile(PlayerShader,sizeof(PlayerShader)-1,"CrafterHunter",nullptr,nullptr,
+                    "PlayerDepthPositionPS","ps_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&blob,&error)
+                : D3DCompile(PlayerShader,sizeof(PlayerShader)-1,"CrafterHunter",nullptr,nullptr,
+                    "PlayerDepthSourcePS","ps_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&blob,&error);
+            if(FAILED(compiled)
+                    || FAILED(device->CreatePixelShader(blob->GetBufferPointer(),blob->GetBufferSize(),nullptr,&shader))) return false;
+        }
+    }
     if(uvDebug && !uvPS) {
         ComPtr<ID3DBlob> blob,error;
         if(FAILED(D3DCompile(PlayerShader,sizeof(PlayerShader)-1,"CrafterHunter",nullptr,nullptr,
@@ -1481,6 +1532,61 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     for(unsigned row=0;row<4;++row) for(unsigned col=0;col<4;++col)
         parameters.matrix[row*4+col]=static_cast<float>(mapping[col*4+row]*(row<3?100:1));
     parameters.screen[0]=width; parameters.screen[1]=height;
+    if(depthMode && depthMode!=previousDepthMode) {
+        D3D11_TEXTURE2D_DESC targetDesc{},depthDesc{};
+        back->GetDesc(&targetDesc);
+        ComPtr<ID3D11Resource> resource; scene->GetResource(&resource);
+        ComPtr<ID3D11Texture2D> depthTexture;
+        if(SUCCEEDED(resource.As(&depthTexture))) depthTexture->GetDesc(&depthDesc);
+        UINT count=16; D3D11_VIEWPORT hostViewports[16]{};
+        context->RSGetViewports(&count,hostViewports);
+        log("DEBUG depth coordinates target=%ux%u format=%u depth=%ux%u format=%u mip=0 direct-SRV(no copy/resolve) player-viewport=(0,0,%u,%u) Load=floor(SV_Position.xy) pixel-centre=0.5 scale=(1,1) offset=(0,0)",
+            targetDesc.Width,targetDesc.Height,static_cast<unsigned>(targetDesc.Format),depthDesc.Width,depthDesc.Height,
+            static_cast<unsigned>(depthDesc.Format),width,height);
+        for(UINT i=0;i<count && i<16;++i) log("DEBUG host pre-UI viewport[%u]=(%g,%g,%g,%g)",i,
+            hostViewports[i].TopLeftX,hostViewports[i].TopLeftY,hostViewports[i].Width,hostViewports[i].Height);
+        {
+            std::lock_guard lock(gate);
+            if(lastSelected<depths.size()) {
+                const auto& selected=depths[lastSelected]; const auto& v=selected.debugViewport;
+                log("DEBUG selected depth first observed writer viewport=(%g,%g,%g,%g) observed-frame=%llu current-frame=%llu; zero observed-frame means not yet measured",v.TopLeftX,v.TopLeftY,v.Width,v.Height,selected.debugViewportFrame,frame);
+            }
+        }
+        // Once per mode activation, project the actual posed vertices with the same
+        // GPU constants. Points are bounding-box probes, not anatomical measurements.
+        D3D11_BUFFER_DESC cb{}; camera->GetDesc(&cb);
+        cb.Usage=D3D11_USAGE_STAGING; cb.BindFlags=cb.MiscFlags=0; cb.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+        ComPtr<ID3D11Buffer> staging; D3D11_MAPPED_SUBRESOURCE read{};
+        if(SUCCEEDED(device->CreateBuffer(&cb,nullptr,&staging))) {
+            context->CopyResource(staging.Get(),camera);
+            if(SUCCEEDED(context->Map(staging.Get(),0,D3D11_MAP_READ,0,&read))) {
+                float host[16]; std::memcpy(host,read.pData,sizeof(host)); context->Unmap(staging.Get(),0);
+                double x0=width,y0=height,x1=0,y1=0; bool any=false;
+                for(const auto& vertex:asset.vertices) {
+                    reprojection::Matrix bone;
+                    std::copy(pose.bones[vertex.bone].matrix.begin(),pose.bones[vertex.bone].matrix.end(),bone.begin());
+                    auto position=reprojection::transform(bone,{vertex.x,vertex.y,vertex.z,1});
+                    position=reprojection::transform(mapping,position);
+                    for(unsigned k=0;k<3;++k) position[k]*=100; // Same metre->GPU-centimetre conversion as PlayerVS.
+                    std::array<double,4> clip{};
+                    for(unsigned j=0;j<4;++j) for(unsigned k=0;k<4;++k) clip[j]+=position[k]*host[k*4+j];
+                    if(clip[3]<=0) continue;
+                    double x=(clip[0]/clip[3]+1)*width/2,y=(1-clip[1]/clip[3])*height/2;
+                    if(!std::isfinite(x) || !std::isfinite(y)) continue;
+                    x0=std::min(x0,x); x1=std::max(x1,x); y0=std::min(y0,y); y1=std::max(y1,y); any=true;
+                }
+                if(any && depthDesc.Width && depthDesc.Height) {
+                    const double probes[][2]={{(x0+x1)/2,y0+(y1-y0)*0.15},{(x0+x1)/2,(y0+y1)/2},{x0,(y0+y1)/2},{x1,(y0+y1)/2}};
+                    const char* labels[]={"upper/head-area","centre/torso-area","left-edge","right-edge"};
+                    for(unsigned i=0;i<4;++i) log("DEBUG depth probe %s screen=(%.3f,%.3f) Load=(%.0f,%.0f) sampled-centre-UV=(%.6f,%.6f) in-bounds=%d",
+                        labels[i],probes[i][0],probes[i][1],std::floor(probes[i][0]),std::floor(probes[i][1]),
+                        (std::floor(probes[i][0])+0.5)/depthDesc.Width,(std::floor(probes[i][1])+0.5)/depthDesc.Height,
+                        probes[i][0]>=0 && probes[i][1]>=0 && probes[i][0]<depthDesc.Width && probes[i][1]<depthDesc.Height);
+                }
+            } else log("DEBUG depth probe GPU camera read failed; representative positions not proven");
+        }
+    }
+    previousDepthMode=depthMode;
     if(!vs) {
         ComPtr<ID3DBlob> v,p,error;
         if(FAILED(D3DCompile(PlayerShader,sizeof(PlayerShader)-1,"CrafterHunter",nullptr,nullptr,
@@ -1516,13 +1622,14 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     context->OMSetRenderTargets(1,target.GetAddressOf(),privateDSV.Get()); context->OMSetDepthStencilState(depthState.Get(),0);
     context->OMSetBlendState(nullptr,nullptr,0xFFFFFFFF);
     context->IASetInputLayout(nullptr); context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-    context->VSSetShader(vs.Get(),nullptr,0); context->PSSetShader(uvDebug?uvPS.Get():ps.Get(),nullptr,0);
+    context->VSSetShader(vs.Get(),nullptr,0);
+    context->PSSetShader(depthMode==1?depthPositionPS.Get():depthMode==2?depthSourcePS.Get():uvDebug?uvPS.Get():ps.Get(),nullptr,0);
     context->HSSetShader(nullptr,nullptr,0); context->DSSetShader(nullptr,nullptr,0); context->GSSetShader(nullptr,nullptr,0);
     context->VSSetConstantBuffers(0,1,placement.GetAddressOf()); context->VSSetConstantBuffers(1,1,&camera);
     context->PSSetConstantBuffers(0,1,placement.GetAddressOf()); context->PSSetConstantBuffers(2,1,&ui);
     ID3D11ShaderResourceView* model[]={vertexView.Get(),boneView.Get()},*material[]={netDebug?debugSkinView.Get():skinView.Get(),scene.Get()};
     context->VSSetShaderResources(2,2,model); context->PSSetShaderResources(0,2,material);
-    if(!uvDebug && !netDebug && !skinBindingReported && GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-skin-check.enabled")!=INVALID_FILE_ATTRIBUTES) {
+    if(!depthMode && !uvDebug && !netDebug && !skinBindingReported && GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-skin-check.enabled")!=INVALID_FILE_ATTRIBUTES) {
         ComPtr<ID3D11ShaderResourceView> bound;
         ComPtr<ID3D11PixelShader> boundShader;
         context->PSGetShaderResources(0,1,bound.GetAddressOf());

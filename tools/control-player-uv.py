@@ -9,14 +9,15 @@ spec.loader.exec_module(paired)
 atomic_write=paired.atomic_write
 
 parser=argparse.ArgumentParser(description=__doc__)
-parser.add_argument('mode',choices=['real','uv','net'])
+parser.add_argument('mode',choices=['real','uv','net','depth-position','depth-source'])
 parser.add_argument('--render',type=Path,default=Path.home()/'.local/share/Steam/steamapps/common/Monster Hunter World/nativePC/plugins/CSharp/CrafterHunter/render')
 args=parser.parse_args()
-flags={'uv':'player-uv-debug.enabled','net':'player-skin-net-debug.enabled'}
+flags={'uv':'player-uv-debug.enabled','net':'player-skin-net-debug.enabled',
+       'depth-position':'player-depth-position.enabled','depth-source':'player-depth-source.enabled'}
 for mode,name in flags.items():
     flag=args.render/name
     if args.mode==mode:
         atomic_write(flag,'debug only\n')
     else:
         flag.unlink(missing_ok=True)
-print('Player shading:',args.mode,'(real asset, pose, anchor and depth guards unchanged)')
+print('Player shading:',args.mode,'(asset, pose, anchor unchanged; depth debug views bypass host rejection for diagnosis only)')
