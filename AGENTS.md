@@ -112,7 +112,9 @@ input ownership or collision expansion. Do not re-anchor on F5.
 
 Actual project history uses `.git-crafterhunter`, NOT the unrelated `.git`:
 `git --git-dir=.git-crafterhunter --work-tree=. <command>`.
-Commit isolated changes when authorized. Do not push unless requested.
+User standing instruction (2026-10-08): commit isolated verified changes and push
+them to the existing CrafterHunter origin alongside scoped mod installation.
+Do not include unrelated user changes, generated assets or game binaries.
 
 For Fabric: `cd minecraft/fabric && ./gradlew build`.
 Run relevant headless scripts in tools/ and `cargo test --workspace` for protocol
