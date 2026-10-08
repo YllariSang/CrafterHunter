@@ -31,6 +31,11 @@ assert "StructuredBuffer<Vertex>" in shader and "mul(bone.pose" in shader
 assert "skin.Sample" in shader and "sceneDepth.Load" in shader
 assert "input.pos.z<=host+" in shader and "uiScale.xy" in shader
 assert "player::matches" in source and "poseFreshness.live(now)" in source
+assert "DXGI_FORMAT_R8G8B8A8_UNORM" in source and "candidate.width*4" in source
+assert "context->PSSetShaderResources(0,2,material)" in source
+assert "context->PSGetShaderResources(0,1" in source
+assert "mapped.RowPitch" in source and "player::skinChecksum" in source
+assert "o.uv=vertex.uv" in shader and "colour.a<0.5" in shader
 export=(root/"minecraft/fabric/src/client/java/dev/crafterhunter/client/PlayerModelExport.java").read_text()
 for required in ["renderer.extractRenderState", "renderer.submit(state", "model.setupAnim(state)",
         "part.translateAndRotate", "cube.polygons", "v.worldX()", "loadPose(oldPoses.get(i))", "StandardCopyOption.ATOMIC_MOVE"]:

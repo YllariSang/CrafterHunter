@@ -104,6 +104,24 @@ about area transitions, disconnect or collision follows from these tests.
 
 ## Runtime submission gate, then manual orbit acceptance
 
+### Optional native skin-boundary check
+
+Create `render/player-skin-check.enabled` in the installed MHW plugin before
+starting MHW. Once per uploaded asset the renderer logs the CRC32 of the exact
+packed RGBA8 upload bytes, dimensions, DXGI format, upload pitch and UV bounds.
+It copies the small skin texture into a staging resource and compares its CRC32,
+excluding staging row padding. This opt-in check can briefly block for GPU completion;
+it is not part of normal rendering. At the draw it also queries PS t0 and the pixel
+shader to verify they match the skin SRV and PlayerPS. No texture substitution,
+transport/geometry/pose/depth changes or image dump is made. Remove the flag after
+investigation. Binding and readback prove resource identity/bytes, not final visible
+UV correctness or occlusion; independent orbit screenshots remain required.
+
+The live grayscale skin investigated on 2026-10-08 had CRC32 `ab329927`, 64x64
+RGBA, and matched the user's cached skin exactly after vanilla alpha normalization.
+Native GPU/binding diagnostic results are still pending; no production fault has
+yet been established.
+
 Launch normally with the bridge running and both game windows visible on the
 active workspace. Use the existing world; no fixture/world edits required.
 Minecraft F7/F9 OFF. F3+P can disable pause-on-focus-loss, but does not fix hidden

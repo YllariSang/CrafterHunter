@@ -2653,3 +2653,28 @@ LIVE throughout. Not verified: scene depth (blocked, evidence above), distances
 (validator BLOCKED, referee gap), the convention-vs-matrix match on the real matrix
 (needs the measured-matrix fixture), colour/depth orientation as a *measurement*, and
 the known-distance check itself.
+# 2026-10-08 — bounded native skin upload/binding investigation
+
+The live serialized 64x64 RGBA skin matches the cached user skin exactly after
+vanilla SkinTextureDownloader alpha normalization: CRC32 ab329927, 29 distinct
+RGBA values. This establishes Java readback/serialization, not GPU sampling.
+No production texture bug is established. Fabric, channels, geometry, pose,
+anchor and depth behavior are unchanged.
+
+Added opt-in render/player-skin-check.enabled: once per asset, checksum the exact
+CPU upload bytes and a staging CopyResource readback (skip RowPitch padding), log
+dimensions/DXGI format/pitches/UV bounds, then query actual PS t0 and PlayerPS
+identity immediately before drawing. No test texture or image dump. This small
+GPU readback may block once; disable the flag after diagnosis. It does not alter
+acceptance guards or shader output. GPU equality/binding and live appearance are
+NOT yet proven: games were closed and were not launched by the agent.
+
+Passed player model real normal/slim baked tests, Java/native roundtrip, CRC32
+known-vector/padded-row regression, player controller/source contracts, all eight
+shader entry points, native Release build, world reprojection/alignment,
+depth selection, world-frame transport/freshness and cargo workspace (26 tests).
+Installed only native DLL, build/install SHA256
+9c22b7615c9fd8d6239bff55467a272b979ad7d997b07f825d75a6a495df2360;
+previous DLL retained in
+/home/yllaris/.local/share/crafterhunter-backups/native-skin-check.GJDQOW.
+Diagnostic flag enabled before next launch; no saves/worlds modified.

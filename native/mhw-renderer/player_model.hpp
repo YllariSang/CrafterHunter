@@ -3,6 +3,15 @@
 
 namespace crafterhunter::player {
 constexpr unsigned MaxParts=64, MaxVertices=4096, MaxSkin=256;
+// IEEE CRC32 over tightly packed RGBA rows; ignore GPU staging row padding.
+inline std::uint32_t skinChecksum(const std::uint8_t* data,unsigned width,unsigned height,std::size_t pitch) {
+    std::uint32_t crc=0xffffffffu;
+    for(unsigned y=0;y<height;++y) for(unsigned x=0;x<width*4;++x) {
+        crc^=data[y*pitch+x];
+        for(unsigned bit=0;bit<8;++bit) crc=(crc>>1)^(0xedb88320u & (0u-(crc&1u)));
+    }
+    return ~crc;
+}
 struct Vertex { float x,y,z,u,v; std::uint32_t bone; };
 static_assert(sizeof(Vertex)==24);
 struct Asset {

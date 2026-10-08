@@ -1353,6 +1353,7 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     static player::Pose pose;
     static world::Freshness poseFreshness;
     static bool failed=false,reported=false;
+    static bool skinBindingReported=false;
     static ComPtr<ID3D11VertexShader> vs;
     static ComPtr<ID3D11PixelShader> ps;
     static ComPtr<ID3D11Buffer> placement,vertexBuffer,boneBuffer;
@@ -1400,6 +1401,30 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
                 || FAILED(device->CreateShaderResourceView(texture.Get(),nullptr,&textureView))
                 || !structured(candidate.vertices.data(),candidate.vertices.size()*sizeof(player::Vertex),
                     sizeof(player::Vertex),vertexBuffer,vertexView)) return false;
+        skinBindingReported=false;
+        // Opt-in, once per asset: small synchronous readback only for this skin-path investigation.
+        if(GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-skin-check.enabled")!=INVALID_FILE_ATTRIBUTES) {
+            const auto crc=player::skinChecksum(candidate.skin.data(),candidate.width,candidate.height,d.SysMemPitch);
+            float uMin=1,uMax=0,vMin=1,vMax=0;
+            for(const auto& vertex:candidate.vertices) {
+                uMin=std::min(uMin,vertex.u); uMax=std::max(uMax,vertex.u);
+                vMin=std::min(vMin,vertex.v); vMax=std::max(vMax,vertex.v);
+            }
+            log("player skin CPU/upload crc32=%08x size=%ux%u format=%u pitch=%u UV=[%g,%g]x[%g,%g] texture/SRV created",
+                crc,t.Width,t.Height,static_cast<unsigned>(t.Format),d.SysMemPitch,uMin,uMax,vMin,vMax);
+            auto stagingDesc=t; stagingDesc.Usage=D3D11_USAGE_STAGING;
+            stagingDesc.BindFlags=0; stagingDesc.CPUAccessFlags=D3D11_CPU_ACCESS_READ;
+            ComPtr<ID3D11Texture2D> staging;
+            D3D11_MAPPED_SUBRESOURCE mapped{};
+            if(SUCCEEDED(device->CreateTexture2D(&stagingDesc,nullptr,&staging))) {
+                context->CopyResource(staging.Get(),texture.Get());
+                if(SUCCEEDED(context->Map(staging.Get(),0,D3D11_MAP_READ,0,&mapped))) {
+                    const auto gpu=player::skinChecksum(static_cast<const std::uint8_t*>(mapped.pData),t.Width,t.Height,mapped.RowPitch);
+                    log("player skin GPU crc32=%08x CPU=%08x equal=%d staging-pitch=%u",gpu,crc,gpu==crc,mapped.RowPitch);
+                    context->Unmap(staging.Get(),0);
+                } else log("player skin GPU diagnostic Map failed; equality NOT proven");
+            } else log("player skin GPU diagnostic staging creation failed; equality NOT proven");
+        }
         asset=std::move(candidate); skinView=textureView;
         log("complete player asset uploaded generation=%llu asset=%llu parts=%u vertices=%u skin=%ux%u",
             static_cast<unsigned long long>(asset.generation),static_cast<unsigned long long>(asset.identity),
@@ -1467,6 +1492,17 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     context->PSSetConstantBuffers(0,1,placement.GetAddressOf()); context->PSSetConstantBuffers(2,1,&ui);
     ID3D11ShaderResourceView* model[]={vertexView.Get(),boneView.Get()},*material[]={skinView.Get(),scene.Get()};
     context->VSSetShaderResources(2,2,model); context->PSSetShaderResources(0,2,material);
+    if(!skinBindingReported && GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-skin-check.enabled")!=INVALID_FILE_ATTRIBUTES) {
+        ComPtr<ID3D11ShaderResourceView> bound;
+        ComPtr<ID3D11PixelShader> boundShader;
+        context->PSGetShaderResources(0,1,bound.GetAddressOf());
+        context->PSGetShader(boundShader.GetAddressOf(),nullptr,nullptr);
+        D3D11_SHADER_RESOURCE_VIEW_DESC desc{};
+        if(bound) bound->GetDesc(&desc);
+        log("player skin draw binding t0-match=%d PlayerPS-match=%d SRV-format=%u; PlayerPS samples skin.Sample(s0,uv), alpha cutoff=0.5",
+            bound.Get()==skinView.Get(),boundShader.Get()==ps.Get(),static_cast<unsigned>(desc.Format));
+        skinBindingReported=true;
+    }
     context->PSSetSamplers(0,1,pointSampler.GetAddressOf()); context->RSSetState(rasterizer.Get());
     D3D11_VIEWPORT viewport{0,0,static_cast<float>(width),static_cast<float>(height),0,1}; context->RSSetViewports(1,&viewport);
     ownDraw=true; context->Draw(asset.vertices.size(),0); ownDraw=false;

@@ -17,6 +17,10 @@ static void put64(std::vector<std::uint8_t>& b,unsigned offset,std::uint64_t n) 
 static void f32(std::vector<std::uint8_t>& b,unsigned offset,float n) { std::uint32_t bits; std::memcpy(&bits,&n,4); put32(b,offset,bits); }
 static void f64(std::vector<std::uint8_t>& b,unsigned offset,double n) { std::uint64_t bits; std::memcpy(&bits,&n,8); put64(b,offset,bits); }
 int main(int argc,char** argv) {
+    const std::uint8_t rgba[]={1,2,3,4,5,6,7,8};
+    const std::uint8_t padded[]={1,2,3,4,99,99,99,99,5,6,7,8,99,99,99,99};
+    assert(player::skinChecksum(rgba,1,2,4)==0x3fca88c5u);
+    assert(player::skinChecksum(padded,1,2,8)==player::skinChecksum(rgba,1,2,4));
     if(argc==4) {
         player::Asset asset; player::Pose pose;
         assert(player::readAsset(argv[1],asset) && player::readPose(argv[2],pose));
