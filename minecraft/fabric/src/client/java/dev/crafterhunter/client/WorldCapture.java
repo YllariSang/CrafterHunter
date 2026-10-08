@@ -86,6 +86,8 @@ public final class WorldCapture {
         return INSTANCE;
     }
 
+    public long generation() { return generation; }
+
     private boolean worldBoundarySeen;
     private String worldBoundary;
     private String inFlightBoundary;

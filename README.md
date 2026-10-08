@@ -58,6 +58,14 @@ Collision, Steve's model, inventory integration, and cross-game combat are still
 future work. The earlier [A/B/C comparison](docs/block-compare-test.md) remains
 documented as development history.
 
+Latest 2026-10-08 player-only slice supersedes the model's “future work” status:
+complete baked player-body/skin-layer geometry, real Minecraft per-part pose,
+resident skin transfer and an opt-in native draw are implemented and headless
+checked. **Not live accepted**: independent host-camera back/side visibility,
+skin readback, draw submission and performance still need runtime evidence.
+See [player-model preview](docs/player-model-preview.md). No world geometry or
+gameplay ownership/collision is added.
+
 The repository includes:
 
 - `crafterhunter-bridge`: a local UDP router written in Rust.

@@ -21,6 +21,7 @@ public abstract class LevelWorldCaptureMixin {
             boolean outline, CameraRenderState camera, Matrix4fc view, GpuBufferSlice fog,
             Vector4f colour, boolean worldFog, CallbackInfo callback) {
         WorldCapture.instance().recordWorldView(camera, view, delta.getGameTimeDeltaPartialTick(false));
+        dev.crafterhunter.client.PlayerModelExport.capture(delta.getGameTimeDeltaPartialTick(false), camera);
     }
     // Version-pinned synthetic method: require a match, never silently skip it.
     @Inject(method = "lambda$addAlwaysOnTopPass$0", remap = false, require = 1,

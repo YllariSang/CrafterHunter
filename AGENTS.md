@@ -85,6 +85,14 @@ fixed feet alignment and occlusion with F7/F9 OFF; no playable-MVP claim yet.
 
 ## Work discipline
 
+Latest player-only slice: baked complete PlayerModel triangles + resident skin
+and lightweight per-part matrices are implemented/headless-tested. Read
+docs/player-model-preview.md. Actual normal/slim baked models have 72 faces;
+this is not live player draw/skin acceptance. Keep frame/stone paths unchanged.
+Next runtime gate is player asset upload + player draw submission, then fixed
+Minecraft-front / independent MHW-side/back orbit acceptance. No world exporter,
+input ownership or collision expansion. Do not re-anchor on F5.
+
 - One bounded change at a time; regression tests must expose the original bug.
 - No render-thread spin waits or pumping global tasks without verified semantics.
 - Request writers publish complete files by atomic same-directory rename; consumers

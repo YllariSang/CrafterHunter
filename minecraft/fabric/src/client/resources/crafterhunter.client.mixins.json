@@ -10,7 +10,8 @@
     "KeyboardMixin",
     "PlayerMixin",
     "WorldCaptureMixin",
-    "LevelWorldCaptureMixin"
+    "LevelWorldCaptureMixin",
+    "ModelPartAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

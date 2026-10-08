@@ -44,3 +44,17 @@ java {
     sourceCompatibility = JavaVersion.VERSION_25
     targetCompatibility = JavaVersion.VERSION_25
 }
+
+// Headless check uses the installed game classes, not copied model geometry.
+tasks.register('testBakedPlayer', JavaExec) {
+    dependsOn tasks.named('compileBakedPlayerTest')
+    classpath = sourceSets.client.compileClasspath + sourceSets.client.output + files(layout.buildDirectory.dir('player-test'))
+    mainClass = 'BakedPlayerModelTest'
+    if (project.hasProperty('playerEvidence')) args project.property('playerEvidence')
+}
+tasks.register('compileBakedPlayerTest', JavaCompile) {
+    source = files('tests/BakedPlayerModelTest.java')
+    dependsOn tasks.named('compileClientJava')
+    classpath = sourceSets.client.compileClasspath + sourceSets.client.output
+    destinationDirectory = layout.buildDirectory.dir('player-test')
+}

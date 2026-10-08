@@ -1,5 +1,33 @@
 # CrafterHunter mod journal
 
+## 2026-10-08 — baked complete player model, headless checkpoint
+
+User observed that the paired preview only includes surfaces visible to the
+Minecraft camera. Confirmed: the paired shader reconstructs guestDepth samples,
+not hidden geometry. Enlarging those samples cannot supply a complete back/side.
+User approved investigation then the smallest player-only geometry slice.
+
+Inspected local 26.2 bytecode: AvatarRenderer (not PlayerRenderer) extracts
+AvatarRenderState; LivingEntityRenderer.submit supplies body PoseStack; PlayerModel
+setupAnim supplies real bones; ModelPart.Cube polygons supply every face and UV.
+Implemented a non-drawing collector for only the actual main player model,
+restoring shared poses/visibility afterward. Static baked triangles + resident
+skin travel through bounded atomic player.asset; per-part matrices/feet through
+player.pose at the existing 4 Hz budget. Existing feet anchor and lifecycle guards
+remain authoritative. Added an opt-in pre-UI structured-buffer player draw using
+the same host camera/depth. Frame/stone shaders and bridge are not replaced.
+
+Actual normal/slim baked model tests prove 12 cubes, 72 faces including all six
+directions, 432 triangle vertices, normalized UVs and native walk/head pose
+changes. Actual baked geometry/matrices roundtrip Java/native. Texture fixture
+is synthetic, NOT live skin proof. Passed native malformed/matching/freshness/
+negative feet tests, isolated controller contracts, all eight shader entry-point
+checks, Fabric/native/managed builds, existing reprojection/frame/capture/depth/
+SPL regression suites and 26 Rust tests. No runtime draw/skin/orbit/FPS acceptance.
+
+Scope/risks/commands recorded in docs/player-model-preview.md. Armor, items,
+cape and other layers are excluded. No world export, collision or gameplay added.
+
 ## 2026-10-08 — source-sized paired surface footprints
 
 User screenshots show the actual Minecraft skin in MHW in front/rear F5 views,

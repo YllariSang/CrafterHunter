@@ -24,6 +24,7 @@
 #include "world_freshness.hpp"
 #include "world_reprojection.hpp"
 #include "world_alignment.hpp"
+#include "player_model.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace sel = crafterhunter::depth;
@@ -41,6 +42,7 @@ UINT width = 0, height = 0;
 unsigned long long frame = 0;
 bool initialized = false;
 bool drawEnabled = false;
+bool composedPlayer=false;
 bool pipelineFailed = false;
 ComPtr<ID3D11DeviceContext1> context1;
 ComPtr<ID3DDeviceContextState> drawState;
@@ -317,6 +319,7 @@ bool uploadNewestFrame();
 int drawFrame(ID3D11Texture2D* back, ID3D11ShaderResourceView* sceneDepth);
 bool drawFrameComposite(ID3D11Texture2D* back);
 bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui);
+bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui);
 int selectSceneDepth(ComPtr<ID3D11ShaderResourceView>& out);
 
 void log(const char* format, ...) {
@@ -558,6 +561,8 @@ void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
             composedFrame=pairedRequested ? drawPaired(back.Get(),camera.Get(),ui.Get())
                 : drawFrameComposite(back.Get());
         }
+        if(!composedPlayer && stride==32 && cameraDesc.ByteWidth==1072 && uiDesc.ByteWidth==400)
+            composedPlayer=drawPlayer(back.Get(),camera.Get(),ui.Get());
     }
     if (!traceDraws || traceCount >= 80) return;
     log("color trace %u %s count=%u format=%u blend=%u target=%p", traceCount, kind, count, td.Format, bd.RenderTarget[0].BlendEnable, back.Get());
@@ -720,6 +725,33 @@ float4 PairedPS(Splat input):SV_Target {
     float host=hostDepth.Load(int3(int2(input.pos.xy),0));
     if(!isfinite(host) || input.pos.z<=host+0.000001 || input.colour.a<0.5) discard;
     return float4(input.colour.rgb,1);
+}
+)hlsl";
+constexpr char PlayerShader[] = R"hlsl(
+cbuffer Placement : register(b0) { row_major float4x4 world; float4 screen; };
+cbuffer Host : register(b1) { row_major float4x4 hostVP; };
+cbuffer UI : register(b2) { float4 uiScale; };
+Texture2D<float4> skin : register(t0);
+Texture2D<float> sceneDepth : register(t1);
+struct Vertex { float3 position; float2 uv; uint bone; };
+struct Bone { column_major float4x4 pose; uint4 visible; };
+StructuredBuffer<Vertex> vertices : register(t2);
+StructuredBuffer<Bone> bones : register(t3);
+SamplerState skinSampler : register(s0);
+struct PlayerPixel { float4 pos:SV_Position; float2 uv:TEXCOORD0; float valid:SV_ClipDistance0; };
+PlayerPixel PlayerVS(uint id:SV_VertexID) {
+    Vertex vertex=vertices[id]; Bone bone=bones[vertex.bone];
+    PlayerPixel o;
+    o.pos=mul(mul(world,mul(bone.pose,float4(vertex.position,1))),hostVP);
+    o.uv=vertex.uv; o.valid=bone.visible.x!=0 ? 1:-1;
+    return o;
+}
+float4 PlayerPS(PlayerPixel input):SV_Target {
+    if(any(abs(uiScale.xy-float2(2,-2)/screen.xy)>0.000001)) discard;
+    float host=sceneDepth.Load(int3(int2(input.pos.xy),0));
+    float4 colour=skin.Sample(skinSampler,input.uv);
+    if(!isfinite(host) || input.pos.z<=host+0.000001 || colour.a<0.5) discard;
+    return float4(colour.rgb,1);
 }
 )hlsl";
 constexpr char FrameShader[] = R"hlsl(
@@ -1315,6 +1347,140 @@ bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     return true;
 }
 
+bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
+    using namespace crafterhunter;
+    static player::Asset asset;
+    static player::Pose pose;
+    static world::Freshness poseFreshness;
+    static bool failed=false,reported=false;
+    static ComPtr<ID3D11VertexShader> vs;
+    static ComPtr<ID3D11PixelShader> ps;
+    static ComPtr<ID3D11Buffer> placement,vertexBuffer,boneBuffer;
+    static ComPtr<ID3D11ShaderResourceView> vertexView,boneView,skinView;
+    static ComPtr<ID3D11SamplerState> pointSampler;
+    static ComPtr<ID3D11DepthStencilState> depthState;
+    static ComPtr<ID3D11Texture2D> privateDepth;
+    static ComPtr<ID3D11DepthStencilView> privateDSV;
+    if(GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-compose.enabled")==INVALID_FILE_ATTRIBUTES) {
+        poseFreshness={}; return false;
+    }
+    const auto now=GetTickCount64();
+    if(failed || !worldFreshness.live(now) || !alignmentPlayerKnown
+            || !alignment::valid(alignmentSession.anchor,worldMetadata.generation,alignmentSession.epoch)) return false;
+    player::Pose next;
+    if(!player::readPose("Z:\\dev\\shm\\crafterhunter\\player.pose",next)
+            && !player::readPose("/dev/shm/crafterhunter/player.pose",next)) return false;
+    if(next.generation!=worldMetadata.generation) return false;
+    // Receipt freshness is not E2E latency. Require producer advance before first draw.
+    if(poseFreshness.observe(next.generation,next.sequence,now)==world::Freshness::Result::Refused
+            || !poseFreshness.live(now)) return false;
+    auto structured=[&](const void* data,UINT bytes,UINT stride,ComPtr<ID3D11Buffer>& buffer,
+            ComPtr<ID3D11ShaderResourceView>& view) {
+        D3D11_BUFFER_DESC b{}; b.ByteWidth=bytes; b.Usage=D3D11_USAGE_DEFAULT;
+        b.BindFlags=D3D11_BIND_SHADER_RESOURCE; b.MiscFlags=D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+        b.StructureByteStride=stride; D3D11_SUBRESOURCE_DATA d{data,0,0};
+        ComPtr<ID3D11Buffer> candidate; ComPtr<ID3D11ShaderResourceView> candidateView;
+        D3D11_SHADER_RESOURCE_VIEW_DESC s{}; s.Format=DXGI_FORMAT_UNKNOWN;
+        s.ViewDimension=D3D11_SRV_DIMENSION_BUFFER; s.Buffer.NumElements=bytes/stride;
+        if(FAILED(device->CreateBuffer(&b,&d,&candidate))
+                || FAILED(device->CreateShaderResourceView(candidate.Get(),&s,&candidateView))) return false;
+        buffer=candidate; view=candidateView; return true;
+    };
+    if(asset.generation!=next.generation || asset.identity!=next.asset) {
+        player::Asset candidate;
+        if((!player::readAsset("Z:\\dev\\shm\\crafterhunter\\player.asset",candidate)
+                && !player::readAsset("/dev/shm/crafterhunter/player.asset",candidate))
+                || !player::matches(candidate,next,worldMetadata.generation)) return false;
+        D3D11_TEXTURE2D_DESC t{}; t.Width=candidate.width; t.Height=candidate.height;
+        t.MipLevels=t.ArraySize=t.SampleDesc.Count=1; t.Format=DXGI_FORMAT_R8G8B8A8_UNORM;
+        t.Usage=D3D11_USAGE_DEFAULT; t.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+        D3D11_SUBRESOURCE_DATA d{candidate.skin.data(),candidate.width*4,0};
+        ComPtr<ID3D11Texture2D> texture; ComPtr<ID3D11ShaderResourceView> textureView;
+        if(FAILED(device->CreateTexture2D(&t,&d,&texture))
+                || FAILED(device->CreateShaderResourceView(texture.Get(),nullptr,&textureView))
+                || !structured(candidate.vertices.data(),candidate.vertices.size()*sizeof(player::Vertex),
+                    sizeof(player::Vertex),vertexBuffer,vertexView)) return false;
+        asset=std::move(candidate); skinView=textureView;
+        log("complete player asset uploaded generation=%llu asset=%llu parts=%u vertices=%u skin=%ux%u",
+            static_cast<unsigned long long>(asset.generation),static_cast<unsigned long long>(asset.identity),
+            asset.parts,static_cast<unsigned>(asset.vertices.size()),asset.width,asset.height);
+    }
+    if(!player::matches(asset,next,worldMetadata.generation)) return false;
+    if(pose.sequence!=next.sequence || pose.generation!=next.generation || pose.asset!=next.asset) {
+        struct Bone { float matrix[16]; std::uint32_t visible[4]; };
+        std::vector<Bone> bones(next.bones.size());
+        for(unsigned i=0;i<bones.size();++i) {
+            std::memcpy(bones[i].matrix,next.bones[i].matrix.data(),64);
+            bones[i].visible[0]=next.bones[i].visible;
+        }
+        if(!structured(bones.data(),bones.size()*sizeof(Bone),sizeof(Bone),boneBuffer,boneView)) return false;
+        pose=std::move(next);
+    }
+    ComPtr<ID3D11ShaderResourceView> scene;
+    if(selectSceneDepth(scene)<0 || !ensureSharedState()) return false;
+    struct Placement { float matrix[16],screen[4]; } parameters{};
+    reprojection::Matrix mapping;
+    if(!alignment::worldMatrix(alignmentSession.anchor,pose.generation,alignmentSession.epoch,mapping)) return false;
+    const auto feet=reprojection::transform(mapping,{pose.feet[0],pose.feet[1],pose.feet[2],1});
+    for(unsigned i=0;i<3;++i) mapping[12+i]=feet[i];
+    for(unsigned row=0;row<4;++row) for(unsigned col=0;col<4;++col)
+        parameters.matrix[row*4+col]=static_cast<float>(mapping[col*4+row]*(row<3?100:1));
+    parameters.screen[0]=width; parameters.screen[1]=height;
+    if(!vs) {
+        ComPtr<ID3DBlob> v,p,error;
+        if(FAILED(D3DCompile(PlayerShader,sizeof(PlayerShader)-1,"CrafterHunter",nullptr,nullptr,
+                "PlayerVS","vs_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&v,&error))
+                || FAILED(D3DCompile(PlayerShader,sizeof(PlayerShader)-1,"CrafterHunter",nullptr,nullptr,
+                "PlayerPS","ps_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&p,&error))) {
+            log("complete player compile refused: %s",error?static_cast<char*>(error->GetBufferPointer()):"unknown");
+            failed=true; return false;
+        }
+        D3D11_BUFFER_DESC b{}; b.ByteWidth=sizeof(Placement); b.Usage=D3D11_USAGE_DEFAULT; b.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+        D3D11_DEPTH_STENCIL_DESC d{}; d.DepthEnable=TRUE; d.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ALL; d.DepthFunc=D3D11_COMPARISON_GREATER;
+        D3D11_SAMPLER_DESC s{}; s.Filter=D3D11_FILTER_MIN_MAG_MIP_POINT; s.AddressU=s.AddressV=s.AddressW=D3D11_TEXTURE_ADDRESS_CLAMP;
+        s.MaxLOD=D3D11_FLOAT32_MAX;
+        if(FAILED(device->CreateVertexShader(v->GetBufferPointer(),v->GetBufferSize(),nullptr,&vs))
+                || FAILED(device->CreatePixelShader(p->GetBufferPointer(),p->GetBufferSize(),nullptr,&ps))
+                || FAILED(device->CreateBuffer(&b,nullptr,&placement))
+                || FAILED(device->CreateDepthStencilState(&d,&depthState))
+                || FAILED(device->CreateSamplerState(&s,&pointSampler))) { failed=true; return false; }
+    }
+    D3D11_TEXTURE2D_DESC old{}; if(privateDepth) privateDepth->GetDesc(&old);
+    if(old.Width!=width || old.Height!=height) {
+        privateDSV.Reset(); privateDepth.Reset();
+        D3D11_TEXTURE2D_DESC d{}; d.Width=width; d.Height=height; d.MipLevels=d.ArraySize=d.SampleDesc.Count=1;
+        d.Format=DXGI_FORMAT_D32_FLOAT; d.BindFlags=D3D11_BIND_DEPTH_STENCIL;
+        if(FAILED(device->CreateTexture2D(&d,nullptr,&privateDepth))
+                || FAILED(device->CreateDepthStencilView(privateDepth.Get(),nullptr,&privateDSV))) return false;
+    }
+    ComPtr<ID3D11RenderTargetView> target;
+    if(FAILED(device->CreateRenderTargetView(back,nullptr,&target))) return false;
+    ComPtr<ID3DDeviceContextState> saved; context1->SwapDeviceContextState(drawState.Get(),&saved);
+    context->UpdateSubresource(placement.Get(),0,nullptr,&parameters,0,0);
+    context->ClearDepthStencilView(privateDSV.Get(),D3D11_CLEAR_DEPTH,0,0);
+    context->OMSetRenderTargets(1,target.GetAddressOf(),privateDSV.Get()); context->OMSetDepthStencilState(depthState.Get(),0);
+    context->OMSetBlendState(nullptr,nullptr,0xFFFFFFFF);
+    context->IASetInputLayout(nullptr); context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    context->VSSetShader(vs.Get(),nullptr,0); context->PSSetShader(ps.Get(),nullptr,0);
+    context->HSSetShader(nullptr,nullptr,0); context->DSSetShader(nullptr,nullptr,0); context->GSSetShader(nullptr,nullptr,0);
+    context->VSSetConstantBuffers(0,1,placement.GetAddressOf()); context->VSSetConstantBuffers(1,1,&camera);
+    context->PSSetConstantBuffers(0,1,placement.GetAddressOf()); context->PSSetConstantBuffers(2,1,&ui);
+    ID3D11ShaderResourceView* model[]={vertexView.Get(),boneView.Get()},*material[]={skinView.Get(),scene.Get()};
+    context->VSSetShaderResources(2,2,model); context->PSSetShaderResources(0,2,material);
+    context->PSSetSamplers(0,1,pointSampler.GetAddressOf()); context->RSSetState(rasterizer.Get());
+    D3D11_VIEWPORT viewport{0,0,static_cast<float>(width),static_cast<float>(height),0,1}; context->RSSetViewports(1,&viewport);
+    ownDraw=true; context->Draw(asset.vertices.size(),0); ownDraw=false;
+    ID3D11ShaderResourceView* empty[4]{}; context->VSSetShaderResources(0,4,empty); context->PSSetShaderResources(0,4,empty);
+    context->OMSetRenderTargets(0,nullptr,nullptr); context1->SwapDeviceContextState(saved.Get(),nullptr);
+    if(!reported) {
+        log("complete player draw submitted generation=%llu asset=%llu sequence=%llu vertices=%u: baked faces + Minecraft pose/skin; NOT visual acceptance",
+            static_cast<unsigned long long>(pose.generation),static_cast<unsigned long long>(pose.asset),
+            static_cast<unsigned long long>(pose.sequence),static_cast<unsigned>(asset.vertices.size()));
+        reported=true;
+    }
+    return true;
+}
+
 // The Minecraft frame, drawn through the per-pixel rule in frame_composite.hpp.
 //
 // At most one upload per published frame: the guest publishes at 20-60 Hz while
@@ -1430,6 +1596,7 @@ extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* view
     std::memcpy(parameters.projection, viewProjection, sizeof(parameters.projection));
     composed = false;
     composedFrame = false;
+    composedPlayer = false;
     traceDraws = false;
     constexpr char TraceRequest[] = "nativePC/plugins/CSharp/CrafterHunter/render/trace.request";
     if (GetFileAttributesA(TraceRequest) != INVALID_FILE_ATTRIBUTES && DeleteFileA(TraceRequest)) {
