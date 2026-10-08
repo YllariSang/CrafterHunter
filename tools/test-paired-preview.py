@@ -42,6 +42,10 @@ assert "worldMetadata.playerKnown && alignmentPlayerKnown" in source
 assert "calibrate(worldMetadata.playerPosition,alignmentPlayer," in source
 assert "D3D11_COMPARISON_GREATER" in source # guest self-occlusion
 assert "row<3 ? 100 : 1" in source # host GPU centimetres, including translation
+assert "corners[id%6]*mapping.z*0.5" in shader
+assert "cell/sizes.xy*2-1" in shader
+assert "mul(eyeToHost,cornerEye)" in shader
+assert "corners[id%6]*4/sizes.zw" not in shader # old fixed-host footprint leaves grid gaps
 # Source-grid draw counts cover awkward resolutions without out-of-bounds loads.
 for width,height in [(1,1),(949,1028),(1920,1080),(4096,4096),(7,5)]:
     columns=(width+3)//4

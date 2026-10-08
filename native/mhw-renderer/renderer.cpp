@@ -668,7 +668,7 @@ float4 PS(float4 pixel : SV_Position) : SV_Target {
 // "overlapping register semantics". Only Microsoft's compiler sees it: glslang
 // compiles each entry point in isolation and accepts this happily, so
 // tools/test-shader-source.sh is a floor rather than proof.
-// First composition slice: bounded 4x4 source sampling, screen-space splats.
+// Bounded 4x4 source sampling, with a reprojected source-cell footprint.
 // These are real captured surfaces, not a replacement Steve mesh. Holes and
 // disocclusion remain expected; no continuous mesh is invented across depth edges.
 constexpr char PairedShader[] = R"hlsl(
@@ -686,9 +686,10 @@ Texture2D<float> hostDepth : register(t2);
 struct Splat { float4 pos:SV_Position; nointerpolation float4 colour:COLOR0; float valid:SV_ClipDistance0; };
 Splat PairedVS(uint id:SV_VertexID) {
     Splat o; o.pos=float4(0,0,0,1); o.valid=-1; o.colour=0;
-    uint columns=(uint(sizes.x)+3)/4;
+    uint stride=uint(mapping.z);
+    uint columns=(uint(sizes.x)+stride-1)/stride;
     uint sample=id/6;
-    uint2 xy=uint2(sample%columns,sample/columns)*4;
+    uint2 xy=uint2(sample%columns,sample/columns)*stride;
     if(any(xy>=uint2(sizes.xy))) return o;
     float depth=guestDepth.Load(int3(xy,0));
     if(!isfinite(depth) || depth<=mapping.y || depth>1) return o;
@@ -701,8 +702,16 @@ Splat PairedVS(uint id:SV_VertexID) {
     float4 clip=mul(mul(eyeToHost,eye),hostVP);
     if(!all(isfinite(clip)) || clip.w<=1e-8 || clip.z<=0 || clip.z>clip.w) return o;
     static const float2 corners[6]={float2(-1,-1),float2(1,-1),float2(-1,1),float2(-1,1),float2(1,-1),float2(1,1)};
-    // One 4x4 target-pixel splat per sampled source point; preview quality only.
-    clip.xy+=corners[id%6]*4/sizes.zw*clip.w;
+    // Footprint is four SOURCE pixels, not four HOST pixels. Reproject the
+    // cell corners at this sample's depth; do not join different depth samples.
+    // Adjacent equal-depth cells meet even when resolution/view scale changes.
+    float2 cell=clamp(float2(xy)+0.5+corners[id%6]*mapping.z*0.5,0,sizes.xy);
+    float4 cornerEye=mul(guestInverseProjection,float4(cell/sizes.xy*2-1,z,1));
+    if(!all(isfinite(cornerEye)) || abs(cornerEye.w)<1e-8) return o;
+    cornerEye/=cornerEye.w;
+    if(cornerEye.z>=0) return o;
+    clip=mul(mul(eyeToHost,cornerEye),hostVP);
+    if(!all(isfinite(clip)) || clip.w<=1e-8) return o;
     o.pos=clip; o.colour=guestColour.Load(int3(xy,0)); o.valid=1;
     return o;
 }

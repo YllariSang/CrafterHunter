@@ -52,11 +52,15 @@ observed host GPU camera buffer. Clear/invalid depth and unsupported upper-left
 clip origin refuse. MHW scene-depth selection remains unchanged. A private D32
 target handles guest self-occlusion; MHW's own depth is never overwritten.
 
-This preview samples one source point per 4x4 texels and draws a 4x4 host-pixel
-splat (six vertices). The sampling is an explicit bounded spike budget, NOT a
+This preview samples one source point per 4x4 texels and reprojects each sample's
+four-source-pixel footprint at its own depth (six vertices). Equal-depth cells
+share edges across resolution and view-scale changes; different samples are not
+connected into a mesh. The sampling is an explicit bounded spike budget, NOT a
 claim of complete geometry or correct reconstruction between samples. At 949x1028
 it submits 366,996 vertices per composed frame. Holes/disocclusion and size changes
-are expected. Guest terrain is included, not removed; no replacement model/assets.
+are expected at depth discontinuities and missing views. Corner projection adds
+shader work; runtime performance of this change is not yet measured.
+Guest terrain is included, not removed; no replacement model/assets.
 First-person hands are excluded by the existing capture boundary. No lighting
 integration, alpha-correct transparency or 60 fps claim.
 

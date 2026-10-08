@@ -1,5 +1,28 @@
 # CrafterHunter mod journal
 
+## 2026-10-08 — source-sized paired surface footprints
+
+User screenshots show the actual Minecraft skin in MHW in front/rear F5 views,
+but dotted surfaces. MHW was already closed; terminated only the Minecraft game
+PID with SIGTERM and confirmed both games absent. No saves/worlds were edited.
+
+Fixed the existing paired shader's fixed four-host-pixel patches: each sample now
+projects its four-source-pixel cell at that sample's depth through the existing
+camera/anchor transforms. At 949 -> 1920 width, the old patches leave about 4.09
+pixels between equal-depth samples. Sample/vertex counts, calibration, lifecycle
+guards, scene-depth selection and stone rendering are unchanged. No gameplay added.
+
+Passed reprojection/anchor numerical regressions (resolution, aspect, small
+targets, shared edges and camera magnification), preview contracts, all shader
+entry-point checks, depth selection, native build and 26 Rust tests. These are
+headless checks, not live surface-quality or performance acceptance.
+
+Installed only CrafterHunter.Render.dll via the existing installer; installed and
+built SHA-256 match: 3d4831a9b287607e1d4db40dde7e984614192d10797a4829b464b866cee5aad1.
+Previous renderer/flag/license are in native/mhw-renderer/build/rollback.wV9sRF.
+Games remain closed. Coarse depth edges and disocclusion remain limitations;
+next manual gate is surface continuity with the same first-person align then F5.
+
 ## 2026-10-08 — player-anchor artifacts installed
 
 User requested automatic installation after verified changes. Confirmed no MHW

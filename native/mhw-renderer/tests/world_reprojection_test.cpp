@@ -36,6 +36,46 @@ int main(int argc,char** argv) {
     assert(project(eye,identity,p,host));
     assert(std::abs(host.u-474.5/949)<1e-12 && std::abs(host.v-(1-514.5/1028))<1e-12);
     assert(std::abs(host.depth-0.01)<1e-12);
+    // Source-cell footprint (the VS contract): a flat surface must cover the
+    // source cell after projection, not remain four host pixels at every size.
+    // The former fixed-host footprint leaves ~4.09 px gaps at 949 -> 1920.
+    for(const auto dimensions : {std::array<unsigned,4>{949,1028,1920,1080},
+            std::array<unsigned,4>{1920,1080,949,1028},
+            std::array<unsigned,4>{7,5,1920,1080},
+            std::array<unsigned,4>{1,1,1,1}}) {
+        const double w=dimensions[0],h=dimensions[1];
+        const auto corner=[&](double x,double y,const Matrix& mappingMatrix) {
+            auto e=transform(inv,{2*x/w-1,2*y/h-1,0.01,1});
+            for(unsigned i=0;i<3;++i) e[i]/=e[3];
+            e[3]=1;
+            HostPixel result{}; assert(project(e,mappingMatrix,p,result)); return result;
+        };
+        const double x=std::min(4.0,w-1),y=std::min(4.0,h-1);
+        const double left=std::max(0.0,x+0.5-2),right=std::min(w,x+0.5+2);
+        const double bottom=std::max(0.0,y+0.5-2),top=std::min(h,y+0.5+2);
+        auto lo=corner(left,bottom,identity),hi=corner(right,top,identity);
+        assert(std::abs((hi.u-lo.u)*dimensions[2]-(right-left)/w*dimensions[2])<1e-9);
+        assert(std::abs((lo.v-hi.v)*dimensions[3]-(top-bottom)/h*dimensions[3])<1e-9);
+        if(w>8) {
+            // Equal-depth neighboring source cells share the same projected edge.
+            auto next=corner(x+4+0.5-2,bottom,identity);
+            auto edge=corner(right,bottom,identity);
+            assert(std::abs(next.u-edge.u)<1e-12);
+        }
+    }
+    // Moving the host view closer changes footprint size, not sample count.
+    auto nearer=identity; nearer[14]=1;
+    const auto footprint=[&](const Matrix& mappingMatrix) {
+        HostPixel ends[2];
+        for(unsigned i=0;i<2;++i) {
+            auto e=transform(inv,{2*(474.5+(i ? 2:-2))/949-1,0,0.01,1});
+            for(unsigned j=0;j<3;++j) e[j]/=e[3];
+            e[3]=1;
+            assert(project(e,mappingMatrix,p,ends[i]));
+        }
+        return ends[1].u-ends[0].u;
+    };
+    assert(footprint(nearer)>footprint(identity));
     // Off-axis pixel centres and bottom-up/top-down conversion cannot cancel unnoticed.
     assert(reconstruct(inv,ClipDepth::ZeroToOne,0,949,1028,800,900,0.01,eye));
     assert(eye[0]>0 && eye[1]>0 && project(eye,identity,p,host));
