@@ -1,5 +1,123 @@
 # CrafterHunter mod journal
 
+## 2026-10-10 — Exact command-controller alias escape; writer still unresolved
+
+Returned to the local embedded source instead of extending the light-resource
+lead. Verified master setup passes human-controller+0x10 as the fifth argument
+to 0x1412a8a90; that helper retains the same pointer at receiver+0x1ec0
+and copies it into subordinate records' +0x40. Its bulk clears target separate
+storage. This expands the exact-instance alias inventory but proves no write
+to command-controller+0x18. Bounded pointer/leaf-accessor and chained-unwind
+checks found no verified runtime source assignment. Generic indexed setter
+capability still lacks an exact-instance invocation and physical provenance.
+No suppression boundary. Recommended different evidence: a future scoped
+debugger write watchpoint on a freshly validated source qword, after initialization,
+capturing instruction/destination/registers/call stack and changed bits. Not
+performed here. Documentation only; prior edits preserved; git diff --check;
+no launch, instrumentation, hooks, process-memory writes, installed/executable
+changes, commit or push.
+
+## 2026-10-10 — Named-record loader and light factories resolved statically
+
+Following the universal-modder reverse-engineering evidence workflow, traced
+component+0x90 assignment to an rLch resource-loading caller. Its loader
+constructs rLch::Chr groups and supports rLch::OverrideParamHolder named
+records (with a separate dynamic-ID fallback). The bounded child factory's
+twelve alternatives return uLlk light DTIs/factories, not virtual-pad DTIs.
+Traced stream-backed selector construction and BoolUnitProperty's initial
+value byte/property-string loading; factory discriminator and operation type
+are distinct stream fields and must not be conflated. Concrete selected
+record, literal property, successful selector match and runtime instance
+remain unproved. No physical-input provenance or safe suppression boundary.
+Details and addresses are in docs/exclusive-input-investigation.md. Only
+documentation changed; existing edits preserved; git diff --check. No launch,
+hooks, instrumentation, game-memory writes, installed/executable changes,
+commit or push.
+
+## 2026-10-10 — Target-array assignment and property record traced
+
+Verified 0x1411fe55f stores a factory-produced pointer in the target array.
+The array is container+0x18 within component+0x98; adjusted container helpers
+explain allocation, pointer copying and zero initialization. Target production
+follows data group/child selection, child virtual +0x128, then returned-object
+virtual +8. Property text comes from a type-3 value entry in a separate named
+record; execution matches the operation's selector to the child's string.
+Selected factory identity, literal property text and concrete runtime pairing
+remain unresolved. No local bitset alias, physical-input provenance or safe
+suppression boundary claimed. Documentation only; unrelated edits preserved;
+git diff --check; no launch, hooks, instrumentation, memory writes, installed
+or executable changes, commit or push.
+
+## 2026-10-10 — Property operation target and name narrowed
+
+Static construction installs 0x1411fdfe0 as a small operation's virtual +8;
+its property name is a caller-supplied, capped inline string, and its value
+byte comes from the construction caller. Verified dispatch 0x141200fe9
+passes an element of component+0xb0's object array as the target. The
+operation lives in a three-slot component list. No array-element alias to
+the local command bitset or actual "Bit" string binding is proved.
+The narrowed next edge is the selected target-array element's assignment
+and its corresponding source property string. No physical-input provenance
+or safe suppression boundary claimed. Documentation only, unrelated edits
+preserved; git diff --check; no executable/installed changes, launch, hooks,
+instrumentation, memory writes, commit or push.
+
+## 2026-10-10 — Indexed property setter dispatch resolved
+
+Pinned static instructions now connect generic property enumeration/lookup
+0x1421711f0 to dispatcher 0x14218f3f0: descriptor+0x18 supplies the
+receiver, +0x40 supplies the index, +0x30 supplies the tail-call target,
+and the caller's byte supplies set/clear. For the known bitset descriptor
+this would reach 0x140268500. Caller 0x1411fe07b supplies index zero
+and a float-state-selected byte, but its object/name have no proven alias
+to the exact local command bitset. Generic property-copy code independently
+corroborates dispatch semantics. No physical provenance or suppression
+boundary claimed. Next: resolve that caller's incoming target object and
+property name. Documentation only, existing edits preserved; git diff --check;
+no executable/installed changes, launch, hooks, instrumentation, memory/input
+writes, commit or push.
+
+## 2026-10-10 — Embedded source bitset property setter identified
+
+Read-only pinned instructions resolve bitset_prop<46> registration descriptor
+receiver/getter/count/setter aliases. Generic setter 0x140268500 performs
+indexed BTS/BTR dword writes at bitset+8, which would reach command source
++0x18 on the embedded receiver. No invocation on that exact instance or
+device provenance is proved; descriptor copying is not a source-bit copy.
+Targeted direct-reference search found no calls/jumps to the setter; indirect
+descriptor dispatch remains the precise blocker. Next: resolve a bound
+descriptor+0x30 invocation and its index/value producers. No suppression
+boundary claimed. Documentation only; unrelated edits preserved; git diff
+--check; no executable/installed behavior, hooks, instrumentation, memory
+writes, game launch, commit or push.
+
+## 2026-10-10 — Source bitset initialization and dependency narrowed
+
+Read-only pinned code establishes command-controller+8 as cVirtualPad and its
+embedded bitset_prop<46> storage at command-controller+0x18. Constructor
+0x141371ce7 zeros that exact source qword. Source bits 0/1 feed records used
+for outputs 2/3 and 4/5 respectively, with history/timer and player gates;
+there is no identity mapping or independently established action meaning.
+Static master/base update ordering is recorded. No non-initialization writer
+or physical-device-exclusive provenance was verified; bounded search is not
+exhaustive. Next: alias/xref trace of embedded virtual-pad/bitset pointers,
+including helper/bulk writes. Documentation only, existing edits preserved;
+git diff --check; no game behavior, installation, hook, input write, launch,
+commit or push.
+
+## 2026-10-10 — Command-bit owner and reconstruction resolved
+
+Read-only pinned loaded-code analysis identifies controller+0x10 as
+cPlayerCommandController through vtable/getter/DTI evidence. The transition
+queries output bits 2..5 at +0x780; +0x860/+0x8a0 are query bookkeeping.
+Verified controller caller 0x14118e350 -> 0x141230bb0 expands source +0x18
+bits into timed/edge-maintained records, clears and reconstructs output bits,
+then conditionally filters them. Exact source-bitfield producers and physical
+device provenance remain unknown; no hunter-only suppression boundary claimed.
+Next: bounded trace of this object's +0x18 assignments, not global query hooks.
+Only investigation documentation changed; git diff --check; no installation,
+executable behavior, hooks, input writes, launch, commit or push.
+
 ## 2026-10-10 — SPL DoAction detour and original path resolved
 
 Installed Core decompilation/cache plus loaded delegate/JIT chain identify

@@ -763,3 +763,554 @@ Validation: installed assembly hash/decompilation, loaded delegate/trampoline
 chain and bounded native consumer decoding; git diff --check. Documentation
 only; no game writes, hooks, instrumentation, launches, installation changes,
 commits or pushes. Scratch tools installed only under /tmp/ch-input-ilspy.
+
+### Command-bit owner and derived producers (2026-10-10)
+
+Read-only loaded-code inspection in the same pinned image/PID 14133 resolves
+transition+0x20 to 0x5e1ac1d0 (local controller+0x10). Its vtable
+0x143241a80, getter 0x14122ff10 and DTI 0x144fa0e00 identify
+cPlayerCommandController; constructor 0x14122e8c0 installs that table.
+These are session/build observations, not signatures or callable prototypes.
+
+The confirmed call at 0x140ef5f2a passes this receiver and the selector from
+transition+0x9c/+0xa0/+0xa4/+0xa8, initialized to 2/3/4/5. 0x14122fd50
+sets the selected bit in +0x860 and +0x8a0, then returns the bit from
++0x780+(index>>5)*4. Thus these four selectors query the first dword's
+masks 0x4/0x8/0x10/0x20; no action names are assigned. The first two
+arrays are bookkeeping, not the returned command value. 0x14122fd90
+queries +0x780 without those bookkeeping writes.
+
+Verified producer chain: 0x14118e350 passes controller+0x10 at its call
+0x14118e3db to 0x141230bb0, under manager/player-state gates. The latter
+preserves its receiver in R15, expands bits at receiver+0x18 into byte +8
+of 0x28-byte records beginning +0x48 (store +0x50+index*0x28), then
+updates those records via 0x1411edc90 at 0x141231007. That helper maintains
+previous/current bytes, edge-related bytes and countdown/timer state;
+the command output is therefore derived/cached state, not a raw device array.
+The +0x780 array is cleared at 0x14123187f/886/88d before reconstruction.
+
+For the four selected outputs, the bounded reconstruction shows:
+
+| Output bit | Verified writer/condition |
+| --- | --- |
+| 2 | 0x141232854 -> 0x141232fc0 with source record index 0; +0x52/+0x6b gates helpers 0x141230990/0x1412308d0 |
+| 3 | 0x141232884 writes the bit according to receiver+0x68/+0x6a (record 0 derived bytes) |
+| 4 | 0x141232892 -> 0x141232fc0 with source record index 1; corresponding bytes +0x7a/+0x93 |
+| 5 | 0x1412328a3 -> 0x1412330b0 with source record index 1; sets/clears according to +0x90/+0x92 |
+
+0x1412308d0 positively writes +0x780 at 0x1412308f8; 0x141230990
+prepares related +0x7a0/+0x7c0/+0x7e0/+0x800/+0x820/+0x840 state,
+not itself +0x780. The alternate branch 0x1412328aa..8d9 clears all four
+through 0x14122f460, which also clears five related arrays. Later call
+0x141232ecc conditionally applies 0x14122f4f0: derived clearing of +0x780
+using bookkeeping and other state arrays. Finally +0x860 is copied to
++0x880 and cleared at 0x141232ed1..eff. Constructor initialization and
+these verified clears are not a claim of exhaustive writer coverage.
+
+Upstream limit: writes that populate this exact receiver's +0x18 source
+bitfield have not been resolved. Nearby calls to shared mapped query
+0x1418bcc60 (commands 7..10 here) feed a separate +0x978 object; they do
+not prove the source of bits 2..5. No end-to-end keyboard, mouse or pad
+provenance, physical-versus-scripted discriminator, or runtime scheduling
+order is established. Direct-call search for 0x141230bb0 yielded the
+verified call above; indirect callers and other +0x780 writers remain open.
+
+Consumer scope remains the previously verified shared interaction-transition
+predicate family and generic transition selector, not a complete movement,
+attack or item consumer. Local ownership of this instance does not prove
+all instances/callers are local or physical-input-only. No suppression
+boundary is justified; hook chaining, in-flight teardown and action coverage
+also remain unverified. Best next action: trace only assignments to the
+cPlayerCommandController +0x18 input bitfield in its owning controller's
+preparation path, including any non-device producers, before considering hooks.
+Validation: bounded instruction decoding from entry/unwind-fragment boundaries,
+vtable/DTI and caller receiver data flow; git diff --check. Documentation only;
+no executable, installed binary, input state, hook or instrumentation changes.
+
+### Source-bitfield initialization and ownership limit (2026-10-10)
+
+Same pinned loaded image, read-only static instruction inspection. Constructor
+0x141189b00 builds cPlayerCommandController at owning controller+0x10;
+0x14122e8c0 then calls 0x141371cd0 with command-controller+8. That helper
+installs vtable 0x143250a58, whose +0x20 getter 0x141371f00 returns DTI
+0x144fadda0 naming cVirtualPad. At virtual-pad+8 it installs vtable
+0x143250a30; getter 0x141371ef0 returns DTI 0x1451d5ec8 naming
+bitset_prop<46>. The confirmed initialization write 0x141371ce7 zeros a
+qword at virtual-pad+0x10, exactly command-controller+0x18. It initializes
+both dwords used for the 46 source bits; later virtual-pad float writes are
+different fields, not bit producers. Standalone virtual-pad factory/constructor
+zero writes are not evidence of additional writers to this embedded instance.
+
+Preparation relationship: master update 0x1411a2860 reaches
+0x141190ae0 at 0x1411a2eb8; the latter conditionally calls 0x141190b90,
+then calls 0x14118e350 at 0x141190afb with the same controller receiver.
+0x14118e350 passes its embedded command-controller to 0x141230bb0 as
+previously recorded. Base forwarding entry 0x141189230 also jumps to
+0x14118e350. This is static order, not proof of device polling order,
+thread context or all virtual callers. Initialization path 0x14118dca0
+passes the command controller and player to 0x140ce47b0; that function
+maintains the player reference at command-controller+0x30, not source bits.
+The following call 0x14023d430 is a return-only stub, not input preparation.
+
+Source/output dependency now narrowed: source bit 0 becomes record 0 byte
++8 (command-controller+0x50); source bit 1 becomes record 1 byte +8
+(+0x78). Record maintenance 0x1411edc90 computes +0x0a from current +8
+and previous +9, and maintains +0x20/+0x22/+0x23 using current input and
+timer/countdown state. Output 2 uses record 0 +0x0a/+0x23; output 3 uses
+record 0 +0x20/+0x22. Output 4 uses record 1 +0x0a/+0x23; output 5
+uses record 1 +0x20/+0x22. These are dependencies, not identity mapping
+or named actions. Outputs also encounter the previously recorded player-state
+gates, alternate clears and post-filtering. Record history/countdowns can
+affect results beyond a single instantaneous source-bit value.
+
+Writer inventory remains incomplete: the exact-instance constructor zero is
+verified, but no non-initialization assignment to this source field was
+established. Bounded unwind-fragment decoding covered controller preparation
+regions 0x141189000..0x1411a9000 and command reconstruction
+0x14122e000..0x141234000 for scalar +0x18/+0x28 accesses, then relevant
+overlapping vector stores and selected setup callees. Unrelated stack,
+player/action-object and table-record accesses were excluded by receiver
+data flow. This is not a whole-image alias analysis: pointer-adjusted helper
+writes, indirect calls, leaf methods absent from unwind tables, bulk copies,
+and producers outside these regions remain uncovered. No non-device writer
+has been demonstrated either; lack of a found writer proves neither device
+exclusivity nor absence of scripted producers.
+
+Answers: physical keyboard/mouse/controller -> source -> outputs 2..5 is
+NOT verified end to end; no physical-versus-scripted/UI/camera discriminator
+is established; no candidate isolates movement/attacks/items. Earliest resolved
+shared representation is the embedded cVirtualPad bitset, not a verified
+earliest producer. Best next action: perform a bounded static alias/xref trace
+of pointers to this embedded cVirtualPad/bitset (command-controller+8/+0x10),
+including helper and bulk-copy destinations, to locate the first nonzero
+assignment and its callers. Do not repeat displacement-only searches or install
+a hook to discover ownership. Documentation only; git diff --check; no game
+launch, hooks, instrumentation, memory writes, installation, commit or push.
+
+### Embedded bitset property alias and setter limit (2026-10-10)
+
+Material additional alias evidence from the same pinned loaded code:
+bitset_prop<46> virtual property-registration method 0x141371e10 stores its
+receiver in a descriptor at +0x18 (instruction 0x141371e4e), reader
+0x140268290 at descriptor+0x20, count getter 0x1412dca90 at +0x28,
+and setter 0x140268500 at +0x30. The count getter returns 46.
+The descriptor is copied into allocated storage at 0x141371e92..eb0 and
+linked through the registration destination's +8. These bulk copies copy
+the descriptor, NOT the command source bytes. Calling registration on the
+embedded bitset would retain command-controller+0x10 as this receiver;
+invocation of registration/setter on the exact instance is not established.
+
+Setter 0x140268500 has instruction-confirmed non-initialization write
+capability: RCX is the bitset receiver, R8D supplies the bit index, DL supplies
+the boolean. It computes word=index>>5 and bit=index&31, loads
+[RCX+8+word*4], and uses BTS or BTR before storing the dword at
+0x14026851e or 0x140268527 respectively. On this embedded receiver these
+addresses would be command-controller+0x18+word*4. Indices 0 and 1 would
+set/clear only source bits 0 and 1, preserving other bits in that dword.
+No index bound check exists in this leaf; the registered count does not itself
+prove callers enforce bounds. Reader 0x140268290 uses the same word/bit
+calculation and storage offset. This is a generic indexed bitset accessor,
+not evidence of a physical-device producer or local-hunter-only scope.
+
+A narrowly targeted E8/E9 reference search for this setter over loaded .text
+(candidate instructions checked against unwind-fragment decoding where present)
+found no direct call/jump byte candidates. This does not cover indirect calls,
+pointer-to-member adapters or other writers. The verified descriptor pointer
+is an indirect route, but its invocation, receiver binding, index/value
+producers, and scheduling remain unresolved. No actual runtime write to the
+exact controller instance is proven; neither a complete producer inventory
+nor multiple-producer absence/presence can be claimed. Existing source-to-record
+dependencies remain conditional on such a write, not new provenance evidence.
+
+Stop at this indirect-dispatch boundary. The smallest next static evidence is
+an instruction-supported invocation of descriptor+0x30 that obtains RCX from
+descriptor+0x18, with the embedded registration/descriptor identity and R8D/DL
+origins traced. That would distinguish an actual producer from merely an
+available generic property setter. No safe hunter-only suppression boundary
+is established. Documentation only; git diff --check; no executable/installed
+changes, hooks, instrumentation, game-memory writes, launch, commit or push.
+
+### Indexed property dispatch resolved; local binding still missing (2026-10-10)
+
+Same pinned loaded-code evidence, read-only. The descriptor's +0 is the
+string pointer 0x142e4fe14 ("Bit"), not a vtable. Registration
+0x141371e10 initializes +8 to zero, +0x10 to 0x000a0003, +0x18 to
+its bitset receiver, +0x20 to reader 0x140268290, +0x28 to count getter
+0x1412dca90, +0x30 to setter 0x140268500, +0x38 to return-only
+0x14023d430, and +0x40 to zero. Descriptor allocation 0x142171fe0 uses
+0x58-byte records; registration copies fields and links +0x48/+0x50,
+with the newest descriptor in the destination list's +8. These operations
+retain the receiver alias and accessor pointers, without copying bitset data.
+
+The previously missing generic invocation is now instruction-supported:
+
+1. 0x1421711f0 preserves incoming object RCX in RBX, property-name RDX
+   in RDI, value pointer R8 in R14, and index R9D in ESI. It initializes
+   a temporary list through 0x142171920, then calls the object's virtual
+   +0x18 at 0x142171226, passing that list in RDX.
+2. At 0x142171236, lookup 0x142171cb0 receives the list, numeric type 3,
+   and the incoming property name. Lookup follows +0x50 links, matches
+   descriptor+0x10's low 12 bits, and compares a selected name string at
+   descriptor+0 or +8 according to global selection state. A successful
+   lookup returns that descriptor. Finding "Bit" remains conditional on
+   both the object's registration and name-selection path.
+3. 0x142171240 writes the incoming index to descriptor+0x40;
+   0x142171246 loads the byte at the incoming value pointer into EDX;
+   0x14217124a calls 0x14218f3f0 with the descriptor in RCX.
+4. For flags 0x000a0003, dispatcher 0x14218f3f0 takes both tested flag
+   branches (bits 19 and 17). At 0x14218f405 it loads RCX from
+   descriptor+0x18; at 0x14218f40b it loads R8D from +0x40; at
+   0x14218f40f it tail-jumps through +0x30. DL survives as the value.
+   With the descriptor built by 0x141371e10 this target is 0x140268500.
+5. The previously verified setter sets the indexed bit for nonzero DL and
+   clears it for zero DL, storing one dword at receiver+8+4*(index>>5).
+   The list cleanup at 0x142171254 recycles descriptor records; it is not
+   a reset of the receiver's bitset or a restoration of the assigned value.
+
+This is a conditional static chain from the known registration to a real
+setter dispatch, not an observed call on the exact local controller. If the
+incoming object is command-controller+0x10 with the verified bitset vtable,
+virtual +0x18 selects 0x141371e10 and the setter receiver is precisely that
+embedded bitset. No resolved caller supplies that object alias and name.
+
+One verified direct caller narrows index/value provenance without resolving
+the object: 0x1411fdfe0 preserves its incoming RDX as the target object in
+RDI. At 0x1411fe07b it calls 0x1421711f0 with RCX=that object,
+RDX=its own receiver+0x30 (name address), R8=a stack byte, and R9D=0.
+The stack byte comes from AL returned by 0x142170df0 at 0x1411fe052,
+or is replaced by the caller receiver's +0x58 byte when updated float
+state +0x54 is positive. Its float update uses incoming XMM2 and fields
++0x50/+0x54. Thus index 0 is proven at this generic assignment call;
+the value is state-selected. The target object's concrete identity, name
+contents, upstream caller and any physical-device source are unresolved.
+This does not prove a scripted producer of the exact command bitset either.
+
+Independent corroboration: 0x14218a4c0 takes destination/source descriptors,
+checks matching low-12-bit types and a destination setter, and dispatches
+type 3 through 0x14218a634. It reads a source accessor or byte storage and
+calls 0x14218f3f0 (e.g. 0x14218a658). Its verified entry and chained
+unwind fragments establish a generic property-value transfer path, not a
+device update. Destination+0x40 supplies the indexed setter argument there.
+
+Coverage: targeted indirect-call encoding candidates were filtered by receiver
++0x18 loads and instruction boundaries; only the relevant property consumers
+were followed. Targeted direct references to 0x1421711f0 include the caller
+above and four sites in 0x1426bbcxx, all supplying index zero. Direct references
+to 0x14218f3f0 also include other generic consumers; indirect callers and
+unwindless candidates are not an exhaustive inventory. No exact-instance
+invocation, source-bit-1 invocation, thread/order guarantee or physical-input
+provenance has been established. Existing source 0/1 -> records -> outputs
+2/3 and 4/5 dependencies remain conditional, with their existing history/gates.
+
+Stop at the missing object/name binding. Smallest next evidence: resolve the
+incoming target-object RDX and receiver+0x30 name at 0x1411fdfe0's caller,
+enough to prove or exclude command-controller+0x10 and "Bit". That single
+alias would connect or eliminate the now-verified index-zero property path;
+generic dispatcher availability alone does not establish its use by gameplay.
+No safe hunter-only suppression boundary is supported. Documentation only;
+git diff --check; no launch, hooks, instrumentation, memory/input writes,
+installed/executable changes, commit or push.
+
+### Property-operation construction and target-array dispatch (2026-10-10)
+
+Targeted static continuation resolves another caller edge, but not the local
+command-bitset alias. No direct E8/E9 caller of 0x1411fdfe0 was found.
+Loaded read-only data contains its pointer at 0x143240460. Construction
+0x1411fca80 proves this is slot +8 of the table at 0x143240458:
+0x1411fcc9e installs that table in a newly allocated 0x60-byte operation.
+No concrete DTI type is established for this small operation.
+
+Property-name construction is explicit. 0x1411fca80 saves incoming R8 in
+R15 and calls 0x1411fe0b0 with RCX=operation+0x2c and RDX=R15 at
+0x1411fccb1. The helper stores a length, caps it to 31, copies bytes to
+destination+4, and appends zero. Thus operation+0x30 is an inline,
+caller-supplied name, not a fixed "Bit" binding. A second string at
+operation+0x0c is copied from incoming RDX. Incoming R9 points to the
+byte saved at operation+0x58 (0x1411fccdf..cee). The operation is stored
+in one of its owner's three slots at +0xf8/+0x100/+0x108 by 0x1411fccf8.
+
+Verified construction caller 0x14120004e supplies the property string from
+[RBX+0x10]+8 when non-null, otherwise an empty-string fallback. Its set/clear
+byte is AL returned by the source object's virtual +0x70 at 0x141200019.
+The first string comes from RSI+0x50. These are dynamic source fields;
+neither their concrete contents nor a connection to physical-device queries
+is established. Setter-compatible data does not prove the name is "Bit".
+
+Verified indirect consumer: entry 0x141200b60 and its chained unwind
+fragments include 0x141200fe9. The loop takes an operation from the same
+three-slot list, compares its first string (+0x0c) with another record's
++0x168 string, then calls operation-vtable+8. At that call RCX is the
+operation, RDX=[component+0xb0][R14], and XMM2 is loaded from the
+component's virtual +0x80 result at +0x68. An operation installed by the
+construction above therefore dispatches to 0x1411fdfe0. If it returns true,
+the caller frees the operation and clears its slot; this is operation cleanup,
+not restoration of an assigned target property.
+
+Supporting owner-layout evidence: constructor 0x1411fcdd0 installs table
+0x14323ff68 and initializes +0xb0 and the +0xf8 slot region. Table +0x20
+is 0x1411feeb0, which returns DTI 0x1451c3b38 naming cpComponent.
+This establishes a component construction/layout compatible with the dispatch;
+it does not establish the concrete runtime identity of every receiver or
+target-array element. The target passed to the property operation is an
+array element, not this component itself. Nearby processing of those elements
+includes virtual calls and state writes; it does not demonstrate a virtual-pad
+or bitset target. Initial zeroing/freeing of the array pointer does not resolve
+the producer of its elements.
+
+The remaining exact edge is now [component+0xb0][R14] -> the target RDX
+of 0x1411fdfe0, together with the operation's copied property-name bytes.
+No assignment connecting that element to command-controller+0x10 has been
+proved. Consequently the index-zero call at 0x1411fe07b and its state-selected
+byte are established, but a write to the exact source storage is not.
+Terminology: command-controller+8 is cVirtualPad, +0x10 is its bitset
+receiver, +0x18 is source storage; the enclosing human controller embeds
+the command controller at +0x10. These bases must not be conflated.
+
+Classification: the verified path creates, matches, updates and retires named
+property operations. Device/script/UI category and exact target type remain
+unknown. No physical provenance, instance alias, or hunter-only suppression
+boundary is supported. Best next evidence is the assignment populating the
+selected component+0xb0 array element, paired with the corresponding source
+record/string used at 0x14120004e. Stop at that unresolved binding rather
+than following unrelated actions. Documentation only; git diff --check;
+no launch, instrumentation, hooks, memory writes, installed/executable changes,
+commit or push.
+
+### Target-array writer and resource-backed property source (2026-10-10)
+
+Read-only pinned static continuation finds an actual target-array element
+writer: 0x1411fe55f stores RDI into [component+0xb0][R12D] during
+0x1411fe120. This narrows the prior missing assignment, but the selected
+factory and runtime record remain unresolved.
+
+The array is an embedded container at component+0x98. Call 0x1411fe1a0
+passes that adjusted receiver to 0x14029e7e0. Its storage is container+0x18
+(component+0xb0); count/capacity are container+8/+0xc. Growth helper
+0x140249b70 allocates pointer storage, clears it, copies existing pointers
+at 0x140249bcd, and installs the storage pointer at 0x140249bf9.
+0x14029e828 initializes new elements to zero. These are array storage
+operations, not command-bitset writes.
+
+Element provenance in the verified population path:
+
+- component+0x90 supplies the data object. 0x1419c0ee0 selects a group
+  from its +0xc0 pointer array, with a bounds check against +0xb0.
+- 0x141316de0 reads the group's child count at +0x40;
+  0x1419f8dc0 selects a child from group+0x50.
+- At 0x1411fe2f4, the selected child's virtual +0x128 returns another
+  object. At 0x1411fe303, that returned object's virtual +8 produces
+  the target pointer, saved in RDI at 0x1411fe312.
+- RDI is passed through initialization/registration work without adjustment
+  before 0x1411fe55f stores it. R12D advances once per child, flattening
+  the group/child traversal. The update at 0x141200b60 traverses groups
+  and children in the corresponding order and uses its flattened index
+  to fetch the target passed at 0x141200fe9.
+
+This is a concrete factory-produced pointer path; the selected child's vtable,
+its +0x128 return identity, and the concrete +8 factory target are not
+resolved. Neither type nor exact instance is proved to be cVirtualPad or
+bitset_prop<46>. Pointer-array allocation does not allocate the target objects
+themselves. No exhaustive claim is made about other population paths.
+
+Property source is now traced to a specific data traversal, rather than just
+an incoming string. Entry 0x1411ffd90 obtains records from
+[component+0x90]+0xe0, with count at that data object's +0xd0. It matches
+a record's +0x70 value and +0x2c string against its incoming selection,
+then iterates the record's +0x20 value-pointer array (count +0x10).
+For a value entry whose +0x20 numeric type is 3, the verified jump table
+selects 0x141200013. That branch obtains AL from the value entry's virtual
++0x70 and property text from [valueEntry+0x10]+8 (empty fallback if null).
+Call 0x14120004e copies that text into operation+0x30 and the byte into
+operation+0x58; record+0x50 supplies operation+0x0c's target selector.
+There is no literal "Bit" in this construction path.
+
+The two traversals are associated at execution by comparing operation+0x0c
+with the selected child's +0x168 string at 0x141200f9c..fc5. On a match,
+the corresponding target-array element goes to operation virtual +8.
+This proves the selection mechanism, not that a particular operation and
+target were present or matched in a concrete runtime component. String
+uniqueness, literal property bytes, and selected value-entry implementation
+are not established. Index zero and the subsequent state-selected byte retain
+their prior evidence; no further trace of unrelated actions is warranted.
+
+Classification remains data-driven named-property mutation with a factory
+target; physical keyboard/mouse/controller provenance is absent. No exact
+local cPlayerCommandController/cVirtualPad instance relationship or safe
+hunter-only suppression point is supported. Smallest next evidence is one
+resolved component data record: its selected child vtable/+0x128 factory
+chain and matching value-entry property string. Static constructor/resource
+assignment evidence for that record could resolve both; without it, continuing
+generic accessor traces cannot establish the runtime binding. No observation
+or instrumentation was added. Documentation only; git diff --check; no game
+launch, memory writes, installed/executable changes, commit or push.
+
+### Named-record construction and light-factory scope (2026-10-10)
+
+Bounded static continuation on the same pinned loaded image resolves a concrete
+resource-loading path, not the identity of a selected live operation. Only code
+and static metadata were inspected; no runtime call or object pairing was observed.
+
+0x1412002f0 replaces component+0x90: after old-target cleanup and reference
+handling, 0x14120033a stores its incoming RDX object there. One verified caller,
+0x141c86060, obtains a component through 0x141bf1e90 and saves it at receiver
++0x208e0. It requests resource `em\em120\00\light\em120_00` using DTI
+0x14500a950, then passes the returned pointer to the component setter at
+0x141c860b0. This is one supported caller, not proof that it supplied the
+previously discussed operation in a live session.
+
+DTI 0x14500a950 names rLch; its +8 factory 0x1419f7870 allocates 0xe8
+bytes and reaches constructor 0x1419f7fd0. That constructor installs vtable
+0x1433e7858 (its +0x20 getter returns the same DTI), initializes the group
+container at +0xa8 (count +0xb0, storage +0xc0), and initializes the named-record
+container at +0xc8 (count +0xd0, storage +0xe0). Thus these are separate
+collections in one resource, not child/value fields within one record.
+
+The resource's virtual +0x50 is 0x1419f9270. Its chained unwind fragments
+continue through 0x1419f9489; they are not separate complete functions.
+After stream/header checks, it sizes the group array, allocates 0x80-byte
+groups, installs vtable 0x1433e77f8, and stores them at resource+0xc0
+(0x1419f93f8). That vtable's DTI getter identifies rLch::Chr at
+0x14500a8e0. Group virtual +0x28, 0x1419f8dd0, reads a child count and
+per-child numeric discriminator from the stream, calls 0x1418a3c10, stores
+the result at group+0x50 (0x1419f8f40), and calls child virtual +0x120
+to populate it.
+
+0x1418a3c10 is a bounded 1..12 switch (table 0x1418a3eb8; bytes after
+0x1418a3eb6 are table data, not instructions). Following its constructors,
+installed vtables, DTI getters and virtual +0x128 resolves these alternatives:
+
+| Stream discriminator | Constructed child DTI name | +0x128 target | Returned DTI name / +8 factory |
+| --- | --- | --- | --- |
+| 1 | InfiniteLight | 0x1418a3b70 | uLlkInfiniteLight / 0x141f85330 |
+| 2 | PointLight | 0x1418a3bb0 | uLlkPointLight / 0x141f875a0 |
+| 3 | SpotLight | 0x1418a3bc0 | uLlkSpotLight / 0x141f8ae80 |
+| 4 | HemiSphereLight | 0x1418a3b60 | uLlkHemiSphereLight / 0x141f84840 |
+| 5 | ActorPointLight | 0x1418a3b10 | uLlkActorPointLight / 0x141f81460 |
+| 6 | ActorSpotLight | 0x1418a3b20 | uLlkActorSpotLight / 0x141f81590 |
+| 7 | ObjectLight | 0x1418a3ba0 | uLlkObjectLight / 0x141f85df0 |
+| 8 | ActorInfiniteLight | 0x1418a3b00 | uLlkActorInfiniteLight / 0x141f816c0 |
+| 9 | NullAngleSpotLight | 0x1418a3b90 | uLlkNullAngleSpotLight / 0x141f81800 |
+| 10 | FollowCameraPointLight | 0x1418a3b40 | uLlkFollowCameraPointLight / 0x141f83720 |
+| 11 | FollowCameraSpotLight | 0x1418a3b50 | uLlkFollowCameraSpotLight / 0x141f83850 |
+| 12 | FollowCameraInfiniteLight | 0x1418a3b30 | uLlkFollowCameraInfiniteLight / 0x141f83980 |
+
+These are instruction-linked factories, not classifications from nearby names.
+For example, child vtable 0x1433b2398 has +0x128 = 0x1418a3b70,
+which returns DTI 0x14502c6c0. Its factory 0x141f85330 requests a new
+0x7b0-byte allocation and tail-calls constructor 0x141f85480; it does not
+fetch an embedded command-controller pointer. The selected discriminator is
+not known. The table establishes this loader's alternatives, not an exhaustive
+inventory of later child replacement or other component population paths.
+
+For named records, 0x1419f9457 passes resource+0xc8 to 0x1419f7df0.
+That helper reads a count and per-record type ID. The explicit fast path
+compares against DTI 0x14500a988's ID, allocates 0x80 bytes and installs
+vtable 0x1433e7828: its DTI getter identifies rLch::OverrideParamHolder.
+Other nonzero IDs go through 0x14216ee50 and the returned DTI's +8 factory;
+the selected record need not take the fast path. Both paths call record
+virtual +0x28, then append the pointer to resource+0xe0 at 0x1419f7f81
+or 0x1419f7f99. No selected serialized ID was observed.
+
+The fast-path record loader 0x1419f8fc0 populates its selection string
++0x2c at 0x1419f908a and target selector +0x50 at 0x1419f914a from
+separate stream strings (via 0x142175a10 and the verified string-copy helper).
+It reads +0x70 from the stream at 0x1419f90a6. Its value array is resized
+at 0x1419f91bf; each stream discriminator feeds 0x141a32400, whose result
+is stored at record+0x20 at 0x1419f91e7 before value virtual +0x28 loads it.
+
+Value factory discriminator 3 selects 0x141a324bf, constructs vtable
+0x1433edd50, and initializes value+0x40 to zero. Its DTI getter returns
+0x14500c378, rUnitResource::BoolUnitProperty. Loader 0x141a32fa0 reads
+a stream byte, normalizes it with SETNE, and writes value+0x40 at
+0x141a32fe4; getter +0x70 = 0x141a31fd0 reads that byte. The base loader
+0x141a33630 passes value+0x10 to string helper 0x1419af7f0 at
+0x141a33647. That helper reads stream text and replaces the referenced
+string. This supplies the later [value+0x10]+8 property-text source.
+Importantly, value+0x20 is separately read from the stream at 0x141a3365c;
+the operation switch's numeric type 3 does not by itself prove that the
+factory discriminator was also 3. This byte-producer chain is conditional
+on the BoolUnitProperty construction, not a claimed selected live instance.
+
+Child selector population is likewise resource-backed in the traced
+InfiniteLight case: its +0x120 loader 0x1418a4210 calls 0x1418a4500,
+which reads stream text and copies it through child+0x164 at 0x1418a45ca,
+placing text at child+0x168. The prior string comparison pairs a holder's
+selector with that child; construction does not install a direct pointer from
+the holder to the child. No literal selector/property strings or successful
+match in a specific resource record have been established.
+
+Conclusion: the strongest proven construction path is resource-driven light
+targets plus named property overrides. It is not evidence of physical-device
+input. No exact alias to local cPlayerCommandController+8, no runtime writer
+to its source bitset, and no safe hunter-only suppression boundary is proved.
+The factory alternatives above materially weaken this particular generic
+property call as a lead to the local bitset, without ruling out unrelated users
+of the generic setter. Stop here: the smallest next evidence is the exact
+selected resource/record's serialized child discriminator, matching selector
+and value-entry type/property bytes. Inspect that concrete record rather than
+continuing generic downstream accessor searches. Documentation only; no new
+runtime observation, launch, hooks, memory writes or installed changes;
+git diff --check; no commit or push.
+
+### Return to the exact embedded source: alias escape and writer limit (2026-10-10)
+
+The resource/light branch is retired as an input-provenance lead unless a
+concrete reference connects it to the local embedded bitset. This continuation
+uses only the same pinned loaded code/static metadata. Previously recorded
+heap identities were not refreshed; no new runtime invocation is claimed.
+
+A material additional alias is established in master setup +0x28,
+0x1411a11c0. RDI preserves the incoming human-controller receiver H.
+At 0x1411a13f0, LEA produces H+0x10, the embedded command controller C;
+0x1411a13fb places it in the fifth argument slot. Call 0x1411a1403 enters
+0x1412a8a90 with RCX=H+0x1410. After five pushes and SUB RSP,0x70,
+the fifth argument is at [RSP+0xc0]: 0x1412a8b51 reads it and
+0x1412a8b60 stores it at the helper receiver+0x1ec0 (H+0x32d0).
+At 0x1412a8c59..c64 the same pointer is loaded and copied into each
+constructed subordinate record's +0x40. There is no pointer adjustment to C
+in those stores. This proves an instance-preserving command-controller alias
+conditional on setup being called with H; it does not prove any subordinate
+record writes C+0x18 or establish every consumer of that stored pointer.
+The subordinate records' concrete types and full alias-use inventory remain
+unresolved and were not expanded into unrelated action traces.
+
+The helper's REP STOSQ operations at 0x1412a8ae1 and 0x1412a8b07
+clear its own +0x960 and +0xd68 arrays (0x400 bytes each), not C+0x18.
+No bulk-copy source/destination to the embedded source follows from those
+instructions. The earlier master-update escape at 0x1411a37c8 passes
+C in RDX to 0x141782460. That helper calls 0x14122fd50 and
+0x14122ff50, querying derived commands/other state; the first query's
+bookkeeping writes are not source-bit writes.
+
+Additional bounded coverage targeted the omissions of the previous scalar
+displacement search: pointer adjustments in the known master update and
+command reconstruction, their chained unwind fragments, and small accessor
+entries between the known owner/command-controller methods. The leaf-accessor
+check used INT3-delimited entries in 0x141188000..0x1411a2860 and
+0x14122e000..0x141230bb0; it is not an inventory of unaligned entries,
+all tail calls, indirect targets or other modules. No returned embedded-pad
+pointer/writer was resolved there. The verified cVirtualPad table ends at
++0x20; its +0x18 entry is the return-only 0x14023d430, not a hidden
+update method. Master calls 0x1411a7730 and 0x1411a7410 preceding
+0x141190ae0 were checked with their chained unwind fragments; their
+observed pointer paths do not establish a source assignment. These checks
+do not prove that transitive/indirect callees cannot reach the source.
+
+Result: no instruction-supported non-initialization writer with destination
+aliasing the exact C+0x18 qword has been established. Generic bitset setter
+0x140268500 remains write-capable, but its invocation with receiver C+0x10
+and a source-bit-0/1 index/value remains missing. Likewise, a store through
+the newly retained C alias to C+0x18 is unproved. No physical keyboard,
+mouse or controller edge, multiple-producer conclusion, or hunter-only
+suppression boundary follows. Constructor zeroing remains initialization only.
+
+Stopping point and different evidence method: in a future separately scoped
+runtime investigation, resolve/validate the current local player/controller
+again and place a debugger data-write watchpoint on exactly C+0x18 after
+construction. Capture one hit's instruction, effective destination, relevant
+registers, call stack and old/new bits. This would identify a concrete writer
+without another global address search; its input provenance would still need
+to be traced from that hit. Such a watchpoint is instrumentation and was NOT
+installed under this task's static-only constraints. Documentation only;
+git diff --check; no launch, hooks, instrumentation, process-memory writes,
+installed/executable changes, commit or push.
