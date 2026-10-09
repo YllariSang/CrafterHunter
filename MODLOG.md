@@ -1,5 +1,102 @@
 # CrafterHunter mod journal
 
+## 2026-10-10 — Manual W reaches the exact local movement transition and native action
+
+Continued the user-authorized offline investigation with universal-modder
+reverse-engineering, bounded hardware observations and instruction-level checks.
+Pinned verifier passed. Local direction read P+0x1510 led to camera-associated
+processing, not an isolated locomotion hook. Local LStick magnitude observation
+instead identified exact cMove, cMoveTurn and cMoveEnd transition instances;
+initializer, live player/controller links, vtables and DTI agree. Stop/end uses
+an inverted threshold and timer, while cMove has other state gates/side effects.
+
+After a timed attempt without a qualifying request, a user-confirmed repeat W
+hold captured record (1,0x93,0,0,1,4), accepted SPL-wrapped request with pending
+(1,4), actual local nHmAction::cActRun entry and native P+0xe214 write 1.0 ->
+0.75 on LWP 14178. Thus native execution is established, not only action metadata
+or queued selection. Subsequent release snapshot was magnitude zero/current idle;
+this is not an exclusive-mode restoration test. Native entry used 0x14026a820's
+pending-to-current loop through 0x14026a1e0. Separate bounded aggregate observation
+identified exact copy writers and both main/job-thread scalar reads. Static trace
+links keyboard mapped bit 29 -> keyboard Y scalar -> aggregate overwrite ->
+local LStick magnitude -> cMove. This is a conditional instruction-supported
+keyboard path, not a single-event dynamic device-provenance trace or controller
+acceptance. Pad, mouse (other pair), state filters and nonphysical overrides remain.
+
+No safe full hunter-only suppression boundary yet. Whole queries, preparation,
+transition methods and action dispatchers remain unsuitable for blanket bypass.
+Next gate: distinguish physical movement from a valid nonphysical case at the
+local predicates while preserving held-button release/end behavior; fixture and
+state producers are missing. Attack/item/UI/camera/controller and hook lifecycle
+coverage are not accepted. No suppression or production implementation.
+
+Only report/journal edits; preserved existing changes. Verified pinned identity,
+exact objects, instruction/unwind/immediate-caller edges and bounded manual native
+execution; git diff --check. Every hardware observation detached/removed probes;
+no target-memory writes, software breakpoints, hooks, simulated controls, game
+launch/restart, build/install, rendering/bridge change, commit or push.
+
+A final bounded read/access check found maintenance of H+0x4af8/+0x4afc
+in 0x1411a8750, immediately called by master update. Positive branches restore
+near-zero player direction, decrement timers, test command/magnitude state,
+and expire/reset; their positive setters were not observed (both values zero
+in the 24-stop window). This strengthens the stateful-processing counterexample,
+not a scripted-input classification or safe-hook claim.
+
+## 2026-10-10 — Scalar pair consumers, position override and shared camera-associated work
+
+Continued the exact local writer trace using universal-modder reverse-engineering
+and bounded static loaded-code analysis; no new debugger or input stimulus.
+Mapped the four aggregate queries to H+0x30..0x3c and exact embedded
+cPlayerCommandLStick/RStick instances. Constructor, live vtables and DTI getters
+agree; verified leaf processors calculate magnitude/normalized state, with a
+mapped-command alternative for RStick. First-pair reconstruction produces
+direction vectors copied into exact local player+0x1510/+0x7880. Timed
+position-derived override clears H+0x9f3 = C+0x9e3, selecting the direct-vector
+branch instead of camera-relative processing. Its timer/position producers and
+action-selector meanings remain unknown.
+
+The instance-preserving H+0x1410 helper retains the same controller, player
+and verified uMhCamera. Consumer 0x1412ab4a0 reads BOTH scalar pairs into
+its +0x1e60 accumulator; connected spatial calculations use that accumulator
+and camera state. Therefore neither raw pair is established as movement-only.
+Local direction-state writes do not yet identify a locomotion/attack/item
+executor or safe hunter-only suppression point. Controller provenance, UI
+scope, scheduler/SPL order and hook lifecycle remain unproved. Next recommended
+evidence is a separately authorized bounded read observation of local P+0x1510
+to identify its consequential downstream consumer; not performed here.
+
+Only investigation documentation changed; preserved prior edits. Exact-instance,
+constructor/DTI, instruction-boundary and chained-unwind checks; final assertions
+and git diff --check. No production code/build/install, game launch/restart,
+debugger attachment, hooks, memory writes, GUI automation, commit or push.
+
+## 2026-10-10 — Exact local source writer captured with a hardware watchpoint
+
+User authorized the next bounded runtime investigation and confirmed an offline,
+loaded scene. Revalidated the pinned build and current local player/controller,
+then captured one hardware-watchpoint change at exact C+0x18. Writer
+0x1411a9cc7 stores through H+0x28; observed source changed 0 -> 0x20000000
+on LWP 14178. Its loop copies 46 indexed results from 0x141b164c0 using
+BTS/BTR; immediate master-update caller is supported by prologue/stack and
+call-site evidence, not GDB's unreliable PE backtrace. Bounded follow-up links
+native keyboard state +0x138 through mapping +0x26c8 to this exact local source.
+Physical-keyboard reachability is instruction-supported; the captured true
+result's device branch and physical-only provenance are not established.
+Mouse/controller/callback alternatives, bit overrides, scalar outputs and a
+timed position-derived branch prevent treating the whole routine as input-only.
+No safe suppression boundary yet. Next: classify the local scalar outputs and
+their immediate consumers/nonphysical override. Details in the investigation.
+
+The initial GDB attachment refused an internal software breakpoint under the
+no-memory-write permission; its residual group stop was cleared for this exact
+PID. Hardware-only attachment then succeeded. Watchpoint deleted, debugger
+detached; final TracerPid=0 and process running normally. Temporary debugger
+stops/debug-register instrumentation occurred, but no game-memory writes,
+software breakpoints, hooks, automated input, launches or installed changes.
+Scratch evidence is outside the repo. Pinned-build verifier PASS;
+git diff --check; documentation only, existing edits preserved, no commit/push.
+
 ## 2026-10-10 — Exact command-controller alias escape; writer still unresolved
 
 Returned to the local embedded source instead of extending the light-resource

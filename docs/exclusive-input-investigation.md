@@ -1314,3 +1314,421 @@ to be traced from that hit. Such a watchpoint is instrumentation and was NOT
 installed under this task's static-only constraints. Documentation only;
 git diff --check; no launch, hooks, instrumentation, process-memory writes,
 installed/executable changes, commit or push.
+
+### Scoped hardware watchpoint: exact source writer observed (2026-10-10)
+
+The user authorized the recommended next runtime step and confirmed a loaded,
+offline, controllable scene. No game was launched/restarted and no input was
+automated. `python3 tools/verify-host-build.py` again passed the pinned hash and
+cache checks. The following addresses are observations of PID 14133, not hook
+signatures. This supersedes the preceding **unresolved runtime writer** limit,
+not the unresolved hunter-only suppression/coverage requirements.
+
+Fresh FindMasterPlayer traversal, using the instruction-confirmed entry offsets
+and player+0x0c flag mask, resolved player P=0x69e30080, human controller
+H=0x5e1ac1c0, command controller C=H+0x10=0x5e1ac1d0, and source
+S=C+0x18=H+0x28=0x5e1ac1e8. Vtables and their DTI getters/names again
+matched uPlayer, cHumanControllerPlMaster, cPlayerCommandController,
+cVirtualPad at C+8 and bitset_prop<46> at C+0x10. Initial S was zero.
+
+GDB 18.1 was configured to forbid target-memory writes and inferior function
+calls. Its initial normal-library attachment refused an internal software
+breakpoint; none was inserted. That attempt detached, but left a group stop,
+which was cleared with SIGCONT to this exact PID. Disabling automatic library
+loading, using an unavailable symbol sysroot, and forbidding breakpoint
+insertion allowed a subsequent hardware-only attachment. An eight-byte aligned
+hardware **write** watchpoint on S captured one value change and was then deleted;
+the debugger detached automatically. Final process state was S (sleeping/running
+normally), TracerPid=0. No hooks, software breakpoints, game-memory writes,
+suppression or installed changes were made. Debug-register instrumentation and
+brief debugger stops did occur; this is not another static-only observation.
+Scratch script/log remain outside the repository under
+`/tmp/ch-input-watch.ab7d5Z/`; log mtime was 2026-10-10 07:05:32 +0800.
+
+**Instruction-supported hit:** LWP 14178 stopped at RIP 0x1411a9cca, immediately
+after store **0x1411a9cc7**, `MOV DWORD PTR [RDX+0x28],ECX`. Captured
+RDX=RDI=H, RSI=R8=29, EBX=30 (incremented immediately before the store),
+ECX=0x20000000. The watched qword changed from 0 to 0x20000000, setting
+source bit 29; the store writes four bytes, not the entire qword. This proves
+a non-initialization write to the exact embedded instance, not merely a
+compatible bitset or generic property setter. The requested manual stimulus
+was a W tap/release; the hit alone does not identify which device branch
+returned true or establish a universal semantic name for bit 29.
+
+The unwind-described entry is **0x1411a9c50..0x1411aa312**. It preserves
+incoming RCX in RDI. Its loop starts with EBX=RSI=0, queries 0x141b164c0
+with EDX=index and R8D=0, and selects BTS/BTR according to AL. The destination
+is `H+0x28+4*(index>>5)`, bit `index&31`, for indices 0..45. This connects
+indices 0/1 directly to the source bits feeding the already documented record
+0/1 and derived output bits 2..5. Only the bit-29 mutation was captured live;
+this is not a runtime demonstration of every index or an exhaustive writer list.
+
+The hit's raw stack contains 0x1411a2cf3 at RSP+0x68, consistent with this
+function's PUSH RDI/SUB RSP,0x60 prologue. A boundary-correct decode confirms
+0x1411a2ceb passes the master-update receiver in RCX and 0x1411a2cee calls
+0x1411a9c50, returning at that exact address. This verifies the immediate
+master-update call edge. GDB's ordinary `bt` did **not** unwind these PE frames
+reliably (it reported scalar stack values as callers); no deeper call stack or
+SPL callback/polling-relative thread order is inferred from that output.
+
+**New keyboard provenance link, static:** 0x141b164c0 first calls
+0x140485a20 on the DTI-verified sMhKeyboard singleton. That helper tests the
+selected bit at keyboard+0x26c8, subject to controller-context gates. The known
+keyboard update 0x140485d90 calls base 0x1422e74f0, then 0x1404848a0 with
+RDX=keyboard+0x138. Chained unwind fragments of 0x1404848a0 establish RBX as
+the same keyboard, R14 as that state pointer. Mapping entries drive indexed
+reads from `[R14+(keyIndex>>5)*4]`; positive tests set mapped bits with stores
+0x140484a48 and 0x140484bd9 to keyboard+0x26c8. Its paired loop covers mapped
+indices 0..45. A read-only live mapping snapshot has entries (70,-1), count 2,
+for each of mapped indices 0 and 1, and (87,-1), count 2, for index 29.
+These are mapping-table indices, not independently established action names.
+Together with the previously verified native WriteInput/original-SPL-filter
+path into keyboard+0x138, this establishes a conditional physical-keyboard
+data path to the exact local source and then the derived record pipeline.
+It does not prove that this captured true result took the keyboard branch,
+that keyboard mapping has no other producers, or that the source is physical-only.
+
+**Other sources and rejection of a whole-function bypass:** the same shared
+query also calls mouse 0x140488e80, then either tests a controller-context mask
+at +0xce8 or invokes a table-selected indirect callback. The mask/callback
+upstream provenance remains open; no end-to-end controller acceptance follows.
+Within 0x1411a9c50, later branches clear/combine source bits under game/GUI
+state gates; mouse query 0x140488e30 with mask 1 can OR into bits 0 and 1
+(stores 0x1411a9f58, 0x1411a9f7c/0x1411a9f88). These additional stores
+are instruction-proven for the preserved H receiver but were not watchpoint hits.
+The routine also obtains four scalar query results and writes H+0x30..0x3c
+(embedded virtual-pad float fields). A timed branch using H+0x4f60 and
+position deltas replaces two values and writes associated player state, with
+calls to 0x141f604b0. This proves non-bitfield work and a state-derived override,
+not the semantic meaning of those calls or a complete scripted-input inventory.
+Skipping the routine is therefore not justified as hunter-input-only suppression.
+
+Result: the exact-instance writer and a conditional keyboard-to-source chain
+are now established. Complete producer coverage, movement/action/item scope,
+UI/camera sharing, analog/scripted separation, frame order, and safe SPL
+detour/unload behavior are still unproved. **No suppression implementation is
+justified yet.** Next bounded action: classify the four virtual-pad scalar
+outputs and the timed position-derived override in this now-identified local
+preparation routine, following their immediate consumers, to determine whether
+human movement can be separated from camera/UI and nonphysical work.
+
+Validation: pinned-build verifier PASS; live identity/watchpoint/register/stack
+evidence plus entry/chained-unwind static checks above; debugger removed and
+process resumed; `git diff --check`. Documentation only in the repository;
+no production build/install, gameplay implementation, commit or push.
+
+### Four scalar outputs: exact consumers and shared camera-associated work (2026-10-10)
+
+Continued with bounded static decoding of the same loaded pinned image, PID
+14133. Read-only object inspection revalidated H=0x5e1ac1c0,
+C=H+0x10=0x5e1ac1d0, and P=0x69e30080: both [H+0xdb0] and [C+0x30]
+equal P. No new input stimulus, debugger attachment or execution trace occurred.
+Addresses below are build/session observations, not signatures or hook ABIs.
+
+**Exact scalar chain:** all four calls in 0x1411a9c50 use the shared
+sMhSteamController receiver, EDX=0 and R8D=0. The index-1 keyboard/mouse
+branches in these helpers are not taken by these calls. Index 0 alone does
+not prove raw-controller provenance: writers of the aggregate fields are
+outside this consumer trace.
+
+| Query / call site | Aggregate scalar read | Local output / store | Reconstruction copy |
+| --- | --- | --- | --- |
+| 0x141b15da0 / 0x1411aa1ba | receiver+0xcf8 | H+0x30 = C+0x20 / 0x1411aa2d7 | C+0x968 / 0x141231046 |
+| 0x141b15e70 / 0x1411aa1aa | receiver+0xcfc | H+0x34 = C+0x24 / 0x1411aa2ed | C+0x96c / 0x141231051 |
+| 0x141b160e0 / 0x1411aa1e2 | receiver+0xd00 | H+0x38 = C+0x28 / 0x1411aa2f7 | C+0x990 / 0x14123105c |
+| 0x141b161b0 / 0x1411aa1d1 | receiver+0xd04 | H+0x3c = C+0x2c / 0x1411aa302 | C+0x994 / 0x141231067 |
+
+The aggregate addresses above are for these exact zero-index/context calls;
+the helpers use context*0x8d0 and index*0xb8 for their general addressing.
+Master-update call 0x1411a2cee prepares these outputs before its later call
+0x1411a2eb8 to 0x141190ae0. That helper calls 0x14118e350, which passes
+H+0x10 at 0x14118e3db to reconstruction 0x141230bb0 under its existing
+local/player-state gates. This is conditional static call order, not proof of
+thread, device-polling or SPL-callback-relative scheduling.
+
+**Concrete pair receivers:** constructor 0x14122e8c0 installs vtables
+0x1432418d0 at C+0x950 and 0x143241900 at C+0x978 (stores
+0x14122ea5c/0x14122ea90). Fresh read-only inspection of those exact embedded
+addresses agrees. Their +0x20 DTI getters 0x14122e100/0x14122e120 return
+0x144fa0d58/0x144fa0d90, naming cPlayerCommandLStick and
+cPlayerCommandRStick respectively. Reconstruction dispatches their +0x28
+methods at 0x1412310c0/0x1412310d1 to 0x14122db00/0x14122de20.
+These leaf targets have no unwind entries; complete reachable branches were
+decoded from the verified entries through RET (L: through 0x14122db9f;
+R: through 0x14122df3a), without extending their bodies into the next function.
+
+Both methods calculate sqrt(x*x+y*y), store magnitude at their +0x10,
+normalized components at +0x20/+0x24, and a threshold-tested active byte
+at +8, conditional on +9. Their disabled branches write default scalar
+constants. The RStick method additionally substitutes components prepared at
++0x28/+0x2c when +0x30 and its magnitude/length gates permit. The leaf helper
+0x14122e270 supplies those components from Boolean mapped-query results
+(queries 0xa, 8, 7, 9 at reconstruction 0x14123106e..0x141231095).
+No action names or physical-only source follows from the numeric commands.
+
+**First pair's consequential effects:** when C+0x958 is active,
+reconstruction calls 0x14122ef00 at 0x14123112a. With C+0x9e3 true, that
+function reads the DTI-verified uMhCamera at singleton+0x58 and builds a
+normalized vector using camera fields +0x170/+0x178 minus +0x150/+0x158,
+together with C+0x968/+0x96c. With that flag false, it builds the vector
+directly from (C+0x968, 0, C+0x96c). Its result goes to C+0x8f0..0x8fc.
+Reconstruction copies that vector into exact P+0x1510..0x151c at
+0x14123119c..0x1412311b4 and P+0x7880..0x788c immediately afterward.
+Other state-dependent branches populate P+0x7870..0x787c using this vector
+or another basis transform. These are proven player-specific direction/state
+writes, not yet proof of the native locomotion/attack/item executor.
+
+**Nonphysical override is distinguished structurally:** H+0x9f3 is exactly
+C+0x9e3. When H+0x4f60>0, the preparation routine subtracts P+0x68 from
+that timer, replaces the first scalar pair by the normalized horizontal delta
+(H+0x4f70-P+0x160, H+0x4f78-P+0x168), and clears this flag at
+0x1411aa272. The normal branch sets it at 0x1411aa2cb. Thus the timed
+position-derived values take the direct-vector branch rather than the
+camera-relative branch. The override also sets player flags, calls
+0x141f604b0 with numeric selectors 0x82/0x80 and writes GUI+0x14780;
+those calls' semantic meanings remain unclassified. The last scalar pair is
+not replaced in this timed branch. Timer/target-position producers remain
+unknown; do not relabel the override as a particular scripted action.
+
+**Important sharing counterexample:** the previously verified helper A=H+0x1410
+retains C at A+0x1ec0, P at A+0x1ea8, and a camera at A+0x1e90. A fresh
+read resolves that camera to 0x5e0164f0, exactly the singleton+0x58 object
+above (vtable 0x143497340; getter 0x141fa0ca0 returns DTI
+0x14502ccc0 naming uMhCamera). This proves instance relationships, not just
+compatible types. Consumer 0x1412ab4a0 reads the retained controller's second
+pair via leaf accessor 0x14122ff90 (returns C+0x990), and first pair via
+0x14122ff20 (returns C+0x968). Under player/state gates, BOTH can accumulate
+into A+0x1e60 (stores 0x1412ab664 and 0x1412ab6ba), scaled by P+0x68;
+the helper also applies an independent contribution and clamps the result.
+Related consumers 0x141295330/0x141295a70 read +0x1e60 alongside the
+retained camera and calculate spatial output vectors/query endpoints; the
+latter writes its output via incoming RDX at 0x141295e5f..0x141295e6e.
+The complete eventual camera-pose application is not established here. This
+is verified camera-associated shared work, not a claim that every first-pair
+read is locomotion or that suppressing one pair necessarily preserves camera.
+
+Coverage: one exact direct-call reference pass targeted the four verified leaf
+accessors, validating hits at instruction boundaries with chained unwind data.
+It found eight direct callers of 0x14122ff90 and nine of 0x14122ff20;
+only the informative retained-controller consumer above was followed.
+A bounded 0x141280000..0x1412ae000 check found calls to 0x1412ab4a0
+at 0x14128afc0 and 0x14128b5b0 using subordinate+0x48. Their full live
+dispatch paths were not captured. Inlined reads, indirect calls, leaf callers
+without unwind coverage, other modules, UI use and all action consumers are
+not exhaustively covered. No complete callable ABI or safe hook lifecycle is
+established by these decodes.
+
+Result: pair processors, an exact local-player direction-state path, a
+state-derived override flag and camera-associated shared consumption are now
+established. A movement-only executor and attacks/items/UI separation remain
+unverified. Neither the whole preparation/reconstruction routine nor either
+raw pair is a proven safe hunter-only suppression boundary. Controller input
+remains unsupported; no new end-to-end device test was performed.
+
+One next action: separately authorize a bounded hardware data-read observation
+on the freshly validated local P+0x1510 direction component during a manual
+movement stimulus. Capture the first consequential downstream reader's
+instruction/registers and reliable immediate caller evidence, then classify
+that actual consumer. This requires temporary debugger stops/debug-register
+instrumentation; it was NOT done during this static/read-only continuation.
+It would resolve the remaining direction-state-to-execution edge rather than
+restart a broad displacement search. Runtime validation and verified thread,
+original-call and teardown behavior are still required before any hook.
+
+Validation: exact-instance, constructor/DTI and chained-unwind instruction
+checks above; final identity/instruction assertions and `git diff --check`.
+Documentation only in the repository; scratch decoding stays outside it.
+No game launch/restart, debugger attachment, hooks, input/memory writes,
+rendering/bridge changes, installed changes, build, commit or push.
+
+### Manual movement: exact local transition, accepted request and native entry (2026-10-10)
+
+The user authorized the next runtime investigation, confirmed the offline loaded
+scene, and supplied manual W holds/releases. Universal-modder's reverse-engineering
+workflow was used: exact-instance observation, bounded instruction traces, then
+dynamic confirmation. The pinned-build verifier passed again. All addresses below
+are observations of the same PID 14133, not portable signatures or proposed hooks.
+Existing P=0x69e30080, H=0x5e1ac1c0 and C=0x5e1ac1d0 identities and ownership
+links were revalidated before observations. No input was simulated.
+
+**Direction-reader result, including a rejected shortcut:** a bounded hardware
+access/read watch of P+0x1510 found actual read 0x14203c98f, stopping at
+0x14203c993 with RDX=P+0x1510, RBX=P and RDI=the previously verified uMhCamera
+0x5e0164f0, on LWP 14178. The unwind-described body is 0x14203c800..0x14203cfd4;
+its trailing jump-table data is not executable flow. The prologue-derived return
+slot contains 0x14203c111, matching the call at 0x14203c10c from 0x14203c0e0.
+The body uses direction and camera-associated spatial data, writes P+0x12870/
++0x12880 and copies computed P+0x12850 into P+0x7d40. This is not an isolated
+locomotion-input consumer. A separate bounded P+0x7870 observation saw preparation
+stores, not a consequential reader; it does not establish absence of readers.
+x86 hardware `rwatch` also stopped after stores, so every read/write classification
+here uses the preceding verified instruction, not the debugger's watchpoint label.
+
+**Movement eligibility, exact local instances:** watching C+0x960 (LStick magnitude)
+reached accessor 0x14122ff50. Read 0x14122ff59 loads that magnitude, then the
+helper 0x1419a0800 supplies an index-selected threshold and SETAE at 0x14122ff70
+returns the comparison in AL. Observed arguments are RCX=C and EDX=threshold
+index; this is not a complete reusable ABI. Its SUB RSP,0x38 prologue verifies the
+immediate return address at stopped RSP+0x38, without trusting GDB's PE backtrace.
+During the manual nonzero capture, three actual receiver/caller pairs were found:
+
+| Exact transition object | DTI identity / virtual +0x30 target | Threshold index / immediate return | Proven work |
+| --- | --- | --- | --- |
+| 0x5e1b74d0 | nPlTransition::cMove / 0x141934220 | 1 / 0x14193446e | Magnitude result gates eligibility 0 versus -1 in the observed branch. |
+| 0x5e1b7930 | nPlTransition::cMoveTurn / 0x1419345f0 | 1 / 0x141934605 | False returns -1; true tails to 0x1417c0ba0, which uses P+0x1510 in a dot-product/angle and timer gate. |
+| 0x5e1b7560 | nPlTransition::cMoveEnd / 0x1419344f0 | 0 / 0x141934576 | Inverts the magnitude result and updates its +0x30 timer using P+0x68; this is release/end processing, not another start predicate. |
+
+Vtables 0x1431c53e0/0x1433c96d0/0x1433c9688 and their actual DTI getters
+0x140f0c830/0x1419310b0/0x1419310a0 establish those types. Live +0x10=P and
++0x20=C on all three prove instance scope. Initializer 0x1411cb480 establishes
+the relationship explicitly: stores incoming player at +0x10, player+0x14f8
+at +0x18, and that controller+0x10 at +0x20. The local transition owner T=H+0xa00
+has these instances at group-1 indices 0x93, 0x9b and 0x94 respectively.
+This is not proof that every instance/caller of these functions is local.
+
+For cMove's observed mode-1 branch, call 0x141934469 queries C. AL false takes
+0x141934381 (EAX=-1); AL true reaches 0x141934476 (EAX=0). Other branches call
+the player selector helper 0x141f604b0, write H+0x4ba8, query derived command bits,
+and can succeed using H+0x4af8/+0x4afc state instead of this magnitude comparison.
+Those state producers are unclassified. Skipping the whole method or changing
+every successful result is therefore not justified as physical-input-only.
+
+**Selected is now distinguished from executed:** static transition record
+0x143f01a70 contains six DWORDs (1,0x93,0,0,1,4). Generic dispatch
+0x14026ba00 resolves its exact cMove instance and calls virtual +0x30 at
+0x14026ba7c. Optional callbacks can replace the predicate result; selector
+0x14026b830 accepts non--1 results matched against record +0x0c, with wildcard/
+recursive handling, and 0x14026b590 obtains destination +0x10/+0x14, optionally
+transformed through T+0x38. It requests the pair through the already proven SPL
+detour at 0x140269ce0; this is still a shared dispatcher, not an input-only hook.
+
+A first timed native-entry attempt produced no qualifying accepted request and
+detached; it supplies no execution evidence. After the user confirmed readiness
+and repeated the W hold, a bounded hardware-only sequence captured:
+
+- 0x14026b640, after the SPL-wrapped request returned AL=1: RDI=0x143f01a70,
+  RBP=Q=P+0x61c8=0x69e36248, destination (1,4). Q+0xa8=2, current pair (1,0),
+  pending pair (1,4). Thus this observation alone would mean queued, not entered.
+- Actual entry 0x14173e350 with RCX=0x9ad60860, whose +0x28=P. Its vtable
+  0x143351650 and getter 0x141749f80 identify nHmAction::cActRun. The original
+  return address is 0x14026a8b5; magnitude=1.000050 and C+0x9e3=1 at this entry.
+- 0x14173e37f, immediately after native store 0x14173e377 to exact P+0xe214:
+  that field changed from 1.0 to 0.75. All three stops were on LWP 14178.
+
+Native execution is therefore observed, not inferred from action metadata.
+The entry reads configuration through P+0x7d20, sets P+0xe214, obtains and stores
+another scalar at P+0xe218 via 0x141f72fd0, sets P+0xe21c=1, then makes
+state-dependent player virtual calls. Numeric arguments to those downstream calls
+are not assigned animation/action names here. This observation does not establish
+a complete position/velocity executor or every movement action.
+
+The observed native entry came through 0x14026a820, not merely the previously
+documented alternative 0x14026a2d0. In 0x14026a820, pending +0xbc/+0xc0 is copied
+to current +0xac/+0xb0 and cleared at 0x14026a95d..0x14026a970; mode becomes 1
+and the loop resolves Q+0x68+16*set. Call 0x14026a8b0 to 0x14026a1e0 resets
+entry bookkeeping and tails through the selected action's virtual +0x30. This
+explains the captured native return address. Later read-only sampling after manual
+release found magnitude=0, current (1,0), pending (-1,-1), mode=2. This is a
+post-release snapshot, not a captured stop-transition event or exclusive-mode
+restoration test. Record 0x143f02628 binds cMoveEnd to destination (1,5), whose
+actual local action object has DTI nHmAction::cActMoveEnd; do not call it idle.
+
+### Movement aggregate producers and a conditional keyboard chain (2026-10-10)
+
+A final bounded access observation (24 stops) on exact sMhSteamController
+S=0x1ec325b0, storage S+0xcf8/+0xcfc, established copy writes
+0x1418d7c4b/0x1418d7c51. Captured RCX=S+0xce0 and RDX=S+0xc28:
+the source is S+0xc40/+0xc44. Values were zero in this observation; it does
+not demonstrate a nonzero device contribution. Return slot at leaf RSP contains
+0x141b169c6, matching call 0x141b169c1 in update 0x141b168c0. The copy helper
+0x1418d7c40 has no unwind entry and was decoded from this verified target;
+it copies scalar/state fields, not a polling or physical-only operation.
+
+That update first invokes 0x1422a5040 and then 0x1418d7720 with source
+S+0x38+0x2d8*[S+0x1518] and destination S+0xc28. The latter reads source
++0x180/+0x184, converts them through 0x142107cb0, and stores the pair at
+destination +0x18/+0x1c before the later copy. The exact upstream device poll,
+all source writers and controller behavior are not newly verified here.
+
+There is also a concrete **keyboard overwrite** after that copy. Update call
+0x141b16a01 passes S and RDX=S+0xc28 into 0x141b17080. It retains RDX and
+sets RBX=RDX+0xb8=S+0xce0. Under its state/magnitude gates it loads the DTI-verified
+keyboard singleton K at 0x1451c53b0, reads K+0x27a8/+0x27ac, and stores them
+through RBX+0x18/+0x1c at 0x141b170ca/0x141b170cf: exactly S+0xcf8/+0xcfc.
+The same routine has state-dependent reset/filter branches; its whole operation
+is not equivalent to copying physical input. Mouse singleton +0x1548/+0x154c
+overwrites the OTHER pair at S+0xd00/+0xd04 in that same helper.
+
+Within the previously verified keyboard mapping helper 0x1404848a0, RBX=K and
+R14=K+0x138. The established device-to-mapped-bit path feeds K+0x26c8. Under
+additional gates, test of mapped bit 29 at 0x140484fa4..0x140484fad stores +1.0
+to K+0x27ac at 0x140484fb1; bit 30 stores -1.0 at 0x140484fd7. Bit 31 and
+bit 32 conditionally store +1.0/-1.0 to K+0x27a8 at 0x140485009/0x14048502b.
+At 0x14048513f the helper stores sqrt(x*x+y*y) to K+0x27c0, used by the
+aggregate overwrite gate. Initial defaults and later state resets also exist.
+Do not infer universal command names or exclusive producer coverage from these
+bit numbers. Combining these verified edges with earlier mapping/device evidence
+gives a conditional physical-keyboard path:
+
+native keyboard state -> mapped K+0x26c8 bit 29 -> K+0x27ac -> aggregate S+0xcfc
+-> query 0x141b15e70 with indices (0,0) -> H+0x34=C+0x24 -> embedded LStick
+raw Y C+0x96c -> magnitude C+0x960 -> exact local cMove -> selected/requested
+(1,4) -> observed native cActRun entry/effect.
+
+This combines static edges and separate manual observations. It is not one
+instruction-by-instruction dynamic trace of a single W event, nor proof that the
+successful event took only the keyboard route. Pad copy, state-derived override,
+additional state writes and other producers remain possible.
+
+The access capture observed scalar-query reads on both LWP 14178 and job-thread
+LWP 14351, as well as the main-thread copies. No global-query single-thread
+assumption is justified. It does not establish synchronization, polling/SPL
+callback order, or thread affinity guarantees for a proposed detour.
+
+**Bounded check of the alternative success fields:** an additional 24-stop
+hardware access observation on exact H+0x4af8/+0x4afc found reads in
+0x1411a8750 and the two cMove mode branches, all on LWP 14178. Both fields
+were zero throughout the window; no positive assignment was observed. The
+0x1411a8750 prologue-derived return slot is RSP+0x38, containing 0x1411a2ee5,
+which matches the master-update call at 0x1411a2ee0. Other words in its raw
+stack are not accepted as callers.
+
+Its reachable positive branches prove timer maintenance: subtract P+0x68
+and store H+0x4af8 at 0x1411a8802, or H+0x4afc at 0x1411a88ee, then clear
+on expiry. It can restore a near-zero P+0x1510..0x151c from P+0x230..0x238
+before decrementing. It also calls player selector 0xbe, tests local LStick
+magnitude and, for the second timer, derived command bit 0x87. A separate
+H+0x4b00 accumulation can cause early clearing. This classifies the existing
+fields as stateful direction/timer processing, NOT physical-device booleans,
+and does not identify their positive setters or their semantic purpose.
+The whole update and whole cMove remain unsafe input-only bypass candidates.
+
+**Decision:** a concrete local movement-eligibility branch and its native outcome
+are now supported. A safe complete exclusive-input boundary is still NOT proven.
+The shared aggregate/query affects other consumers; the direction reader includes
+camera-associated work; cMove has non-magnitude success paths and side effects;
+cMoveEnd must preserve release/timer behavior. Reject blanket filtering of the
+query, whole preparation method, all transitions, or all action requests. Blocking
+new run selection alone would not establish stopping an already active run when
+exclusive mode is enabled with W held. Attacks/items, scripted-source separation,
+UI/camera preservation, controller end-to-end coverage, and safe detour chaining/
+unload/restoration tests are missing. No suppression implementation is justified.
+
+The highest-value next gate is a controlled source-separation comparison at these
+exact local movement checks: capture normal movement/release and a valid
+nonphysical movement case, including C+0x9e3 and H+0x4af8/+0x4afc, to determine
+whether a reliable physical-only decision can be made without losing end/stop
+processing. The latter fixture and the positive setters of those state fields are not
+established; they must be resolved/authorized, not synthesized by memory writes.
+Only after that gate should attack/item consumers or a reversible-filter design
+be added to scope. W-only evidence does not accept the full ownership milestone.
+
+Validation: pinned verifier PASS, live vtable/DTI/instance assertions, verified
+instruction boundaries and chained-unwind/immediate-return checks, manual W
+capture through native entry and field effect, and git diff --check. Temporary
+debug-register observation and brief stops occurred; breakpoints/watchpoints were
+deleted and each attachment detached. Scratch scripts/logs remain outside the
+repository under /tmp/ch-direction-read.Ne2d0J/ and /tmp/ch-native-action.YgaFEV/.
+No software breakpoints, hooks/detours, target-memory writes, simulated input,
+game launch/restart, production code/build/install, rendering/bridge changes,
+commit or push. Documentation edits preserve the prior investigation changes.
