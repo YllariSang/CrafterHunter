@@ -1,5 +1,68 @@
 # CrafterHunter mod journal
 
+## 2026-10-10 — SPL DoAction detour and original path resolved
+
+Installed Core decompilation/cache plus loaded delegate/JIT chain identify
+0x140269ce0 as SPL ActionController's existing DoAction hook. It notifies
+entity/local-player callbacks by reference, then calls Original on normal
+paths; exceptions can interrupt that call. Actual OriginalFunction delegate
+points to trampoline 0xfffc0060, which restores displaced instructions and
+returns to 0x140269ce7. CrafterHunter implements neither action callback.
+Native request can enter current state or queue it. A verified conditional
+consumer 0x14026a2d0 -> 0x14026a1e0 dispatches current action +0x30; entry
+495's target is 0x140eef2f0. No observed execution of destination (1,495),
+action semantics or physical-input-only boundary is claimed. Next: command-bit
+producer provenance upstream of the transition predicate. Detailed evidence
+in the investigation report; git diff --check passed. Documentation only,
+no game writes, instrumentation, installed changes, launch, commit or push.
+
+## 2026-10-10 — transition result to action-state selection, read-only
+
+Verified generic vtable+0x30 dispatch at 0x14026ba7c against actual
+PopGimmickButton instances in the local controller's constructed +0xa00
+table owner. Consumers match the returned integer to selection records;
+-1 rejects a record, while 0 can select a destination pair. Optional
+callbacks can alter results. One concrete record targets (1,495), whose
+action entry metadata names nHmAction::cActEnvBashKick; actual action semantics
+remain unproven. Downstream 0x140269ce0 is already detoured, limiting claims
+about live state-update execution. No hunter-only suppression boundary.
+Next: establish that existing detour's provenance and original-call behavior.
+Full bounded-search coverage and evidence in the investigation report.
+git diff --check passed. Documentation only; existing changes preserved.
+No hooks, instrumentation, memory/input writes, installed/executable changes,
+game launches, commits or pushes.
+
+## 2026-10-10 — classify transition 0x2a early-out, investigation only
+
+Read-only loaded-code inspection verifies 0x140ef5db0 in the constructed
+nHmTransition::cPopGimmickButton vtable, with additional transition-family
+table references. Active sPlayer state 0x2a returns -1 after controller
+registration/cache maintenance, bypassing eligibility/command queries and
+success flag writes. It does not establish movement/attack semantics or a
+hunter-only suppression boundary. Next: trace consumption of its virtual
+0/-1 result into transition/action selection. Details and exact evidence are
+in docs/exclusive-input-investigation.md. git diff --check passed; documentation
+only, no hooks, memory/input writes, executable/installed changes, launches,
+commits or pushes. Existing unrelated edits preserved.
+
+## 2026-10-09 — pinned-build input trace, no executable changes
+
+At b421dc0, verified executable SHA/revision/Steam build and installed SPL bytes
+against its 2.0.0 Linux archive. Read-only access to already-running PID 110141
+allowed loaded-code inspection (on-disk text remains encrypted). Keyboard writer
+0x1422E7AD0 is already SPL-detoured; its native caller produces edge state after
+the writer. Installed SPL filters shared keyboard/mouse state for ImGui, not a
+verified hunter-only consumer. Independently resolved the game's XInputGetState
+thunk to installed Wine xinput9_1_0; decoded a pad routine with XInput and
+DirectInput branches. No controller gameplay support is claimed. Installed hook
+and unload code has cleanup/thread-order caveats; OnUpdate alone does not prove
+post-poll/pre-hunter timing. The semantic hunter consumer remains unidentified.
+Full evidence, candidate ranking and exact missing prerequisite appended to
+docs/exclusive-input-investigation.md. Host verification passed; no observer
+hook, input write, installation, game launch or production change. Extracted
+excerpts stay outside the repository. Documentation left uncommitted/unpushed
+as requested for review.
+
 ## 2026-10-09 — reference input ownership investigation, no suppression installed
 
 Reference source/history at d9cac469 shows F8 window-focus handoff: guest pauses,
