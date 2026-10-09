@@ -1,5 +1,20 @@
 # CrafterHunter mod journal
 
+## 2026-10-09 — player depth viewport conversion, live acceptance pending
+
+User's fixed-camera real/source screenshots show foliage-shaped depth rejection
+over Steve against visible sky. Runtime selected depth allocation is 1920x1080,
+but observed writer viewport is (0,0,1440,810); player/pre-UI viewport is full-size.
+With approval, map player pixels to the selected resource's observed writer
+viewport before integer Load. Track first depth-enabled/write-enabled draw each
+frame in normal mode, not only debug mode. Missing/stale/invalid viewport refuses
+player draw; no guessed scale, lifecycle guard relaxation or depth comparison change.
+Diagnostic shaders/probes share the conversion. Geometry/skin/pose/anchor and
+stone/frame/paired paths unchanged. Regression checks cover the measured torso
+sample (781.945,371.781)->(586,278), identity, nonzero origin and pixel centres.
+First-writer viewport correspondence remains a live acceptance requirement, not
+proven solely by metadata. No occlusion acceptance or gameplay claim.
+
 ## 2026-10-08 — player-model artifacts installed, runtime gate still open
 
 After all builds/headless checks passed, closed only Minecraft game PID 322466

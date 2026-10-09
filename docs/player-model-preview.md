@@ -108,7 +108,19 @@ about area transitions, disconnect or collision follows from these tests.
 
 ### Host-depth coordinate investigation (not accepted)
 
-Production PlayerPS uses `sceneDepth.Load(int3(int2(SV_Position.xy),0))`.
+Update 2026-10-09: runtime screenshots showed foliage depth over a player against
+visible sky. The selected 1920x1080 depth allocation had an observed 1440x810
+writer viewport, unlike the 1920x1080 player viewport. Player sampling now uses
+`floor(pixel * writerSize / playerSize + writerOrigin)` before integer Load.
+The same mapping drives both depth debug modes and their logged probes. Tracking
+requires depth-enabled/write-enabled host draws and a current-frame observation;
+missing/stale/out-of-resource writer viewports refuse player submission. There is
+no hard-coded 0.75 scale. Stone/frame/paired paths and depth comparison are unchanged.
+Headless checks do not establish live occlusion acceptance. The first observed
+depth-writing viewport must still be verified against the visible scene; mixed
+writer viewports or different projection passes remain an unresolved limitation.
+
+Before that correction, production PlayerPS used `sceneDepth.Load(int3(int2(SV_Position.xy),0))`.
 SV_Position is render-target pixel coordinates, including the pixel-centre offset.
 Positive integer conversion selects the containing texel; Load uses no normalized
 UV, sampler/filtering, V flip or presentation/window offset. Player viewport is

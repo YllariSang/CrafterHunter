@@ -44,15 +44,26 @@ assert "context->PSGetShaderResources(0,1" in source
 assert "mapped.RowPitch" in source and "player::skinChecksum" in source
 assert "o.uv=vertex.uv" in shader and "colour.a<0.5" in shader
 assert "float4 checked=PlayerPS(input)" in shader and "float4(input.uv,0,checked.a)" in shader
-assert 'floor(input.pos.xy)+0.5' in shader
+assert 'pixel*depthMapping.xy+depthMapping.zw' in shader
 assert 'sceneDepth.GetDimensions(w,h)' in shader
-# Production coordinate boundary remains a direct integer texel Load, no offset/UV remap.
+# All player modes use the same viewport mapping, retaining integer Load/comparison.
 production=shader.split('float4 PlayerPS(',1)[1].split('float4 PlayerUVPS(',1)[0]
-assert 'sceneDepth.Load(int3(int2(input.pos.xy),0))' in production
+assert 'sceneDepth.Load(int3(PlayerDepthTexel(input.pos.xy),0))' in production
+assert shader.count('sceneDepth.Load(int3(PlayerDepthTexel(input.pos.xy),0))')==2
+assert 'selected.debugViewportFrame!=frame' in source
+assert 'desc.DepthEnable && desc.DepthWriteMask==D3D11_DEPTH_WRITE_MASK_ALL' in source
 assert 'input.pos.z<=host+0.000001' in production
 # Independently check raster pixel centres -> normalized debug Load locations at
 # corners/edges across target sizes/aspects. This is math/source contract, not GPU proof.
 import math
+# Regression: the observed 1440x810 writer inside a 1920x1080 resource.
+# Identity sampling caused a foliage boundary to appear over Steve against sky.
+assert (math.floor(781.945*0.75),math.floor(371.781*0.75))==(586,278)
+assert (math.floor(781.945),math.floor(371.781))!=(586,278)
+for origin,size,target in ((0,1440,1920),(20,1280,1920),(0,1920,1920),(0,1,1)):
+    for pixel in (0.5,target//2+0.5,target-0.5):
+        texel=math.floor(pixel*size/target+origin)
+        assert origin<=texel<origin+size
 for width,height in ((1920,1080),(949,1028),(1280,720),(1,1)):
     for x,y in ((0,0),(width-1,height-1),(width//2,height//2)):
         sx,sy=x+0.5,y+0.5

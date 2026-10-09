@@ -522,16 +522,23 @@ void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
     // stone was a precondition for Minecraft being visible at all - a debug aid
     // silently deciding whether the player could exist.
     if (ownDraw || ctx != context.Get()) return;
-    if(depthCoordinateDebug) {
+    {
         ComPtr<ID3D11DepthStencilView> dsv;
         ctx->OMGetRenderTargets(0,nullptr,dsv.GetAddressOf());
         if(dsv) {
-            ComPtr<ID3D11Resource> resource; dsv->GetResource(&resource);
-            std::lock_guard lock(gate);
-            for(auto& candidate:depths) if(candidate.texture.Get()==resource.Get()
-                    && candidate.debugViewportFrame!=frame) {
-                UINT n=1; ctx->RSGetViewports(&n,&candidate.debugViewport);
-                if(n) candidate.debugViewportFrame=frame;
+            ComPtr<ID3D11DepthStencilState> state; UINT reference=0;
+            ctx->OMGetDepthStencilState(&state,&reference);
+            D3D11_DEPTH_STENCIL_DESC desc{};
+            if(state) state->GetDesc(&desc);
+            else { desc.DepthEnable=TRUE; desc.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ALL; }
+            if(desc.DepthEnable && desc.DepthWriteMask==D3D11_DEPTH_WRITE_MASK_ALL) {
+                ComPtr<ID3D11Resource> resource; dsv->GetResource(&resource);
+                std::lock_guard lock(gate);
+                for(auto& candidate:depths) if(candidate.texture.Get()==resource.Get()
+                        && candidate.debugViewportFrame!=frame) {
+                    UINT n=1; ctx->RSGetViewports(&n,&candidate.debugViewport);
+                    if(n) candidate.debugViewportFrame=frame;
+                }
             }
         }
     }
@@ -745,7 +752,7 @@ float4 PairedPS(Splat input):SV_Target {
 }
 )hlsl";
 constexpr char PlayerShader[] = R"hlsl(
-cbuffer Placement : register(b0) { row_major float4x4 world; float4 screen; };
+cbuffer Placement : register(b0) { row_major float4x4 world; float4 screen; float4 depthMapping; };
 cbuffer Host : register(b1) { row_major float4x4 hostVP; };
 cbuffer UI : register(b2) { float4 uiScale; };
 Texture2D<float4> skin : register(t0);
@@ -756,6 +763,9 @@ StructuredBuffer<Vertex> vertices : register(t2);
 StructuredBuffer<Bone> bones : register(t3);
 SamplerState skinSampler : register(s0);
 struct PlayerPixel { float4 pos:SV_Position; float2 uv:TEXCOORD0; float valid:SV_ClipDistance0; };
+int2 PlayerDepthTexel(float2 pixel) {
+    return int2(floor(pixel*depthMapping.xy+depthMapping.zw));
+}
 PlayerPixel PlayerVS(uint id:SV_VertexID) {
     Vertex vertex=vertices[id]; Bone bone=bones[vertex.bone];
     PlayerPixel o;
@@ -765,7 +775,7 @@ PlayerPixel PlayerVS(uint id:SV_VertexID) {
 }
 float4 PlayerPS(PlayerPixel input):SV_Target {
     if(any(abs(uiScale.xy-float2(2,-2)/screen.xy)>0.000001)) discard;
-    float host=sceneDepth.Load(int3(int2(input.pos.xy),0));
+    float host=sceneDepth.Load(int3(PlayerDepthTexel(input.pos.xy),0));
     float4 colour=skin.Sample(skinSampler,input.uv);
     if(!isfinite(host) || input.pos.z<=host+0.000001 || colour.a<0.5) discard;
     return float4(colour.rgb,1);
@@ -781,13 +791,13 @@ float4 PlayerDepthPositionPS(PlayerPixel input):SV_Target {
     uint w,h; sceneDepth.GetDimensions(w,h);
     // Exact centre of the integer texel production Load uses. Debug bypasses
     // host rejection ONLY to expose otherwise missing samples; private depth remains.
-    float2 sampled=(floor(input.pos.xy)+0.5)/float2(w,h);
+    float2 sampled=(float2(PlayerDepthTexel(input.pos.xy))+0.5)/float2(w,h);
     return float4(sampled,0,1);
 }
 float4 PlayerDepthSourcePS(PlayerPixel input):SV_Target {
     if(any(abs(uiScale.xy-float2(2,-2)/screen.xy)>0.000001)) discard;
     if(skin.Sample(skinSampler,input.uv).a<0.5) discard;
-    float host=sceneDepth.Load(int3(int2(input.pos.xy),0));
+    float host=sceneDepth.Load(int3(PlayerDepthTexel(input.pos.xy),0));
     // Debug logarithmic display: clear=black, 2^-24..1 spans grayscale.
     float grey=host>0 ? saturate((log2(host)+24)/24):0;
     return float4(grey,grey,grey,1);
@@ -1524,7 +1534,22 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     }
     ComPtr<ID3D11ShaderResourceView> scene;
     if(selectSceneDepth(scene)<0 || !ensureSharedState()) return false;
-    struct Placement { float matrix[16],screen[4]; } parameters{};
+    struct Placement { float matrix[16],screen[4],depthMapping[4]; } parameters{};
+    {
+        std::lock_guard lock(gate);
+        if(lastSelected>=depths.size()) return false;
+        const auto& selected=depths[lastSelected];
+        const auto& v=selected.debugViewport;
+        // Never reuse a viewport from an older frame or guess a render scale.
+        if(selected.debugViewportFrame!=frame || !std::isfinite(v.Width) || !std::isfinite(v.Height)
+                || !std::isfinite(v.TopLeftX) || !std::isfinite(v.TopLeftY)
+                || v.Width<=0 || v.Height<=0 || v.TopLeftX<0 || v.TopLeftY<0
+                || v.TopLeftX+v.Width>width || v.TopLeftY+v.Height>height) return false;
+        parameters.depthMapping[0]=v.Width/width;
+        parameters.depthMapping[1]=v.Height/height;
+        parameters.depthMapping[2]=v.TopLeftX;
+        parameters.depthMapping[3]=v.TopLeftY;
+    }
     reprojection::Matrix mapping;
     if(!alignment::worldMatrix(alignmentSession.anchor,pose.generation,alignmentSession.epoch,mapping)) return false;
     const auto feet=reprojection::transform(mapping,{pose.feet[0],pose.feet[1],pose.feet[2],1});
@@ -1540,9 +1565,9 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
         if(SUCCEEDED(resource.As(&depthTexture))) depthTexture->GetDesc(&depthDesc);
         UINT count=16; D3D11_VIEWPORT hostViewports[16]{};
         context->RSGetViewports(&count,hostViewports);
-        log("DEBUG depth coordinates target=%ux%u format=%u depth=%ux%u format=%u mip=0 direct-SRV(no copy/resolve) player-viewport=(0,0,%u,%u) Load=floor(SV_Position.xy) pixel-centre=0.5 scale=(1,1) offset=(0,0)",
+        log("DEBUG depth coordinates target=%ux%u format=%u depth=%ux%u format=%u mip=0 direct-SRV(no copy/resolve) player-viewport=(0,0,%u,%u) Load=floor(SV_Position.xy*scale+offset) pixel-centre=0.5 scale=(%g,%g) offset=(%g,%g)",
             targetDesc.Width,targetDesc.Height,static_cast<unsigned>(targetDesc.Format),depthDesc.Width,depthDesc.Height,
-            static_cast<unsigned>(depthDesc.Format),width,height);
+            static_cast<unsigned>(depthDesc.Format),width,height,parameters.depthMapping[0],parameters.depthMapping[1],parameters.depthMapping[2],parameters.depthMapping[3]);
         for(UINT i=0;i<count && i<16;++i) log("DEBUG host pre-UI viewport[%u]=(%g,%g,%g,%g)",i,
             hostViewports[i].TopLeftX,hostViewports[i].TopLeftY,hostViewports[i].Width,hostViewports[i].Height);
         {
@@ -1578,10 +1603,13 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
                 if(any && depthDesc.Width && depthDesc.Height) {
                     const double probes[][2]={{(x0+x1)/2,y0+(y1-y0)*0.15},{(x0+x1)/2,(y0+y1)/2},{x0,(y0+y1)/2},{x1,(y0+y1)/2}};
                     const char* labels[]={"upper/head-area","centre/torso-area","left-edge","right-edge"};
-                    for(unsigned i=0;i<4;++i) log("DEBUG depth probe %s screen=(%.3f,%.3f) Load=(%.0f,%.0f) sampled-centre-UV=(%.6f,%.6f) in-bounds=%d",
-                        labels[i],probes[i][0],probes[i][1],std::floor(probes[i][0]),std::floor(probes[i][1]),
-                        (std::floor(probes[i][0])+0.5)/depthDesc.Width,(std::floor(probes[i][1])+0.5)/depthDesc.Height,
-                        probes[i][0]>=0 && probes[i][1]>=0 && probes[i][0]<depthDesc.Width && probes[i][1]<depthDesc.Height);
+                    for(unsigned i=0;i<4;++i) {
+                        const double x=std::floor(probes[i][0]*parameters.depthMapping[0]+parameters.depthMapping[2]);
+                        const double y=std::floor(probes[i][1]*parameters.depthMapping[1]+parameters.depthMapping[3]);
+                        log("DEBUG depth probe %s screen=(%.3f,%.3f) Load=(%.0f,%.0f) sampled-centre-UV=(%.6f,%.6f) in-bounds=%d",
+                            labels[i],probes[i][0],probes[i][1],x,y,(x+0.5)/depthDesc.Width,(y+0.5)/depthDesc.Height,
+                            x>=0 && y>=0 && x<depthDesc.Width && y<depthDesc.Height);
+                    }
                 }
             } else log("DEBUG depth probe GPU camera read failed; representative positions not proven");
         }
