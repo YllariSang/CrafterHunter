@@ -1,5 +1,19 @@
 # CrafterHunter mod journal
 
+## 2026-10-09 — reference input ownership investigation, no suppression installed
+
+Reference source/history at d9cac469 shows F8 window-focus handoff: guest pauses,
+releases mouse/hides window; host requests foreground focus; host F8 counter
+shows/focuses guest again. Cocoa prevents transparent-window click-through.
+This is not a verified hunter gameplay input hook and does not establish
+controller suppression. SPL queries and pre-main-update callback do not prove
+the required polling/consumption order. Stopped per user's explicit safe-hook
+gate rather than clearing global input or replacing the loader. Comparison,
+source links, missing prerequisite and future manual plan are documented in
+docs/exclusive-input-investigation.md. No code copied or binaries changed.
+User manually accepted player-preview occlusion and movement/pose in the tested
+setup, including seated boat pose; this is not exclusive input or terrain support.
+
 ## 2026-10-09 — player depth viewport conversion, live acceptance pending
 
 User's fixed-camera real/source screenshots show foliage-shaped depth rejection
