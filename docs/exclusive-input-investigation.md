@@ -1732,3 +1732,51 @@ repository under /tmp/ch-direction-read.Ne2d0J/ and /tmp/ch-native-action.YgaFEV
 No software breakpoints, hooks/detours, target-memory writes, simulated input,
 game launch/restart, production code/build/install, rendering/bridge changes,
 commit or push. Documentation edits preserve the prior investigation changes.
+
+## End-of-day handoff — 2026-10-10
+
+Stopped at the user's request. The investigation checkpoints above are being
+saved as incremental documentation commits; no further game observation,
+production change, build or installation is part of this handoff.
+
+**Current result:** the exact local source-bitset writer is identified, a
+conditional physical-keyboard path reaches local movement eligibility, and a
+manual W hold reached an accepted (1,4) request, native cActRun entry and a
+verified field effect. These are separate instruction-supported observations,
+not proof of physical-only provenance or complete exclusive-input ownership.
+No safe suppression boundary is established; exclusive mode remains unimplemented.
+
+**Next goal: establish movement-source separation, before designing suppression.**
+Start from the verified maintenance routine 0x1411a8750 and resolve the positive,
+non-initialization setters of local H+0x4af8/+0x4afc (H is the verified local
+cHumanControllerPlMaster). These timers provide alternative movement-success
+paths; their activating producers and meaning remain unknown. Trace the
+H+0x4f60 position-derived override only where needed to explain the comparison.
+Do not restart the unrelated light/property-resource search without an exact
+local-instance edge, or repeat broad whole-image/device searches.
+
+After a legitimate nonphysical movement fixture is identified, obtain separately
+authorized, bounded evidence comparing physical movement/held-button release
+with that fixture at the exact local predicates, including C+0x9e3 and the
+alternative timers. C is the embedded cPlayerCommandController at H+0x10.
+Never synthesize the fixture by writing memory. The prerequisite is a proven
+physical-input distinction that preserves native end/stop and state-driven
+processing, not merely blocking new run selection. Enabling during an already
+active run remains an explicit unresolved case.
+
+On resumption, revalidate the pinned executable and fresh local P/H/C objects
+before using any prior observation. Recorded PIDs, heap addresses and debug
+register captures are session evidence, not reusable signatures. Confirm the
+offline loaded scene and coordinate any manual capture with the user. Previous
+probes were removed and attachments detached; /tmp scratch artifacts may not
+survive and are not published game-code evidence.
+
+Attack/item coverage, UI/camera preservation, controller end-to-end provenance,
+SPL/detour ordering, duplicate toggles, held-button restoration, player replacement,
+unload/reload, exceptions and guest disconnect still require separate proof and
+tests. No controller support or ownership acceptance is claimed. Preserve the
+accepted rendering/occlusion, anchor, camera behavior and 4 Hz pose cadence.
+
+Handoff validation is documentation-only: review staged scope and run
+git diff --check (including each staged checkpoint). Earlier pinned-build and
+manual capture results remain historical evidence, not new tests run at shutdown.

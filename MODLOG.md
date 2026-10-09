@@ -1,5 +1,26 @@
 # CrafterHunter mod journal
 
+## 2026-10-10 — End-of-day input-investigation handoff
+
+Stopped investigation at the user's request and recorded the next bounded goal
+in docs/exclusive-input-investigation.md. Save the accumulated investigation in
+incremental documentation commits and push the existing CrafterHunter origin;
+no production code, installed artifacts, game assets or scratch disassembly/logs
+are included. Earlier "no commit/push" entries describe their investigation turns,
+not this subsequently authorized documentation handoff.
+
+Next: resolve positive activating writers of exact local H+0x4af8/+0x4afc
+from the verified 0x1411a8750 maintenance path; identify a legitimate nonphysical
+movement fixture, then compare it with physical movement/held-button release
+at local predicates, including C+0x9e3. Revalidate build and fresh instances
+before any separately authorized runtime observation. Do not synthesize state.
+The exact writer, conditional keyboard chain and native run capture are progress,
+not a safe full hunter-only boundary. Exclusive mode remains unimplemented;
+attacks/items, controller, UI/camera isolation and restoration/lifecycle are open.
+
+Documentation scope/whitespace checks only for this handoff; no new game capture,
+hooks, input/memory writes, build/install, rendering or bridge changes.
+
 ## 2026-10-10 — Manual W reaches the exact local movement transition and native action
 
 Continued the user-authorized offline investigation with universal-modder
