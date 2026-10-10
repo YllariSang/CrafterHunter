@@ -203,6 +203,36 @@ fall-through `0x14026bb03 xor edi,edi` was also misread as forcing zero when the
 single-callback case branches to `0x14026bb26` before reaching it. Both errors
 are recorded rather than edited away.
 
+### The override risk is now closed
+
+Decompiling the whole image settled the open question. The callback can only
+make the result *more* restrictive, never less:
+
+- its first branch tests the incoming predicate result for `-1` and, if so,
+  writes `H+0x4ef8 = 0xffff` and `H+0x5eff = 0`, then returns `-1` unchanged;
+- across the rest of the routine, **every** assignment to the result variable
+  writes `-1`, and every `return` either returns the incoming value or `-1`.
+  There is no path that writes `0` or any non-negative value.
+
+The dispatch confirms the shape established by hand: with no callbacks it
+returns the predicate result; with callbacks, each is invoked with the current
+result passed by reference, all but the last one's return value is discarded,
+and the **last callback's return value** is what the dispatch returns. The
+post-loop zeroing is unreachable once at least one callback has run, which
+confirms the earlier correction.
+
+Chaining the three together: a forced predicate result of `-1` reaches the
+callback as `-1`, the callback returns `-1` on its first branch, and the
+dispatch returns `-1`, which the selector treats as ineligible. **No path
+exists by which a registered callback can promote a suppressed move back to
+success.** The interception point is safe in the enable direction it is used
+for; this is a proof, not an assumption.
+
+`FindMasterPlayer` was also confirmed against the decompilation: 24 slots of
+stride `0x740`, the key at `+0xae40`, the player at slot `+8`, matching the
+reading the external resolver already relied on. Its container remains
+unidentified, though nothing now depends on it.
+
 **Still unverified.** The callback's success path (`0x14119629f` onward, a large
 routine through `0x1411966f3`) was not analysed; it is reached only when the
 predicate already returned something other than `-1`, so it does not affect this
