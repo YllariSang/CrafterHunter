@@ -119,6 +119,26 @@ in-flight removal, stacked-hook ownership, or unload synchronisation. Therefore:
   replacement; a stale address must disable the filter rather than act on
   recycled memory.
 
+## Implementation constraint: the vtable is shared
+
+The predicate is invoked as `call QWORD PTR [rax+0x30]` with `rax = [obj]`,
+i.e. through the object's vtable. That vtable is **shared**: 72 distinct
+objects carry the cMove vtable `0x1431c53e0` in a typical scene, covering every
+entity, not just the local hunter.
+
+Patching the vtable slot, or the shared predicate body, would therefore affect
+all of them and is **not** an acceptable implementation. Scoping is only
+achievable by comparing the **object pointer** at the call site.
+
+This also removes any option of a static, precomputed patch:
+
+- object addresses are allocated per scene load and change between sessions;
+- the local cMove object must be resolved at runtime.
+
+So the filter must be a runtime-resolved, object-pointer-compared code hook.
+Any implementation that hardcodes an address, or patches shared code, is out of
+scope by this section.
+
 ## Known risks
 
 - **Other movement consumers.** `cMoveTurn` is left untouched deliberately.
