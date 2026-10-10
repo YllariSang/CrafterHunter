@@ -1,5 +1,30 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Exclusive-input filter installed and live-tested
+
+Built the exclusive-input suppression filter (native/mhw-renderer),
+installed it (SHA-256 981858aec9780b0114098e0c69df39f68e1a7392c63961e5f52f2e22d4598cde),
+and live-tested the acceptance matrix against pinned build 421810.
+Fixed resolver non-determinism (ad54597): the owner keeps several cMove
+slots for one player and uses one at a time, so all local slots are now
+covered (one shared private vtable copy) and the resolver emits every
+slot, sorted.
+
+Acceptance (docs/exclusive-input-design.md): cases 1 (baseline), 3
+(enable at rest, W held -> 0.94 units/6s, frozen) and 4 (disable ->
+resumes) PASS. Case 2 (enable mid-run, W held) FAILS: the hunter keeps
+moving at 195 units/s and the trampoline stays silent. Mechanism proven
+live: the vtable +0x30 predicate (0x141934220) gates the TRANSITION
+into a move state (consulted every frame at rest, ~85/s) but is not
+consulted during a move, so the filter prevents STARTING movement, not
+continuing it. An active run ends only via cMoveEnd (on key release),
+after which re-press is blocked. Matches the observed behaviour:
+movement is not stopped until W is released and re-pressed.
+
+Filter is disarmed; nothing is patched at rest. Open: case 2 (stop an
+in-progress run - needs cMoveEnd invoked on arm or the move-state update
+gated) and cases 5-8. Full handoff in docs/exclusive-input-handoff.md.
+
 ## 2026-10-10 — End-of-day input-investigation handoff
 
 Stopped investigation at the user's request and recorded the next bounded goal

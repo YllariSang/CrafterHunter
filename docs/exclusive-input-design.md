@@ -253,7 +253,45 @@ gate, but it may matter if a future design ever needs to *allow* movement.
 Each requires screenshots plus fresh capture evidence. Build success is not
 rendering evidence.
 
+## Results (2026-10-11)
+
+Built, installed (SHA-256
+981858aec9780b0114098e0c69df39f68e1a7392c63961e5f52f2e22d4598cde), and
+live-tested against the pinned build (421810). The hunter's position is read
+at P+0x390 (world frame) and P+0x158 (logic frame); the logic copy is the
+authoritative freeze signal and is what the numbers below use.
+
+| Case | Result | Evidence |
+|---|---|---|
+| 1. Baseline, no filter | PASS | 307 units/s; release stops; disable resumes |
+| 2. Enable mid-run, W held | FAIL | 195 units/s, trampoline silent (count unchanged) |
+| 3. Enable at rest, W held | PASS | 0.94 units over 6s (render jitter only); trampoline +518 |
+| 4. Disable, W held | PASS | resumes immediately at 307 units/s |
+
+Cases 5-8 are untested.
+
+Mechanism, now proven live: the vtable `+0x30` predicate (`0x141934220`) gates
+the TRANSITION into a move state. It is consulted every frame while at rest
+(~85/s, so the trampoline fires) but is NOT consulted during a move - the move
+state's own update applies movement without re-reading the predicate, so the
+trampoline goes silent. The filter therefore prevents STARTING movement but
+does not stop an in-progress run. An active run ends only via `cMoveEnd`
+(which fires on key release), after which a re-press is blocked by the
+predicate. This matches the observed behaviour exactly: movement is not stopped
+until W is released and re-pressed.
+
+For exclusive input the at-rest case is the one that matters: a hunter at rest
+when Minecraft takes ownership stays still. A hunter that is already running
+keeps running until W is released.
+
+Case 2 is a stated criterion and is not met. Closing it needs the in-progress
+move to be ended on arm - either by invoking `cMoveEnd` when the filter arms,
+or by gating the move-state update itself. Both are larger than the transition
+predicate and have not been attempted.
+
 ## Status
 
-Design only. No code, no hook, no build, no installation, no game launch.
-Exclusive input remains unimplemented and unaccepted.
+Installed and live-tested 2026-10-11. Cases 1, 3, 4 pass; case 2 (mid-run
+stop) does not - the filter prevents starting movement, not continuing it.
+Resolver non-determinism fixed (all local cMove slots covered) in ad54597.
+Filter is disarmed; nothing is patched at rest. Open: case 2, and cases 5-8.
