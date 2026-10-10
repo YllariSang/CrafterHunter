@@ -121,14 +121,67 @@ in-flight removal, stacked-hook ownership, or unload synchronisation. Therefore:
 
 ## Known risks
 
-- **Optional predicate callbacks.** The dispatch can have its result replaced
-  after the virtual call. If that path can override a `-1`, the filter is
-  bypassable and must be re-examined before acceptance.
+- **The chosen interception point does not work as drafted.** See the blocking
+  finding below; the design must be revised before any code is written.
 - **Other movement consumers.** `cMoveTurn` is left untouched deliberately.
   Turning may still occur under exclusive mode; this must be measured and
   reported rather than assumed absent.
 - **Controller input** shares the magnitude path. Controller coverage remains
   explicitly unsupported until tested.
+
+## Blocking finding: the predicate result is discarded
+
+The predicate-override risk flagged in the first draft is not hypothetical. It is
+confirmed, and it invalidates the interception point chosen above.
+
+`0x14026ba00` calls the predicate, saves the result, then consults a callback
+table on the transition owner:
+
+```text
+0x14026ba7c  call  QWORD PTR [rax+0x30]          ; cMove predicate
+0x14026ba7f  mov   edi,eax                       ; edi = predicate result
+0x14026ba81  mov   rax,QWORD PTR [rbx+0x268]     ; callback COUNT
+0x14026ba88  test  rax,rax
+0x14026ba8b  je    0x14026bb05                   ; count == 0 -> return edi unchanged
+```
+
+With **no** callbacks registered the predicate result is returned untouched.
+With one or more callbacks, control reaches the callback path, and in the
+single-callback case:
+
+```text
+0x14026bb2e  mov   DWORD PTR [rsp+0x38],edi   ; predicate result passed BY REFERENCE (r9)
+0x14026bb60  call  QWORD PTR [rax+0x10]       ; callback
+0x14026bb63  mov   edi,eax                    ; edi = CALLBACK RETURN VALUE
+0x14026bb65  jmp   0x14026bb05
+0x14026bb0d  mov   eax,edi                    ; return edi
+```
+
+So once a callback is registered the **callback's return value replaces the
+predicate result**, and the predicate's value survives only as a mutable
+out-parameter.
+
+**Live confirmation.** The local transition owner `T = H+0xa00 = 0x5e233680`
+has `[T+0x268] = 1`: a callback *is* registered for the local hunter. Its entry
+at `T+0x270` holds object `0x5e2338f0`, whose `+0x18` is `H` (`0x5e232c80`),
+tying that callback to this hunter. The object's vtable slot `+0x10` resolves to
+`0x141193720`, which tail-jumps through `[rcx+0x8]` to `0x141196260`.
+
+**Correction to an earlier reading.** A first pass at the multi-entry loop
+concluded that any registered callback forces the result to zero. That was
+wrong: `0x14026bb03 xor edi,edi` is only the loop's fall-through, and the
+single-callback case branches to `0x14026bb26` before reaching it. The correct
+statement is the one above — the callback's return value wins. The conclusion
+for the design is unchanged and slightly worse than "forced to zero": the
+predicate is not the deciding authority at all.
+
+**Consequence.** Filtering the cMove predicate to `-1` would not stop movement
+for the local hunter, so the interception point above is withdrawn. The design
+must instead gate the callback, or move to a point downstream of it. The local
+callback object `0x5e2338f0` is uniquely identified by `[cb+0x18] == H`, which
+preserves the same narrow scoping, but its `0x141196260` tail target is
+unanalysed and its return value is what a filter would have to override. No
+interception point is approved until that is resolved.
 
 ## Acceptance plan
 
