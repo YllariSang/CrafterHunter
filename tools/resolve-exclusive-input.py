@@ -100,6 +100,38 @@ def find_matching(pid: int) -> dict[int, dict[str, int]]:
     return found
 
 
+def all_cmove_slots(pid: int, player: int) -> list[int]:
+    """Every object carrying the cMove vtable whose [obj+0x10] is `player`.
+
+    find_matching overwrites on each hit, so it yields only the last slot found.
+    The owner keeps several for one player and uses one at a time, so all of
+    them must be covered or suppression is intermittent.
+    """
+    mem = Mem(pid)
+    slots: list[int] = []
+    for lo, hi in writable_regions(pid):
+        try:
+            data = mem.raw(lo, hi - lo)
+        except OSError:
+            continue
+        if not data:
+            continue
+        needle = struct.pack("<Q", VMOVE)
+        i = 0
+        while True:
+            i = data.find(needle, i)
+            if i < 0:
+                break
+            addr = lo + i
+            try:
+                if mem.u64(addr + 0x10) == player:
+                    slots.append(addr)
+            except OSError:
+                pass
+            i += 1
+    return sorted(set(slots))
+
+
 def select_local(mem: Mem, candidates: dict[int, dict[str, int]]):
     """The single candidate whose transition owner registers a callback tied to H."""
     winners = []
@@ -145,11 +177,19 @@ def main() -> int:
         return 3
 
     player, human, inst = winners[0]
+    # The owner keeps several cMove slots for one player and uses one at a
+    # time. find_matching overwrites on each hit, so this is the last one found,
+    # not the only one. Collect every slot explicitly and emit them all.
+    moves = all_cmove_slots(args.pid, player)
+    if not moves:
+        print("no cMove slots matched the local player", file=sys.stderr)
+        return 3
+
     print(f"candidates validated : {len(candidates)}")
     print(f"local player P       : 0x{player:x}")
     print(f"human controller H   : 0x{human:x}")
     print(f"command controller C : 0x{human + 0x10:x}")
-    print(f"cMove                : 0x{inst['cMove']:x}")
+    print(f"cMove slots ({len(moves)})     : {', '.join('0x%x' % m for m in moves)}")
     print(f"cMoveTurn            : 0x{inst['cMoveTurn']:x}")
     print(f"cMoveEnd             : 0x{inst['cMoveEnd']:x}")
 
@@ -163,7 +203,8 @@ def main() -> int:
         return 4
     request = plugin / "render" / "exclusive-input.request"
     request.parent.mkdir(parents=True, exist_ok=True)
-    payload = f"on {player} {human} {inst['cMove']} {inst['cMoveTurn']} {inst['cMoveEnd']}\n"
+    payload = (f"on {player} {human} {','.join(str(m) for m in moves)} "
+               f"{inst['cMoveTurn']} {inst['cMoveEnd']}\n")
     with tempfile.NamedTemporaryFile("w", dir=request.parent, delete=False) as out:
         temporary = Path(out.name)
         out.write(payload)

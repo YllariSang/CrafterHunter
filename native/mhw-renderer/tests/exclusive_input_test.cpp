@@ -33,6 +33,17 @@ constexpr std::uintptr_t kCMoveEnd = 0x5E23E020;
 constexpr std::uintptr_t kOtherCMove = 0x5E240000;
 constexpr std::uintptr_t kCMoveVtable = 0x1431C53E0;
 
+// Regression, 2026-10-11: the owner keeps several cMove slots for the same
+// player and uses one at a time. Observed live, three objects carried
+// [obj+0x10] == local P. The first resolver silently returned whichever it
+// found last, so it selected a different slot on different runs.
+constexpr std::uintptr_t kCMoveSlot2 = 0x5E240600;
+constexpr std::uintptr_t kCMoveSlot3 = 0x5E240C20;
+// Not constexpr: reinterpret_cast is not a constant expression.
+const void* const kExtraSlots[] = {
+    reinterpret_cast<const void*>(kCMoveSlot2),
+    reinterpret_cast<const void*>(kCMoveSlot3)};
+
 ex::LocalInstances resolved() {
     return ex::LocalInstances{
         reinterpret_cast<const void*>(kPlayer),
@@ -40,6 +51,8 @@ ex::LocalInstances resolved() {
         reinterpret_cast<const void*>(kCMove),
         reinterpret_cast<const void*>(kCMoveTurn),
         reinterpret_cast<const void*>(kCMoveEnd),
+        kExtraSlots,
+        2,
     };
 }
 
@@ -189,12 +202,58 @@ void testNullViewsForward() {
           "a null observation forwards");
 }
 
+// Regression: every cMove slot belonging to the local hunter must be covered,
+// not just whichever one a resolver happened to return first. Missing the
+// other two means movement is suppressed only intermittently.
+void testAllLocalCMoveSlotsAreSuppressed() {
+    ex::Gate gate;
+    gate.set_local(resolved());
+    gate.enable();
+    check(gate.evaluate(view(kCMove, kPlayer)) == ex::Action::suppress,
+          "primary cMove slot is suppressed");
+    check(gate.evaluate(view(kCMoveSlot2, kPlayer)) == ex::Action::suppress,
+          "second cMove slot is suppressed");
+    check(gate.evaluate(view(kCMoveSlot3, kPlayer)) == ex::Action::suppress,
+          "third cMove slot is suppressed");
+}
+
+// A slot belonging to this hunter but reached by a foreign player link is not
+// ours, even though the address is in our slot list.
+void testSlotWithForeignPlayerLinkForwards() {
+    ex::Gate gate;
+    gate.set_local(resolved());
+    gate.enable();
+    constexpr std::uintptr_t kOtherPlayer = 0x6E470700;
+    check(gate.evaluate(view(kCMoveSlot2, kOtherPlayer)) == ex::Action::forward,
+          "a slot observed with a foreign player link is forwarded");
+}
+
+// Regression: a resolved set with no slot array must still work, so the
+// single-slot form keeps behaving.
+void testSingleSlotFormStillWorks() {
+    ex::Gate gate;
+    gate.set_local(ex::LocalInstances{
+        reinterpret_cast<const void*>(kPlayer),
+        reinterpret_cast<const void*>(kHuman),
+        reinterpret_cast<const void*>(kCMove),
+        reinterpret_cast<const void*>(kCMoveTurn),
+        reinterpret_cast<const void*>(kCMoveEnd)});
+    gate.enable();
+    check(gate.evaluate(view(kCMove, kPlayer)) == ex::Action::suppress,
+          "single-slot form suppresses its cMove");
+    check(gate.evaluate(view(kCMoveSlot2, kPlayer)) == ex::Action::forward,
+          "single-slot form does not claim an unknown slot");
+}
+
 }  // namespace
 
 int main() {
     std::printf("exclusive input suppression policy\n");
     testDisabledForwardsEverything();
     testLocalCMoveIsSuppressed();
+    testAllLocalCMoveSlotsAreSuppressed();
+    testSlotWithForeignPlayerLinkForwards();
+    testSingleSlotFormStillWorks();
     testOtherEntitiesAreNotAffected();
     testCMoveEndIsNeverSuppressed();
     testCMoveTurnIsNeverSuppressed();

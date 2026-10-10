@@ -392,13 +392,15 @@ constexpr uintptr_t kCMoveTurnVtable = 0x1433C96D0;
 constexpr uintptr_t kCMoveEndVtable  = 0x1433C9688;
 
 excl::Gate gate;
-void* filteredObject = nullptr;   // the one object whose vtable we replaced
-void** originalVtable = nullptr;  // its original vtable pointer
 void* privateBlock = nullptr;     // COL slot followed by the copied vtable
+void** patchedCopy = nullptr;     // the shared private vtable
+std::vector<void*> slotObjects;      // every local cMove slot we patched
+std::vector<void**> slotOriginals;   // each slot's original vtable pointer
+std::vector<const void*> slots;      // stable storage for the policy's slot list
 std::mutex filterMutex;
 unsigned long long suppressCount = 0;
 
-// The original predicate, recovered from the object's own vtable.
+// The original predicate, recovered from the objects' own vtable.
 int (STDMETHODCALLTYPE*originalPredicate)(void*) = nullptr;
 
 int STDMETHODCALLTYPE trampoline(void* object) {
@@ -423,18 +425,19 @@ bool vtableMatches(const void* object, uintptr_t expected) {
 }
 
 void removeLocked() {
-    if (filteredObject && originalVtable && privateBlock) {
-        // Only restore if the object still carries our vtable; if the game has
-        // reassigned it, the original pointer is stale and must not be written.
+    // Restore only slots that still carry our vtable. If the game has reassigned
+    // one, its original pointer is stale and must not be written back.
+    for (size_t i = 0; i < slotObjects.size(); ++i) {
         void* current = nullptr;
-        if (readPointer(filteredObject, 0, &current) &&
-            current == reinterpret_cast<void**>(privateBlock) + 1) {
-            *reinterpret_cast<void**>(filteredObject) = originalVtable;
+        if (readPointer(slotObjects[i], 0, &current) && current == patchedCopy) {
+            *reinterpret_cast<void***>(slotObjects[i]) = slotOriginals[i];
         }
     }
+    slotObjects.clear();
+    slotOriginals.clear();
+    slots.clear();
     if (privateBlock) { VirtualFree(privateBlock, 0, MEM_RELEASE); privateBlock = nullptr; }
-    filteredObject = nullptr;
-    originalVtable = nullptr;
+    patchedCopy = nullptr;
     originalPredicate = nullptr;
     gate.invalidate();
 }
@@ -446,60 +449,83 @@ void remove() {
 }
 
 // Apply using host-supplied addresses. Every pointer is re-validated against
-// this build's vtables before anything is written.
-bool apply(uintptr_t player, uintptr_t human, uintptr_t cMove,
-           uintptr_t cMoveTurn, uintptr_t cMoveEnd) {
+// this build's vtables before anything is written. All local cMove slots are
+// covered: the owner keeps several for the same player and uses one at a time,
+// so covering only one suppresses movement only intermittently.
+bool apply(uintptr_t player, uintptr_t human, std::vector<uintptr_t>& moves,
+           uintptr_t moveTurn, uintptr_t moveEnd) {
     std::lock_guard lock(filterMutex);
     removeLocked();
 
-    void* object = reinterpret_cast<void*>(cMove);
-    void* turn = reinterpret_cast<void*>(cMoveTurn);
-    void* end = reinterpret_cast<void*>(cMoveEnd);
-    if (!vtableMatches(object, kCMoveVtable) || !vtableMatches(turn, kCMoveTurnVtable) ||
+    void* turn = reinterpret_cast<void*>(moveTurn);
+    void* end = reinterpret_cast<void*>(moveEnd);
+    if (moves.empty() || !vtableMatches(turn, kCMoveTurnVtable) ||
         !vtableMatches(end, kCMoveEndVtable)) {
         log("exclusive input: refused, instance vtable mismatch (build moved)");
         return false;
     }
-    void* objectPlayer = nullptr;
-    if (!readPointer(object, 0x10, &objectPlayer) ||
-        reinterpret_cast<uintptr_t>(objectPlayer) != player) {
-        log("exclusive input: refused, object/player link mismatch");
-        return false;
+    for (uintptr_t m : moves) {
+        void* object = reinterpret_cast<void*>(m);
+        if (!vtableMatches(object, kCMoveVtable)) {
+            log("exclusive input: refused, cMove slot vtable mismatch");
+            return false;
+        }
+        void* objectPlayer = nullptr;
+        if (!readPointer(object, 0x10, &objectPlayer) ||
+            reinterpret_cast<uintptr_t>(objectPlayer) != player) {
+            log("exclusive input: refused, object/player link mismatch");
+            return false;
+        }
     }
+    void* objectPlayer = nullptr;
     if (!readPointer(reinterpret_cast<void*>(human), 0xdb0, &objectPlayer) ||
         reinterpret_cast<uintptr_t>(objectPlayer) != player) {
         log("exclusive input: refused, human controller identity mismatch");
         return false;
     }
 
-    // One page: the RTTI CompleteObjectLocator pointer that precedes a vtable
-    // is preserved immediately before the copy, so type queries keep working.
+    // One page shared by every slot: the RTTI CompleteObjectLocator pointer
+    // that precedes a vtable is preserved immediately before the copy, so type
+    // queries keep working. All slots may share one copy because the trampoline
+    // decides per object, not per vtable.
     auto* block = static_cast<unsigned char*>(VirtualAlloc(nullptr, 0x1000,
         MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
     if (!block) { log("exclusive input: refused, allocation failed"); return false; }
     auto** copy = reinterpret_cast<void**>(block + 8);
     const size_t entries = 64;
     SIZE_T copied = 0;
+    void* first = reinterpret_cast<void*>(moves.front());
     if (!ReadProcessMemory(GetCurrentProcess(),
-        reinterpret_cast<const char*>(*reinterpret_cast<void***>(object)),
+        reinterpret_cast<const char*>(*reinterpret_cast<void***>(first)),
         copy, entries * sizeof(void*), &copied) || copied != entries * sizeof(void*)) {
         VirtualFree(block, 0, MEM_RELEASE);
         log("exclusive input: refused, vtable copy failed");
         return false;
     }
-    originalVtable = *reinterpret_cast<void***>(object);
+    (void)first;  // original vtables are kept per slot in slotOriginals
     originalPredicate = reinterpret_cast<int (STDMETHODCALLTYPE*)(void*)>(copy[0x30 / sizeof(void*)]);
     copy[0x30 / sizeof(void*)] = reinterpret_cast<void*>(&trampoline);
 
+    slotObjects.clear();
+    slotOriginals.clear();
+    for (uintptr_t m : moves) {
+        void* object = reinterpret_cast<void*>(m);
+        slotObjects.push_back(object);
+        slotOriginals.push_back(*reinterpret_cast<void***>(object));
+    }
+    slots.assign(moves.size(), reinterpret_cast<const void*>(0));
+    for (size_t i = 0; i < moves.size(); ++i) slots[i] = reinterpret_cast<const void*>(moves[i]);
     gate.set_local(excl::LocalInstances{
         reinterpret_cast<const void*>(player), reinterpret_cast<const void*>(human),
-        object, turn, end});
+        slots.front(), turn, end, slots.data(), static_cast<unsigned>(slots.size() - 1)});
     gate.enable();
 
     privateBlock = block;
-    filteredObject = object;
-    *reinterpret_cast<void***>(object) = copy;
-    log("exclusive input: filter armed on the local cMove only");
+    patchedCopy = copy;
+    for (void* object : slotObjects) {
+        *reinterpret_cast<void***>(object) = copy;
+    }
+    log("exclusive input: filter armed on %zu local cMove slot(s)", slotObjects.size());
     return true;
 }
 
@@ -518,13 +544,47 @@ void serviceRequests() {
     std::string_view text{line};
     while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.remove_suffix(1);
 
-    unsigned long long player = 0, human = 0, move = 0, turn = 0, end = 0;
+    unsigned long long player = 0, human = 0, turn = 0, end = 0;
+    std::vector<unsigned long long> moves;
     bool armed = false;
     if (text == "off") {
         remove();
-    } else if (sscanf(text.data(), "on %llu %llu %llu %llu %llu",
-                      &player, &human, &move, &turn, &end) == 5) {
-        armed = apply(player, human, move, turn, end);
+    } else if (text.rfind("on ", 0) == 0) {
+        // Format: on <player> <human> <m1,m2,...> <turn> <end>
+        std::vector<std::string> fields;
+        std::string current;
+        for (char c : text) {
+            if (c == ' ') {
+                if (!current.empty()) { fields.push_back(current); current.clear(); }
+            } else if (c != '\n' && c != '\r') {
+                current.push_back(c);
+            }
+        }
+        if (!current.empty()) fields.push_back(current);
+        auto number = [](const std::string& t) {
+            return std::strtoull(t.c_str(), nullptr, 0);
+        };
+        auto list = [&](const std::string& t) {
+            std::vector<unsigned long long> out;
+            size_t i = 0;
+            while (i <= t.size()) {
+                size_t j = t.find(',', i);
+                if (j == std::string::npos) j = t.size();
+                if (j > i) out.push_back(number(t.substr(i, j - i)));
+                i = j + 1;
+            }
+            return out;
+        };
+        if (fields.size() == 6) {
+            player = number(fields[1]);
+            human = number(fields[2]);
+            moves = list(fields[3]);
+            turn = number(fields[4]);
+            end = number(fields[5]);
+            armed = apply(player, human, moves, turn, end);
+        } else {
+            log("exclusive input: malformed on-request (%zu fields)", fields.size());
+        }
     } else {
         log("exclusive input: unrecognised request '%s'", text.data());
     }

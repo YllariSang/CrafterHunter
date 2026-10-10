@@ -42,11 +42,34 @@ struct LocalInstances {
     const void* c_move_turn = nullptr;
     const void* c_move_end = nullptr;
 
+    // The owner keeps several cMove slots for the same player and uses one at a
+    // time. Observed live: three objects whose [obj+0x10] is the local player.
+    // All of them belong to the local hunter, so all must be covered; picking a
+    // single one is a race. This array holds the additional slots beyond
+    // `c_move`, which always holds the first.
+    const void* const* c_move_slots = nullptr;
+    unsigned c_move_slot_count = 0;
+
     // Everything needed to act must be present. A partially resolved set is
     // treated as unresolved so a half-finished scan can never filter anything.
     [[nodiscard]] bool resolved() const noexcept {
         return player != nullptr && human != nullptr && c_move != nullptr &&
                c_move_turn != nullptr && c_move_end != nullptr;
+    }
+
+    [[nodiscard]] bool ownsCMove(const void* object) const noexcept {
+        if (object == nullptr || !resolved()) {
+            return false;
+        }
+        if (object == c_move) {
+            return true;
+        }
+        for (unsigned i = 0; i < c_move_slot_count; ++i) {
+            if (c_move_slots[i] == object) {
+                return true;
+            }
+        }
+        return false;
     }
 };
 
@@ -68,7 +91,10 @@ enum class Action {
         view.player == nullptr) {
         return false;
     }
-    return view.object == local.c_move && view.player == local.player;
+    if (view.player != local.player) {
+        return false;
+    }
+    return local.ownsCMove(view.object);
 }
 
 // The policy. Fails open in every uncertain case.
