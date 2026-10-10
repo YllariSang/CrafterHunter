@@ -1886,6 +1886,37 @@ unknown, and a reversible, scoped design must still preserve the maintenance
 routine's own decrement/clear behaviour and the `+0x4b00` accumulation. No
 suppression is implemented and no boundary is approved.
 
+**Where the state value comes from (static).** The same containment-safe scan
+was run for the state field `+0x4af0` (19 raw hits). Its writers are: the
+`cPlayerParam` constructor `0x14123bd4f`; three 8-byte zero-fill initialisers on
+other types (`0x141192b53`, `0x1420dbe53`, `0x14265f452`); the reset inside the
+consuming function at `0x14203eb06`; and one substantive producer,
+`0x14207485b` in the unwind range `0x142074601..0x142074861`:
+
+```text
+0x142074847  call 0x1419a5610        ; resolves H via [this+0x14f8]
+0x142074855  mov  ecx,DWORD PTR [rdi+0x140]
+0x14207485b  mov  DWORD PTR [rax+0x4af0],ecx
+```
+
+That routine is a configuration/command applier: it tests a battery of boolean
+config flags (`[rdi+0x149]`, `+0x14a`, `+0x150`, `+0x151`, `+0x152`, `+0x174`,
+`+0x1ae`, `+0x14b`..`+0x14f`), calls the player selector `0x141f604b0` with
+indices `0x8b`/`0x8c`/`0x2`, sets bits at `[rbx+0x12620..0x12638]`, touches
+`+0xfc4`/`+0xec9`/`+0x2d0` on objects reached through `[rbx+0x126c8]`, and only
+then writes the state from the config field `[rdi+0x140]`. No device, mapped key
+bit or shared aggregate is consulted on this path.
+
+`0x14203eab0` resets `H+0x4af0` to zero on entry (`xor esi,esi` then
+`mov DWORD PTR [r15+0x4af0],esi` at 0x14203eb06, guarded by `test r15,r15`), so
+the state is consumed and cleared rather than latched.
+
+This closes the provenance question for the *source* of the state: it is
+configuration-driven, not input-driven. What still is not established is which
+gameplay situation writes a non-zero `[rdi+0x140]`; that remains a fixture
+question, and the routine's own flag set is a better starting point for it than
+the timer fields are.
+
 **Decision:** a concrete local movement-eligibility branch and its native outcome
 are now supported. A safe complete exclusive-input boundary is still NOT proven.
 The shared aggregate/query affects other consumers; the direction reader includes
