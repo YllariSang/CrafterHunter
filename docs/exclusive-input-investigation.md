@@ -1703,6 +1703,112 @@ fields as stateful direction/timer processing, NOT physical-device booleans,
 and does not identify their positive setters or their semantic purpose.
 The whole update and whole cMove remain unsafe input-only bypass candidates.
 
+### Alternate timer setters, resolved statically — 2026-10-11
+
+Read-only static continuation on the same pinned build. `tools/verify-host-build.py`
+re-passed (SHA-256 `c2ebbbd2...b90ea`, address/pattern caches 421810, image base
+`0x140000000`), and the executable is the same pinned image, so the code addresses
+below are those of the current loaded `.text`. No live player/controller objects
+were resolved this session and none were needed: this section is a static
+reference map of the loaded image only. The running MHW process (PID 3799)
+supplied read-only `/proc/<pid>/mem` for the decrypted `.text`. Scratch
+analysis lives outside the repository under `/tmp/opencode/ch-timer-writers/`.
+
+Method, and why it is trustworthy: `.text` on disk is opaque (entropy 8.00), so
+all decoding used the loaded image. `.pdata` (unwind, not encrypted) was parsed
+into 287,568 `RUNTIME_FUNCTION` entries to get authoritative function
+boundaries. Raw `disp32` byte hits for 0x4af8/0x4afc were each re-decoded from
+their real function boundary, and an instruction was accepted only when the hit
+bytes were **contained** in it. Two decoder defects were found and fixed during
+this pass, and both had produced wrong answers first: objdump wraps long hex
+operands onto a continuation line (under-counting instruction length, which hid
+real instructions), and a first matcher accepted any instruction *ending* with
+the displacement bytes rather than the one containing them.
+
+**Authoritative H field neighbourhood.** The maintenance routine 0x1411a8750
+touches `+0x4af8`, `+0x4afc` and `+0x4b00` on one base pointer, and reaches the
+player as `[H+0xdb0]`. That triple is the marker for "this base really is H".
+
+**The two activating setters.** Exactly two non-initialization writers exist, and
+both are leaf functions reached by a single direct call each:
+
+- `0x1411a0a80 movss DWORD PTR [rcx+0x4af8],xmm1` then
+  `mov DWORD PTR [rcx+0x4b00],0x0`, ret. Sole direct caller `0x14203ee58`.
+- `0x1411a0a30 movss DWORD PTR [rcx+0x4afc],xmm1` then
+  `mov DWORD PTR [rcx+0x4b00],0x0`, ret. Sole direct caller `0x14203f5e4`.
+
+Both clear the same `+0x4b00` accumulator that 0x1411a8750 accumulates and
+compares against the global at `0x145011f58+0x44bc`, which ties them to the
+maintenance routine's object.
+
+**Their activating producer is a state machine, not a device path.** Both call
+sites sit in the unwind-described function beginning `0x14203eab0`, which is
+split across many `.pdata` ranges. Reaching them requires `r15 != 0`
+(`test r15,r15; je` at 0x14203ede9), then a switch on the state field:
+
+```text
+0x14203edf2  mov  ecx,DWORD PTR [r15+0x4af0]   ; load state
+0x14203edf9  sub  ecx,r14d                      ; r14d == 1
+0x14203edfc  je   0x14203f5cb                    ; state 1 -> arm +0x4afc
+0x14203ee02  sub  ecx,r14d
+0x14203ee05  je   0x14203f5b9                    ; state 2 -> selector 0x39
+0x14203ee13  sub  ecx,r14d
+0x14203ee16  je   0x14203ee62
+0x14203ee18  sub  ecx,r14d
+0x14203ee1b  je   0x14203ee3f                    ; state 4 -> arm +0x4af8
+0x14203ee1d  cmp  ecx,r14d
+```
+
+Each arming branch loads the duration from the **same global config field**,
+`[0x145011f58+0x44b8]`, and writes a distinct result code to `[rbp+0x7b]`
+(`0xd` for the `+0x4af8` arm at 0x14203ee49, `0x8` for the `+0x4afc` arm at
+0x14203f5d5). The arming value therefore comes from game configuration, and the
+selection comes from a state counter, not from a device read.
+
+`r15` is `0x1419a5610(this)`, which validates via global `0x14500eca0` and returns
+`[rbx+0x14f8]` (0x1419a5634). The same `+0x14f8` field is read by the
+previously verified transition initializer `0x1411cb480`
+(`mov rax,[rdx+0x14f8]` at 0x1411cb484), which stores the incoming player at
+`+0x10`, `player+0x14f8` at `+0x18` and `+0x10` of that at `+0x20`. So `r15`
+resolves through the player to the same controller object the transition owner
+uses. Note the exact identity of `r15` is inferred from that shared `+0x14f8`
+edge; it was not re-confirmed against a live instance this session.
+
+**Rejected candidates, with reasons.** Offset identity alone is not sufficient;
+these are same-offset stores on other types or other phases:
+
+- `0x14123bd6f` / `0x14123bd77` (`movss [rdi+0x4af8],xmm0`, `mov [rdi+0x4afc],r12d`)
+  sit in a long run writing `+0x4aec/0x4af0/0x4af4/0x4af8/0x4afc/0x4b00/0x4b04`
+  from `.rdata` constants. The enclosing function `0x141233fd0` installs vtable
+  `0x143241cb8` at 0x141234017, and that vtable's DTI chain resolves through the
+  thunk at `0x1412406e0` to `nHm::cNullBrakeParam` / `cPlayerParam`. This is
+  construction/default initialisation of a different type, not an H setter.
+- `0x141234f88` lies inside a 0x10-stride array fill
+  (`+0x4a3c,+0x4a4c,...,+0x4b4c`), an unrelated layout.
+- `0x1411a8960` (`mov QWORD PTR [rbx+0x4afc],rsi`) is the end of the maintenance
+  routine's own cleanup range `0x1411a8913..0x1411a8913..0x1411a896c`, a teardown
+  zeroing, not an activating setter.
+- `0x141192b5a`, `0x1420dbe5a`, `0x14265f459` are 8-byte `QWORD` stores in
+  other objects' initialiser runs (0x1420dbe5a and 0x14265f459 sit in long
+  zero-fill sequences). They are not float timers.
+
+**Consumers confirmed unchanged:** `+0x4af8` is read at `0x1411a8767`/`0x1411a87f2`
+(maintenance), `0x14193448b` (cMove) and `0x14129bc55`; `+0x4afc` at
+`0x1411a8853`/`0x1411a88de`, `0x141934354` (cMove) and `0x141932aa1`. The
+`0x14123bd73`-region `lea rcx,[rsp+0x4af8]` at `0x1425f36bd` is a stack local,
+not the field.
+
+**Result for the suppression question.** The alternate movement-success path is
+now attributed: the timers are armed by a state machine selecting on
+`[r15+0x4af0]`, using a duration from the global config block at
+`0x145011f58+0x44b8`, and writing result codes `0x8`/`0xd`. Nothing on that path
+reads a device, a mapped key bit, or the shared controller aggregate
+`S+0xcf8/+0xcfc`. This is state-driven movement, structurally distinct from the
+keyboard path already documented. It is **not** yet proof that these timers are
+reachable during ordinary play, nor that the two are movement-only; both require
+the separately authorized bounded live comparison below. No dynamic capture,
+memory write, hook, build, installation or launch was performed.
+
 **Decision:** a concrete local movement-eligibility branch and its native outcome
 are now supported. A safe complete exclusive-input boundary is still NOT proven.
 The shared aggregate/query affects other consumers; the direction reader includes
@@ -1780,3 +1886,36 @@ accepted rendering/occlusion, anchor, camera behavior and 4 Hz pose cadence.
 Handoff validation is documentation-only: review staged scope and run
 git diff --check (including each staged checkpoint). Earlier pinned-build and
 manual capture results remain historical evidence, not new tests run at shutdown.
+
+## Progress note — 2026-10-11, alternate timer setters resolved
+
+The "activate the timers" half of the 2026-10-10 next goal is complete
+(`### Alternate timer setters, resolved statically` above). Summary: the only
+non-initialization writers of H+0x4af8/+0x4afc are the leaf setters
+`0x1411a0a80` and `0x1411a0a30`, each with exactly one direct call site, inside
+a state machine at `0x14203eab0` that switches on `[r15+0x4af0]` and arms the
+timers from the global config field `[0x145011f58+0x44b8]`, writing result codes
+`0x8`/`0xd`. All other same-offset stores were rejected as other types or as
+initialisation, with reasons recorded.
+
+This answers "what activates them", not "should movement be blocked there". The
+remaining gates are unchanged in substance and are now better bounded:
+
+1. Live confirmation that these branches actually execute in ordinary play, and
+   what `[r15+0x4af0]` values occur. Not yet observed; the fields were zero in
+   the earlier 24-stop window, so the producer may be rare or scripted.
+2. The authorized source-separation comparison at the exact local predicates,
+   including C+0x9e3 and these two timers, between physical held-button release
+   and a legitimate nonphysical movement case. The fixture still does not exist
+   and must not be synthesized by writing memory.
+3. Everything previously listed as missing: attack/item consumers, UI/camera
+   preservation, controller end-to-end coverage, SPL/detour ordering, held-button
+   restoration, unload/reload, guest disconnect.
+
+Because the arming path never reads a device or the shared aggregate, blocking
+"new run selection" and suppressing "these timers" are now separable concerns.
+That separation is the precondition the previous handoff asked for; exclusive
+mode is still unimplemented and no suppression boundary is approved.
+Validation for this note: pinned-build verifier PASS; static analysis only, over
+the loaded image of the same pinned build. No live capture, no memory write, no
+hook, no build, no install, no launch, no commit.
