@@ -2027,3 +2027,29 @@ mode is still unimplemented and no suppression boundary is approved.
 Validation for this note: pinned-build verifier PASS; static analysis only, over
 the loaded image of the same pinned build. No live capture, no memory write, no
 hook, no build, no install, no launch, no commit.
+
+## Ghidra brought in as a second analyzer — 2026-10-11
+
+Ghidra 12.1.2 (system package, Apache-2.0) is now available and is used alongside
+the hand-written `objdump`/`.pdata` tooling, which remains the primary method.
+The two complement each other: the hand tooling gives precise, auditable
+instruction-level control, while Ghidra supplies cross-references and
+decompilation over the whole image.
+
+**The obstacle is that `.text` is encrypted on disk** (entropy 8.00), so Ghidra
+cannot import the executable file. The working method is to rebuild a loadable
+PE from the live process image: keep the original headers, image base and
+section layout, and overwrite each section's raw bytes with the corresponding
+bytes read from `/proc/<pid>/mem` at their virtual addresses. The result was
+verified before import by confirming that both timer setters decode to their
+expected bytes at their known offsets.
+
+`FindMasterPlayer`'s container, still unidentified among its 1195 callers
+despite the external resolver no longer needing it, is the question Ghidra's
+cross-reference graph should settle directly. The other open item it can answer
+is the callback success path at `0x14119629f`, which was never analysed.
+
+Boundaries, recorded in `docs/legal-boundaries.md`: the tool is used externally
+and never linked; the reconstructed PE and all decompiler output are
+game-derived material and stay in scratch, never in this repository; only
+original reasoning and conclusions are recorded here.

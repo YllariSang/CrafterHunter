@@ -26,6 +26,30 @@ This document is an engineering policy, not legal advice.
 Third-party launchers are supported only when they authenticate a legitimately
 licensed account and obtain game files through an authorized path.
 
+## Analysis tooling and its output
+
+Reverse-engineering tools may be used locally to derive interoperability facts
+for a legitimately obtained installation. Running such a tool creates no
+license obligation for this project: CrafterHunter neither links nor
+redistributes them.
+
+Tools in use: `objdump` and `x86_64-w64-mingw32-g++`, and Ghidra (Apache-2.0,
+obtained from the system package manager). CrafterHunter is itself Apache-2.0,
+which is compatible with that license in any case. Ghidra's distribution
+bundles some GPL-licensed third-party components; those must not be linked into
+anything this project ships, as it is used only as an external analyzer.
+
+Because MHW's `.text` is encrypted on disk, analysis runs against a PE
+reconstructed from the live process image. That file, and every artifact derived
+from it, is game-derived material:
+
+- it stays outside this repository, in scratch space;
+- decompiler output is decompiled source and is **never** committed here;
+- only the original reasoning, offsets and conclusions are recorded, exactly as
+  for findings derived by hand.
+
+This is an engineering policy, not legal advice.
+
 ## Named dependencies and prior art
 
 SharpPluginLoader is an external dependency obtained from its official project;
