@@ -1809,6 +1809,83 @@ reachable during ordinary play, nor that the two are movement-only; both require
 the separately authorized bounded live comparison below. No dynamic capture,
 memory write, hook, build, installation or launch was performed.
 
+### Live capture: ordinary movement does not arm the alternate timers — 2026-10-11
+
+Read-only sampling of the live process (PID 3799, same pinned build), no attach
+and no stops. Authorized interactively by the user. Fresh objects were resolved
+this session rather than reusing prior addresses.
+
+**Fresh object resolution.** Last session's `P=0x69e30080` read back as all
+zero: the player had been freed by a scene reload, confirming the standing
+instruction that recorded heap addresses are session evidence. The correct
+method is to search the heap for the **already-verified transition vtables**
+(`cMove 0x1431c53e0`, `cMoveTurn 0x1433c96d0`, `cMoveEnd 0x1433c9688`) and
+validate each hit through the documented offset chain, instead of guessing a
+container. That yielded 216 transition objects and, for the master player:
+
+```text
+P = 0x69c60080   H = 0x5e232c80   C = 0x5e232c90
+[P+0x14f8] == H      [H+0xdb0] == P      [C+0x30] == P
+```
+
+All three previously documented edges agree, and `P` sits `0xa00` from the prior
+session's value, consistent with a scene reload. This also confirms the static
+result: the state machine's `r15` is `[P+0x14f8]`, i.e. `H` itself, so
+`H+0x4af0` is exactly the state field the switch reads.
+
+Two earlier attempts failed and are recorded because they shaped the method: a
+weak validator accepted any pointer whose `+0x14f8` was merely readable, which
+is not an invariant and produced three false players (one had an instruction
+fragment in `C+0x9e3`); and scanning `.rdata` mistook constants for writable
+globals. `FindMasterPlayer` 0x141B42010 was decoded (24 slots, stride `0x740`,
+key at `+0xae40`) but its container is still unknown, so it was not used.
+
+**Confirmed the physical path is live.** An announced 60-second capture, with
+correct detection (movement judged by change in `C+0x960` from baseline, not by
+a nonzero constant), observed real input:
+
+```text
+baseline   C+0x960=1.0000   K+0x26c8=0x20000000
+[ 16.0s]   mag=0.0000  bits=0x0          (release)
+[ 16.3s]   mag=1.0000  bits=0x20000000   (press again)
+peak |C+0x960 - baseline| = 1.0000 ; peak keyboard aggregate = 1.0000
+```
+
+`K+0x26c8` bit 29 (`0x20000000`) is precisely the forward-movement bit this
+document already tied to `K+0x27ac -> S+0xcfc -> cMove -> (1,4) -> cActRun`, and
+the magnitude reached full scale. The physical keyboard route is therefore
+confirmed working in this session.
+
+**Negative result.** Throughout genuine physical walking:
+
+```text
+states seen at H+0x4af0 : 0x0 only
+TIMER-ARMED samples     : 0   (H+0x4af8 and H+0x4afc stayed 0)
+```
+
+So ordinary physical movement does **not** pass through the state machine at
+`0x14203eab0`, and does not arm either alternate timer. This is the useful
+negative the handoff asked for: states 1-4, which are the only ways to reach
+the arming branches, were never entered during normal locomotion.
+
+**Limits of this result.** It is one session, one scene, one movement mode
+(plain walking), on one build. It does **not** establish that the timers are
+unreachable in all play — they may belong to a rarer scripted, mounted,
+knockdown, cutscene or AI-driven state. It also does not establish what the
+state values 1-4 mean. A prior sampling window was discarded as vacuous: the MHW
+window had lost keyboard focus, `K+0x26c8` stayed `0x0` and `C+0x960` never
+moved, and an automated check wrongly reported "input IS reaching the game" by
+testing a nonzero *baseline* (`K+0x27a8` is a fixed `+0.01` per-frame step, not
+a device value). Focus must be confirmed before any keyed capture is trusted.
+
+**Consequence for suppression.** Because ordinary movement never arms these
+timers, blocking them would not affect normal walking, and because their arming
+path reads no device state, they are a plausible *state-driven* movement
+boundary. That is necessary but not sufficient: the timers' meaning is still
+unknown, and a reversible, scoped design must still preserve the maintenance
+routine's own decrement/clear behaviour and the `+0x4b00` accumulation. No
+suppression is implemented and no boundary is approved.
+
 **Decision:** a concrete local movement-eligibility branch and its native outcome
 are now supported. A safe complete exclusive-input boundary is still NOT proven.
 The shared aggregate/query affects other consumers; the direction reader includes
