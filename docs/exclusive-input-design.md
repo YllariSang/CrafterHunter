@@ -121,67 +121,72 @@ in-flight removal, stacked-hook ownership, or unload synchronisation. Therefore:
 
 ## Known risks
 
-- **The chosen interception point does not work as drafted.** See the blocking
-  finding below; the design must be revised before any code is written.
 - **Other movement consumers.** `cMoveTurn` is left untouched deliberately.
   Turning may still occur under exclusive mode; this must be measured and
   reported rather than assumed absent.
 - **Controller input** shares the magnitude path. Controller coverage remains
   explicitly unsupported until tested.
+- **The callback exists and is not a pass-through.** It was analysed rather than
+  assumed; see below. The predicate result is respected, but the callback is a
+  large routine with its own side effects on failure.
 
-## Blocking finding: the predicate result is discarded
+## Predicate-vs-callback analysis (resolved: the design point stands)
 
-The predicate-override risk flagged in the first draft is not hypothetical. It is
-confirmed, and it invalidates the interception point chosen above.
-
-`0x14026ba00` calls the predicate, saves the result, then consults a callback
+The dispatch `0x14026ba00` calls the predicate and then consults a callback
 table on the transition owner:
 
 ```text
 0x14026ba7c  call  QWORD PTR [rax+0x30]          ; cMove predicate
 0x14026ba7f  mov   edi,eax                       ; edi = predicate result
 0x14026ba81  mov   rax,QWORD PTR [rbx+0x268]     ; callback COUNT
-0x14026ba88  test  rax,rax
 0x14026ba8b  je    0x14026bb05                   ; count == 0 -> return edi unchanged
 ```
 
-With **no** callbacks registered the predicate result is returned untouched.
-With one or more callbacks, control reaches the callback path, and in the
-single-callback case:
+With no callbacks the predicate result is returned untouched. The local hunter
+**does** have one: `T = H+0xa00 = 0x5e233680` has `[T+0x268] = 1`, and its entry
+at `T+0x270` holds object `0x5e2338f0` whose `+0x18` is `H`, tying it to this
+hunter. So the callback path is live and its return value, not the predicate's,
+becomes the dispatch result:
 
 ```text
 0x14026bb2e  mov   DWORD PTR [rsp+0x38],edi   ; predicate result passed BY REFERENCE (r9)
-0x14026bb60  call  QWORD PTR [rax+0x10]       ; callback
+0x14026bb60  call  QWORD PTR [rax+0x10]       ; callback wrapper 0x141193720
 0x14026bb63  mov   edi,eax                    ; edi = CALLBACK RETURN VALUE
-0x14026bb65  jmp   0x14026bb05
-0x14026bb0d  mov   eax,edi                    ; return edi
 ```
 
-So once a callback is registered the **callback's return value replaces the
-predicate result**, and the predicate's value survives only as a mutable
-out-parameter.
+The wrapper `0x141193720` reloads `r9d` from that out-parameter, sets
+`rcx = [cb+0x18] = H`, and tail-jumps to `0x141196260`. That callback begins:
 
-**Live confirmation.** The local transition owner `T = H+0xa00 = 0x5e233680`
-has `[T+0x268] = 1`: a callback *is* registered for the local hunter. Its entry
-at `T+0x270` holds object `0x5e2338f0`, whose `+0x18` is `H` (`0x5e232c80`),
-tying that callback to this hunter. The object's vtable slot `+0x10` resolves to
-`0x141193720`, which tail-jumps through `[rcx+0x8]` to `0x141196260`.
+```text
+0x141196278  cmp   r9d,0xffffffff        ; the predicate's result
+0x14119627c  jne   0x14119629f            ; != -1 -> continue to main logic
+0x14119627e  mov   DWORD PTR [rcx+0x4ef8],0xffff
+0x141196288  mov   eax,r9d               ; eax = -1
+0x14119628b  mov   BYTE  PTR [rcx+0x5eff],0x0
+0x14119629e  ret                         ; RETURNS -1
+```
 
-**Correction to an earlier reading.** A first pass at the multi-entry loop
-concluded that any registered callback forces the result to zero. That was
-wrong: `0x14026bb03 xor edi,edi` is only the loop's fall-through, and the
-single-callback case branches to `0x14026bb26` before reaching it. The correct
-statement is the one above — the callback's return value wins. The conclusion
-for the design is unchanged and slightly worse than "forced to zero": the
-predicate is not the deciding authority at all.
+**The callback propagates the failure.** A predicate result of `-1` is passed
+through unchanged, together with the game's own side effects for an ineligible
+move (`H+0x4ef8 = 0xffff`, `H+0x5eff = 0`). The dispatch therefore returns
+`-1`, which the selector treats as ineligible.
 
-**Consequence.** Filtering the cMove predicate to `-1` would not stop movement
-for the local hunter, so the interception point above is withdrawn. The design
-must instead gate the callback, or move to a point downstream of it. The local
-callback object `0x5e2338f0` is uniquely identified by `[cb+0x18] == H`, which
-preserves the same narrow scoping, but its `0x141196260` tail target is
-unanalysed and its return value is what a filter would have to override. No
-interception point is approved until that is resolved.
+**Consequence.** Forcing the local cMove predicate to `-1` *does* suppress the
+move. This is the desirable shape: the filter does not fabricate a state the
+game would never see, it drives the engine down its own native "not eligible"
+path. The interception point in this document stands.
+
+**Correction.** An earlier checkpoint withdrew this point on the belief that a
+registered callback overrides the predicate. That conclusion was premature: the
+callback body had not been read at the time, and the multi-entry loop's
+fall-through `0x14026bb03 xor edi,edi` was also misread as forcing zero when the
+single-callback case branches to `0x14026bb26` before reaching it. Both errors
+are recorded rather than edited away.
+
+**Still unverified.** The callback's success path (`0x14119629f` onward, a large
+routine through `0x1411966f3`) was not analysed; it is reached only when the
+predicate already returned something other than `-1`, so it does not affect this
+gate, but it may matter if a future design ever needs to *allow* movement.
 
 ## Acceptance plan
 
