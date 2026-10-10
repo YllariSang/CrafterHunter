@@ -14,6 +14,7 @@
 #include <cstdarg>
 #include <cstring>
 #include <mutex>
+#include <string_view>
 #include <vector>
 #include "selection.hpp"
 #include "frame_transport.hpp"
@@ -26,9 +27,11 @@
 #include "world_alignment.hpp"
 #include "player_model.hpp"
 #include "player_uv_debug.hpp"
+#include "exclusive_input.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace sel = crafterhunter::depth;
+namespace excl = crafterhunter::exclusive_input;
 namespace frameio = crafterhunter::frame;
 namespace frames = crafterhunter::frames;
 namespace cmp = crafterhunter::composite;
@@ -361,6 +364,180 @@ bool readPointer(const void* base, size_t offset, void** output) {
         static_cast<const char*>(base) + offset, output, sizeof(void*), &copied) &&
         copied == sizeof(void*) && *output;
 }
+
+// ---------------------------------------------------------------------------
+// Exclusive input: suppress new local cMove selection while the guest owns
+// input. Disabled by default; never engages without an explicit request.
+//
+// Mechanism. The predicate is reached as `call [rax+0x30]` with rax=[obj], and
+// the cMove vtable is shared by every entity in the scene (72 observed). So
+// neither the vtable slot nor the shared predicate body may be patched. Instead
+// the one local object is given a private copy of its vtable whose +0x30 slot
+// points at the trampoline below. Only that object is affected.
+//
+// The trampoline lets the real predicate run and only rewrites its result, so
+// the engine's own "not eligible" path still executes, including the callback
+// at 0x141196260 which propagates -1 and applies its native side effects.
+//
+// Instance addresses are supplied by the host and are re-validated here
+// against the build's known vtable and the object's own player link. Any
+// mismatch removes the filter and fails open.
+// ---------------------------------------------------------------------------
+namespace exclusive {
+
+// Build 421810 observation. Validated before use; a mismatch means the build
+// moved and the filter must not engage.
+constexpr uintptr_t kCMoveVtable   = 0x1431C53E0;
+constexpr uintptr_t kCMoveTurnVtable = 0x1433C96D0;
+constexpr uintptr_t kCMoveEndVtable  = 0x1433C9688;
+
+excl::Gate gate;
+void* filteredObject = nullptr;   // the one object whose vtable we replaced
+void** originalVtable = nullptr;  // its original vtable pointer
+void* privateBlock = nullptr;     // COL slot followed by the copied vtable
+std::mutex filterMutex;
+unsigned long long suppressCount = 0;
+
+// The original predicate, recovered from the object's own vtable.
+int (STDMETHODCALLTYPE*originalPredicate)(void*) = nullptr;
+
+int STDMETHODCALLTYPE trampoline(void* object) {
+    const int result = originalPredicate ? originalPredicate(object) : 0;
+    excl::TransitionView view{object, nullptr, nullptr};
+    void* player = nullptr;
+    if (object && readPointer(object, 0x10, &player)) {
+        view = {object, *reinterpret_cast<void**>(object), player};
+    }
+    std::lock_guard lock(filterMutex);
+    if (gate.evaluate(view) == excl::Action::suppress) {
+        ++suppressCount;
+        return -1;
+    }
+    return result;
+}
+
+bool vtableMatches(const void* object, uintptr_t expected) {
+    void* vtable = nullptr;
+    return readPointer(object, 0, &vtable) &&
+        reinterpret_cast<uintptr_t>(vtable) == expected;
+}
+
+void removeLocked() {
+    if (filteredObject && originalVtable && privateBlock) {
+        // Only restore if the object still carries our vtable; if the game has
+        // reassigned it, the original pointer is stale and must not be written.
+        void* current = nullptr;
+        if (readPointer(filteredObject, 0, &current) &&
+            current == reinterpret_cast<void**>(privateBlock) + 1) {
+            *reinterpret_cast<void**>(filteredObject) = originalVtable;
+        }
+    }
+    if (privateBlock) { VirtualFree(privateBlock, 0, MEM_RELEASE); privateBlock = nullptr; }
+    filteredObject = nullptr;
+    originalVtable = nullptr;
+    originalPredicate = nullptr;
+    gate.invalidate();
+}
+
+void remove() {
+    std::lock_guard lock(filterMutex);
+    removeLocked();
+    log("exclusive input: filter removed");
+}
+
+// Apply using host-supplied addresses. Every pointer is re-validated against
+// this build's vtables before anything is written.
+bool apply(uintptr_t player, uintptr_t human, uintptr_t cMove,
+           uintptr_t cMoveTurn, uintptr_t cMoveEnd) {
+    std::lock_guard lock(filterMutex);
+    removeLocked();
+
+    void* object = reinterpret_cast<void*>(cMove);
+    void* turn = reinterpret_cast<void*>(cMoveTurn);
+    void* end = reinterpret_cast<void*>(cMoveEnd);
+    if (!vtableMatches(object, kCMoveVtable) || !vtableMatches(turn, kCMoveTurnVtable) ||
+        !vtableMatches(end, kCMoveEndVtable)) {
+        log("exclusive input: refused, instance vtable mismatch (build moved)");
+        return false;
+    }
+    void* objectPlayer = nullptr;
+    if (!readPointer(object, 0x10, &objectPlayer) ||
+        reinterpret_cast<uintptr_t>(objectPlayer) != player) {
+        log("exclusive input: refused, object/player link mismatch");
+        return false;
+    }
+    if (!readPointer(reinterpret_cast<void*>(human), 0xdb0, &objectPlayer) ||
+        reinterpret_cast<uintptr_t>(objectPlayer) != player) {
+        log("exclusive input: refused, human controller identity mismatch");
+        return false;
+    }
+
+    // One page: the RTTI CompleteObjectLocator pointer that precedes a vtable
+    // is preserved immediately before the copy, so type queries keep working.
+    auto* block = static_cast<unsigned char*>(VirtualAlloc(nullptr, 0x1000,
+        MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+    if (!block) { log("exclusive input: refused, allocation failed"); return false; }
+    auto** copy = reinterpret_cast<void**>(block + 8);
+    const size_t entries = 64;
+    SIZE_T copied = 0;
+    if (!ReadProcessMemory(GetCurrentProcess(),
+        reinterpret_cast<const char*>(*reinterpret_cast<void***>(object)),
+        copy, entries * sizeof(void*), &copied) || copied != entries * sizeof(void*)) {
+        VirtualFree(block, 0, MEM_RELEASE);
+        log("exclusive input: refused, vtable copy failed");
+        return false;
+    }
+    originalVtable = *reinterpret_cast<void***>(object);
+    originalPredicate = reinterpret_cast<int (STDMETHODCALLTYPE*)(void*)>(copy[0x30 / sizeof(void*)]);
+    copy[0x30 / sizeof(void*)] = reinterpret_cast<void*>(&trampoline);
+
+    gate.set_local(excl::LocalInstances{
+        reinterpret_cast<const void*>(player), reinterpret_cast<const void*>(human),
+        object, turn, end});
+    gate.enable();
+
+    privateBlock = block;
+    filteredObject = object;
+    *reinterpret_cast<void***>(object) = copy;
+    log("exclusive input: filter armed on the local cMove only");
+    return true;
+}
+
+void serviceRequests() {
+    constexpr char request[]="nativePC/plugins/CSharp/CrafterHunter/render/exclusive-input.request";
+    constexpr char claimed[]="nativePC/plugins/CSharp/CrafterHunter/render/exclusive-input.claimed";
+    constexpr char reply[]="nativePC/plugins/CSharp/CrafterHunter/render/exclusive-input.reply";
+    if (!MoveFileExA(request, claimed, 0)) return;
+
+    // Claim before reading; never delete a newly published request.
+    char line[256]{};
+    FILE* file = fopen(claimed, "r");
+    if (file) { fgets(line, sizeof line, file); fclose(file); }
+    DeleteFileA(claimed);
+
+    std::string_view text{line};
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.remove_suffix(1);
+
+    unsigned long long player = 0, human = 0, move = 0, turn = 0, end = 0;
+    bool armed = false;
+    if (text == "off") {
+        remove();
+    } else if (sscanf(text.data(), "on %llu %llu %llu %llu %llu",
+                      &player, &human, &move, &turn, &end) == 5) {
+        armed = apply(player, human, move, turn, end);
+    } else {
+        log("exclusive input: unrecognised request '%s'", text.data());
+    }
+
+    std::lock_guard lock(filterMutex);
+    FILE* out = fopen(reply, "w");
+    if (out) {
+        std::fprintf(out, "armed=%d suppressed=%llu\n", armed ? 1 : 0, suppressCount);
+        fclose(out);
+    }
+}
+
+}  // namespace exclusive
 
 void STDMETHODCALLTYPE observeClear(ID3D11DeviceContext* ctx, ID3D11DepthStencilView* view,
     UINT flags, FLOAT clear, UINT8 stencil) {
@@ -1786,6 +1963,7 @@ extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* view
     ++frame;
     serviceWorldUpload();
     serviceAlignment();
+    exclusive::serviceRequests();
     ComPtr<ID3D11Texture2D> back;
     if (FAILED(swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back.GetAddressOf())))) return 0;
     D3D11_TEXTURE2D_DESC d{}; back->GetDesc(&d);
