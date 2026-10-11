@@ -26,6 +26,7 @@
 #include "world_reprojection.hpp"
 #include "world_alignment.hpp"
 #include "paired_grid.hpp"
+#include "stream_cadence.hpp"
 #include "player_model.hpp"
 #include "player_uv_debug.hpp"
 #include "exclusive_input.hpp"
@@ -192,6 +193,7 @@ crafterhunter::alignment::Position alignmentHost{};
 crafterhunter::alignment::Position alignmentPlayer{};
 bool alignmentPlayerKnown=false;
 ULONGLONG alignmentNextLog=0;
+std::uint64_t worldPollIntervalMillis=crafterhunter::stream::DefaultIntervalMillis;
 ComPtr<ID3D11VertexShader> pairedVS;
 ComPtr<ID3D11PixelShader> pairedPS;
 ComPtr<ID3D11Buffer> pairedConstants;
@@ -259,6 +261,19 @@ void serviceAlignment() {
         origin[0],origin[1],origin[2]);
 }
 
+// Reads a flag file's content, or "" when it is absent. Small and bounded: the
+// pacing contract is a single integer, and reading it here keeps the refusals in
+// one tested place rather than in the caller's error handling.
+std::string readFlag(const char* relative) {
+    char path[256]{};
+    std::snprintf(path,sizeof path,
+        "nativePC/plugins/CSharp/CrafterHunter/render/%s",relative);
+    FILE* file=fopen(path,"r");
+    if(!file) return {};
+    char line[64]{}; const char* text=fgets(line,sizeof line,file); fclose(file);
+    return text? std::string(text) : std::string();
+}
+
 void serviceWorldUpload() {
     const bool enabled=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/world-upload.enabled")!=INVALID_FILE_ATTRIBUTES;
     if (!enabled) {
@@ -268,8 +283,16 @@ void serviceWorldUpload() {
     worldUploadEnabled=true;
     const auto now=GetTickCount64();
     if (!worldFreshness.live(now)) clearWorldUpload("paired freshness expired or awaiting producer advance");
+    // The flag's content negotiates the poll interval in milliseconds; zero looks
+    // on every frame. It was 250 ms to match the guest's own request pacing, not
+    // because anything measured that as a limit.
+    const auto interval=crafterhunter::stream::intervalMillis(readFlag("world-upload.enabled"));
+    if(interval!=worldPollIntervalMillis) {
+        worldPollIntervalMillis=interval;
+        log("paired world poll interval=%llums",static_cast<unsigned long long>(interval));
+    }
     if (now<nextWorldPoll) return;
-    nextWorldPoll=now+250; // request-paced diagnostic, not a per-frame video reader
+    nextWorldPoll=interval? now+interval : now;
     crafterhunter::world::Snapshot snapshot;
     if (!crafterhunter::world::read("Z:\\dev\\shm\\crafterhunter\\world.frame", snapshot)
             && !crafterhunter::world::read("/dev/shm/crafterhunter/world.frame", snapshot)) {

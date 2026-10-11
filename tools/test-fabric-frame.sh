@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Headless checks for the guest's frame contract: the row order a GPU readback
 # arrives in, the byte count of a frame, the shared-memory meta line, the
-# request parsing the control tool and the mod both have to agree on, and the
+# request parsing the control tool and the mod both have to agree on, the
 # depth readback's row arithmetic (which must not be derived from a buffer's
-# capacity).
+# capacity), and the stream pacing contract with the cadence it achieves.
 set -euo pipefail
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 output_directory="$project_root/minecraft/fabric/build/headless-tests"
@@ -12,6 +12,8 @@ mkdir -p "$output_directory"
 sources=(
     "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/WorldCopyState.java"
     "$project_root/minecraft/fabric/tests/WorldCopyStateTest.java"
+    "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/StreamCadence.java"
+    "$project_root/minecraft/fabric/tests/StreamCadenceTest.java"
     "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/DepthReadbackPlan.java"
     "$project_root/minecraft/fabric/tests/DepthReadbackPlanTest.java"
     "$project_root/minecraft/fabric/src/client/java/dev/crafterhunter/client/FrameLayout.java"
@@ -26,4 +28,5 @@ javac --release 25 -Xlint:all -Werror -d "$output_directory" "${sources[@]}"
 java -cp "$output_directory" dev.crafterhunter.client.FrameLayoutTest
 java -cp "$output_directory" dev.crafterhunter.client.FrameChannelTest
 java -cp "$output_directory" dev.crafterhunter.client.WorldCopyStateTest
+java -cp "$output_directory" dev.crafterhunter.client.StreamCadenceTest
 java -cp "$output_directory" dev.crafterhunter.client.DepthReadbackPlanTest

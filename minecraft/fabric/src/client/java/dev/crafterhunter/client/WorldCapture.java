@@ -147,6 +147,8 @@ public final class WorldCapture {
 
     private long nextPollNanos;
     private boolean streaming;
+    private long streamIntervalMillis = StreamCadence.DEFAULT_INTERVAL_MILLIS;
+    private final StreamCadence.Report streamCadence = new StreamCadence.Report();
     private long nextStreamNanos;
     private final Path streamFlag = requestFile.resolveSibling("world-stream.enabled");
     private int remaining;
@@ -249,6 +251,14 @@ public final class WorldCapture {
         if (remaining == 0 && nowNanos >= nextPollNanos) {
             nextPollNanos = nowNanos + POLL_INTERVAL_NANOS;
             streaming = Files.isRegularFile(streamFlag);
+            // The flag's content is the publish interval in milliseconds; zero
+            // removes the floor. StreamCadence owns the parsing and its refusals.
+            try {
+                streamIntervalMillis = StreamCadence.intervalMillis(
+                    streaming ? Files.readString(streamFlag) : null);
+            } catch (IOException unreadable) {
+                streamIntervalMillis = StreamCadence.DEFAULT_INTERVAL_MILLIS;
+            }
             readRequest();
         }
 
@@ -259,7 +269,9 @@ public final class WorldCapture {
             mode = Mode.BOTH;
             remaining = 1;
             requestedFrames = 1;
-            nextStreamNanos = nowNanos + POLL_INTERVAL_NANOS;
+            // One copy in flight is the back-pressure: at interval zero the next
+            // publish waits for this one to complete, not for the clock.
+            nextStreamNanos = nowNanos + streamIntervalMillis * 1_000_000L;
         }
 
         if (remaining > 0 && !inFlight) {
@@ -611,6 +623,9 @@ public final class WorldCapture {
     }
 
     private void publish(long nowNanos) {
+        // The cadence is measured here, at the point a snapshot actually reaches
+        // the shared channel, not when a copy was requested.
+        if (streaming) streamCadence.record(nowNanos);
         int width = bufferWidth;
         int height = bufferHeight;
         long identity = inFlightIdentity;
@@ -952,6 +967,9 @@ public final class WorldCapture {
     }
 
     private void writeSummary() {
+        // The achieved cadence is the measurement this pacing exists to produce:
+        // it is the only way to know whether the guest can publish at all at the
+        // interval being asked for.
         try {
             Files.createDirectories(outputDirectory);
             StringBuilder text = new StringBuilder();
@@ -972,6 +990,8 @@ public final class WorldCapture {
             text.append("remaining=").append(remaining).append('\n');
             text.append("inFlightMillis=").append(inFlight
                 ? (System.nanoTime() - inFlightQueuedNanos) / 1_000_000L : -1).append('\n');
+            text.append("streamIntervalMillis=").append(streamIntervalMillis).append('\n');
+            text.append(streamCadence.summary()).append('\n');
             Files.writeString(summaryFile, text.toString(), StandardCharsets.UTF_8);
         } catch (IOException ignored) {
             // Instrumentation must never break the frame it measures.

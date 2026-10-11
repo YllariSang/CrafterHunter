@@ -69,13 +69,16 @@ is opt-in via `paired-full.enabled` (`tools/control-paired-preview.py
 start-full`), which takes precedence over the preview flag. It has never been
 rendered.
 
-The remaining half of the spike is **cadence**: the guest publishes paired
-snapshots at its own request pacing and the host polls at its own interval, so
-the full path is full resolution and still slow. Those are independent problems;
-resolution says nothing about frame rate. The next implementation target is the
-transport, and the first thing to settle is whether a per-frame guest readback
-(`copyTextureToBuffer`, which is a GPU sync point) can run at Minecraft's frame
-rate at all, before anything is built on top of the assumption that it can.
+The remaining half of the spike is **cadence**. Both transport floors are now
+negotiable rather than hardcoded: each flag file's content is an interval in
+milliseconds, zero means no floor, anything unreadable falls back to 250 ms.
+`StreamCadence.java` (guest) and `stream_cadence.hpp` (host) implement the same
+contract and are tested against the same input table. The guest reports achieved
+cadence (count/min/mean/max) in `world-capture.summary`; the host reports upload
+age. **No cadence has been measured yet** - that is next, and the first number to
+look for is what the guest achieves at interval zero, because
+`copyTextureToBuffer` is a GPU sync point and 3.9 MB of readback per frame may or
+may not fit in Minecraft's frame budget.
 
 Validate same-frame Minecraft world colour/depth capture before changing native
 composition. WorldCapture currently fails closed permanently after a timeout or

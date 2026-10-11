@@ -29,6 +29,10 @@ def main():
     parser.add_argument("action", choices=["start", "start-full", "align", "stop"])
     parser.add_argument("--mode", choices=["preview", "full"], default="preview",
                         help="composition path for start; start-full means full")
+    parser.add_argument("--guest-ms", type=int, default=250,
+                        help="guest publish floor in ms; 0 publishes on every render tick")
+    parser.add_argument("--host-ms", type=int, default=250,
+                        help="host poll floor in ms; 0 polls every frame")
     parser.add_argument("--minecraft", type=Path, default=Path.home()/".minecraft")
     parser.add_argument("--mhw", type=Path, default=Path.home()/".local/share/Steam/steamapps/common/Monster Hunter World")
     args = parser.parse_args()
@@ -50,13 +54,20 @@ def main():
         atomic_write(render/"align.request", "align\n")
         print("Calibration requested: requires a loaded MHW world, fresh pair and Minecraft FIRST_PERSON.")
         return
-    flags = [render/"world-upload.enabled", stream]
+    # The flags double as the pacing negotiation: each file's content is the
+    # interval in milliseconds, read by the guest and the host respectively.
+    # Anything unreadable falls back to 250 ms on the other side.
+    atomic_write(render/"world-upload.enabled", f"{args.host_ms}\n")
+    atomic_write(stream, f"{args.guest_ms}\n")
+    flags = []
     # Exactly one composition path at a time: the full path takes precedence when
     # both flags exist, and leaving the preview flag on under it would make the
     # fallback ambiguous.
     flags.append(render/("paired-full.enabled" if full else "paired-compose.enabled"))
     for path in flags:
         atomic_write(path, "paired composition\n")
+    print(f"Cadence: guest publishes every {args.guest_ms} ms, host polls every {args.host_ms} ms."
+          + ("  (zero means no floor on either side)" if 0 in (args.guest_ms, args.host_ms) else ""))
     if full:
         print("FULL-RESOLUTION paired composition enabled (one point per captured texel).")
         print("Still request-paced: the guest publishes on its own interval, so this is not 60 fps.")

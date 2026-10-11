@@ -1,5 +1,45 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Make transport cadence a negotiation, and measure it
+
+The full-resolution composite is still slow, and the reason was never measured:
+both ends of the transport carried a hardcoded 250 ms floor, introduced together
+as a deliberate "request-paced diagnostic, not a video reader". Neither side was
+ever asked what cadence it could sustain, so "can this reach frame rate" had no
+answer to be had from the code.
+
+Both floors are now negotiated. The flag files double as the negotiation: each
+file's content is the interval in milliseconds, and zero means no floor - the
+guest publishes on every render tick that has no copy in flight, the host looks
+on every frame. Back-pressure is unchanged and is what actually bounds the guest:
+one copy in flight, no queue growth, and the permanent fail-closed policy on an
+incomplete copy. Defaults are unchanged at 250 ms, so nothing moves until asked.
+
+Every refusal falls back to 250 ms rather than to the fastest setting, because a
+typo silently becoming "per frame" is the kind of failure nobody notices until the
+machine is on fire. The contract is implemented twice - StreamCadence.java for the
+guest, stream_cadence.hpp for the host - and both halves are tested against the
+same table of inputs, because two languages reading one contract is exactly how
+they drift apart.
+
+The guest now reports what it achieved rather than what it was asked for:
+world-capture.summary carries streamIntervalMillis and a cadence line with count,
+min, mean and max. First samples only establish a baseline, and a backwards clock
+step yields no interval rather than a negative one. That number, plus the host's
+existing upload-age report, is what the next runtime session reads - and it is the
+answer to the question the spike actually turns on.
+
+Writing the three cadence tests caught three wrong expectations in them - a
+miscounted interval, a wrong mean, and a count that contradicted the assertion
+next to it. The implementation was right each time; the tests were wrong, and they
+were wrong in the direction of not having been thought through.
+
+Verified: tools/test-fabric-frame.sh (cadence contract and report),
+tools/test-stream-cadence.sh, tools/test-paired-grid.sh, the exclusive-input and
+reprojection suites, and the MinHook cross-build. **Not measured at runtime and not
+installed** - both games are running. No cadence claim has been made; the change
+only makes the question answerable.
+
 ## 2026-10-11 — Steve spike: full-resolution paired composite
 
 The spike wants a full Minecraft frame at native resolution and 60 fps with the
