@@ -1,5 +1,45 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Constant guest cadence comparison without the AFK cap
+
+The user approved and selected Reduce FPS when = Minimized. Verified the saved
+setting and Minecraft focus before and throughout another ON/OFF/OFF/ON run
+(4s settling + 20s measurement each). Both windows remained visible at 949x509;
+guest feet, generation 10018048051975 and first-person mode stayed fixed.
+Capture/upload floors remained zero. Only full paired/player draw flags toggled;
+both were restored byte-for-byte, no held temporary flags remained. Calibration
+epoch 1220 remained armed; no freshness/reset events. Full paired/player draws
+are visible in original-resolution desktop screenshots. Local ignored evidence
+and exact script: `captures/composition-ab-20261011-204326/`.
+
+| Drawing | CH_Frame callbacks/s | Guest publishes/s | Host uploads/s |
+| --- | ---: | ---: | ---: |
+| ON 1 | 38.16 | 46.65 | 37.71 |
+| OFF 2 | 39.11 | 46.45 | 38.56 |
+| OFF 3 | 39.01 | 46.35 | 38.36 |
+| ON 4 | 38.11 | 46.01 | 37.41 |
+
+Unlike the earlier run, guest publishing stayed about 46/s throughout. Host
+callbacks differed by about 0.9/s between drawing ON and OFF; OFF did not approach
+60. Capture/upload and the existing renderer hooks remained active, so this does
+not measure vanilla MHW, capture-free rendering, or upload-only overhead. GPU
+readings were 63–87% ON and 78–85% OFF, around 1710MHz and 83–85C. The result
+supports profiling capture/upload and host hook costs next, rather than assuming
+paired drawing is the main cause of the current ~38/s rate. No sole CPU/GPU
+bottleneck, independent Present fps, E2E latency or 60 fps acceptance claim.
+
+A separate read-only five-second process CPU tick sample after the run found
+MHW at 388.6% of one CPU and Minecraft at 125.2%; busy host threads included
+Rendering Thread 66.6% and dxvk-cs 46.4%, guest Render thread 63.8%. This is not
+a function profile or a matched phase. A bounded eu-stackprof attempt collected
+only 48 samples and reported 19 lost, insufficient to name a hot function.
+No debugger pause, input injection, kernel permission change or game file change.
+The user restored AFK afterward; options.txt independently confirms AFK. Full
+paired/player flags and zero upload floor match the original preconditions.
+The flag-cache change remains installed and regression-checked; causal speed
+improvement across the two sessions is unproven. Next bounded task: profile the
+remaining capture/upload/host hook work before changing its implementation.
+
 ## 2026-10-11 — Flag-cache live repeat; still-player AFK cap confirmed
 
 After the user reopened both games, the fresh MHW PID 160189 loaded a renderer

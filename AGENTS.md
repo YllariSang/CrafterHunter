@@ -136,6 +136,17 @@ MINIMIZED skips idle caps while visible. Next user-approved temporary Minimized
 comparison, restore AFK afterward. No sole CPU/GPU limiter, new pixel acceptance,
 E2E latency or 60 fps claim. Evidence captures/composition-ab-20261011-203655/.
 
+Latest 204326 repeat used user-approved temporary Minimized (AFK restored and
+independently verified afterward). Guest stayed ~46 publishes/s throughout;
+ON/OFF/OFF/ON host callbacks/s = 38.16/39.11/39.01/38.11. Both draw flags restored
+exactly, epoch 1220/generation 10018048051975 armed, no invalidation. OFF left
+capture/upload/hooks active and did not reach 60; paired drawing alone accounts
+for little of the current rate gap. Next profile remaining capture/upload/host
+hook work before another bounded change. Brief CPU ticks show busy threads,
+not a hot function; eu-stackprof's sparse/lost samples are insufficient. Do not
+claim a sole CPU/GPU limiter, causal cross-session improvement, Present fps or
+E2E latency. Full evidence/script captures/composition-ab-20261011-204326/.
+
 Validate same-frame Minecraft world colour/depth capture before changing native
 composition. WorldCapture currently fails closed permanently after a timeout or
 setup/copy exception, retaining at most its existing buffer pair until process exit.

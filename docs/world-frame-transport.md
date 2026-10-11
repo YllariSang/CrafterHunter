@@ -48,6 +48,18 @@ while retaining the iconification limit. For a still-player cadence comparison,
 obtain approval to select Minimized temporarily, keep both games visible and
 restore AFK afterward. No setting was changed during the recorded repeat.
 
+With the user-approved temporary Minimized setting, repeat 204326 held guest
+publishing at 46.65/46.45/46.35/46.01 per second through ON/OFF/OFF/ON. Host
+callbacks were 38.16/39.11/39.01/38.11 per second. Capture/upload stayed active;
+turning paired/player drawing off alone did not reach 60. This isolates the
+draw-toggle effect under roughly constant producer cadence, not vanilla MHW or
+the cost of capture/upload/hooks. No sole CPU/GPU limiter is established.
+Screenshots, fresh logs, exact script and results are in ignored
+`captures/composition-ab-20261011-204326/`. Epoch 1220/generation 10018048051975
+stayed armed, with no invalidation. Draw flags were restored exactly; the user
+restored AFK, confirmed in options.txt. Next profile capture/upload and host hook
+work before selecting another bounded change. The 60 fps gate remains open.
+
 ## Resident native upload pair (2026-10-11)
 
 The next bounded cadence change replaces per-capture immutable texture/SRV
