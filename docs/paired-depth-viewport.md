@@ -91,3 +91,12 @@ guest request flag and produces a matching released acknowledgement at sequence
 Games remain open with control OFF. No exact fps, screen latency or same-frame
 dynamic GPU camera/depth pairing is accepted from these observations. Steve's
 remaining flicker is recorded for a separate rendering follow-up.
+
+User correction: Steve's occlusion is jumpy only when Minecraft owns the MHW
+camera; the unarmed MHW camera looks good. The next bounded target is therefore
+stable Steve occlusion during ACTIVE camera control. Compare identical scene
+conditions with control ON/OFF and identify which depth test changes before
+altering code. Host depth/camera synchronization or guest depth/body projection
+may be involved; neither cause is established by the report. Preserve accepted
+environment occlusion, same-capture attachments, native F5 and F6. First-person
+body visibility must continue to match Minecraft.

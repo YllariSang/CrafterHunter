@@ -59,6 +59,17 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+User correction (2026-10-12): Steve's jumpy occlusion occurs only while
+Minecraft owns the MHW camera (CONTROL ACTIVE). With camera control unarmed,
+Steve's occlusion is "pretty good". Do not describe this as a general player
+rendering failure. Next bounded goal: stabilize Steve occlusion in the ACTIVE
+camera path. Compare the same scene/control ON vs OFF at a fixed anchor, then
+identify whether the mismatch is in host scene depth/camera or private guest
+depth/body projection before choosing a fix. Camera/depth synchronization is a
+hypothesis, not a measured cause. Preserve accepted world occlusion, same-capture
+body/attachments, first-person body hiding, native F5 and F6. No implementation
+or new runtime run is authorized merely by asking what the next goal is.
+
 Latest acceptance (2026-10-12): user reports environment occlusion "stable and
 better", F5 works and F6 releases; Steve alone still has jumpy occlusion. User
 permits deferring it if not substantial; retain it as an open body-rendering issue,

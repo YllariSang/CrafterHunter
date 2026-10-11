@@ -1,5 +1,20 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Steve occlusion issue narrowed to ACTIVE camera control
+
+User corrects the acceptance report: Steve's jumpy occlusion occurs only when
+Minecraft owns the MHW camera; unarmed camera occlusion is "pretty good".
+Environment acceptance and F5/F6 results stand. This is a mode-specific issue,
+not evidence that standalone body occlusion is generally broken.
+
+Next proposed bounded goal: stabilize Steve's occlusion under ACTIVE camera
+control. Compare the same scene with control ON/OFF using the fixed anchor;
+distinguish the host scene-depth test from private guest-depth/body projection
+before selecting a fix. Camera/depth synchronization remains a hypothesis.
+Preserve world occlusion, same-capture body/attachments, first-person body hiding,
+native F5 and F6. This turn records the correction/next target only: no game
+requests, camera activation, source changes, builds or artifact installation.
+
 ## 2026-10-12 — Environment occlusion fix accepted; Steve flicker remains
 
 User reports environment occlusion "stable and better", F5 works and F6 releases.

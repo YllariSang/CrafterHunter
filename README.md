@@ -53,7 +53,9 @@ player's measured viewport conversion to world composition. Checks/build pass
 and the verified renderer is installed. The user reports environment occlusion
 stable and better after all-F5 movement, with F5 and F6 working. Fresh original
 screenshots, fixed-anchor traces and matching release support that checkpoint.
-Steve's own occlusion still flickers and remains an open rendering follow-up.
+Steve's own occlusion flickers only while Minecraft controls the MHW camera;
+the unarmed camera looks good. Stabilizing that camera path is the next bounded
+rendering goal, with its cause still to be measured.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link
 work, and the native DX11 renderer displays Minecraft geometry with fixed world
