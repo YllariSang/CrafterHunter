@@ -1,5 +1,25 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Matching Minecraft-owned camera build installed
+
+After the user quit both games normally, fresh host window and exact process
+checks confirmed neither game remained. Verified the pinned MHW executable and
+existing managed-install marker before replacing the three matching tested
+artifacts: Fabric jar, CrafterHunter.MHW.dll and CrafterHunter.Render.dll.
+Each installed artifact passes cmp against its build. Prior artifacts, managed
+marker, renderer opt-in/license and any existing camera/input requests were
+backed up before replacement, with a manifest, in
+native/mhw-renderer/build/rollback.guest-camera.mrqb_l57/.
+
+Updated the managed marker, removed only the new camera-control opt-in flag and
+atomically published camera/input OFF requests so no old per-session addresses
+can arm after restart. Existing world/player channels, cadence flags, renderer
+opt-in, alignment files, graphics settings and saves were preserved. Games were
+not launched by the agent. Implementation commit 69d04df is pushed; next gate
+remains fresh offline scenes, one calibration, visible walking/look/all-F5 and
+F6 release with screenshots and advancing capture/control/log evidence. No live
+host camera, release, culling or playable-MVP acceptance claim yet.
+
 ## 2026-10-11 — Minecraft-owned camera implementation started
 
 User authorized the next bounded goal: actual Minecraft render camera drives

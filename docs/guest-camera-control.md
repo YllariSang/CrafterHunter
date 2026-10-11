@@ -1,6 +1,14 @@
 # Minecraft-owned camera slice
 
-2026-10-11: implemented and headless-verified; installation/live acceptance pending.
+2026-10-11: implemented, headless-verified and installed; live acceptance pending.
+
+Matching Fabric, managed and native artifacts installed after the user closed
+both games and fresh host process checks confirmed exit. All three match their
+tested builds by cmp. Scoped previous artifacts, marker and control requests are
+preserved in native/mhw-renderer/build/rollback.guest-camera.mrqb_l57/ with a
+manifest. The managed marker was updated; camera control and the input request
+start OFF. Existing world/player channels, cadence flags and alignment were
+preserved. Reopening and a fresh-session calibration are required for testing.
 
 Keep the existing Fabric/bridge/SPL/native architecture. The existing paired
 world anchor maps guest feet to host feet; it is never changed by F5. A small
