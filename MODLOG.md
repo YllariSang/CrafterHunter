@@ -1,5 +1,51 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Bounded cadence tuning: resident native paired textures
+
+Continued the accepted native-resolution spike's remaining cadence line. Source
+inspection found two texture and two SRV creations on every advancing capture.
+The native upload now keeps one DEFAULT-usage RGBA8 UNORM/R32_FLOAT pair for
+same-size, same-generation snapshots and queues both full-image updates on the
+existing immediate context before publishing the matching metadata. No host
+depth writes, wait, Map, Flush, ring, new exporter or gameplay subsystem. Startup,
+resize, producer replacement and clear/reset allocate privately; any creation
+failure or device removal clears the drawable pair and calibration. Existing
+identity selection, watchdog, projection, anchor, shader and F5 behavior remain.
+Existing upload log reports textures=created/updated, without a new trace channel.
+
+Source-lifetime basis: Microsoft's documented UpdateSubresource contract copies
+the CPU bytes before returning:
+https://learn.microsoft.com/en-us/windows/win32/api/d3d11/nf-d3d11-id3d11devicecontext-updatesubresource
+Outstanding GPU draws can cause driver-managed intermediate copies. This removes
+application resource allocation; it does NOT establish improved fps or latency.
+Minecraft's permanent fail-closed readback policy is unchanged.
+
+Passed: `bash tools/test-world-upload.sh` (120 advances: two textures/two views,
+240 ordered updates; exact rows/halves, resize, restart, reset, all four creation
+failures, malformed input); a temporary mutant disabling reuse reproduces the
+original per-capture allocation behavior and fails the advancing-capture test.
+Also passed `bash tools/build-mhw-renderer.sh`, `bash tools/test-world-frame-transport.sh`,
+`bash tools/test-world-reprojection.sh`, `bash tools/test-depth-selection.sh`,
+`bash tools/test-paired-grid.sh`, `bash tools/test-frame-composite.sh`,
+`bash tools/test-stream-cadence.sh`, `bash tools/test-exclusive-input.sh`,
+`bash tools/test-shader-source.sh` (13 HLSL entries),
+`python3 tools/test-player-preview.py` and `git diff --check`. Protocol and Fabric
+code are unchanged, so no Rust/Fabric rebuild was required. Fish config attempted
+writes outside the sandbox during the suite; all test commands exited zero.
+
+Installed only the native renderer after host checks initially found Minecraft
+PID 16962 and MHW PID 20639 running, the user quit both normally, and a fresh host
+check found neither. `bash tools/install-mhw-renderer.sh` backed up the previous
+native DLL/enable marker/MinHook notice under
+`native/mhw-renderer/build/rollback.W0pIsw`; build/install `cmp` passed. Guest and
+managed artifacts are unchanged. No game was launched or save edited.
+
+Next: fresh screenshots and cadence evidence for resident-pair uploads, comparing
+the same resolution, focus, floors and scene against the prior ~40 fps checkpoint.
+No new runtime acceptance or 60 fps claim. Ghidra's official repository supplied
+by the user is available if native engine inspection becomes necessary; this
+change required only project source and documented D3D11 upload semantics.
+
 ## 2026-10-11 — Spike accepted at native resolution: there was no pale-surface defect
 
 Six screenshots at native resolution, both games live, `paired-full.enabled` and

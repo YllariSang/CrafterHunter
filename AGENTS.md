@@ -98,6 +98,15 @@ redesign. Note that log lines must report state, not slogans: two hardcoded
 claims ("composition disabled", "drawing disabled") survived into the session
 where a 483,041-point composite was running, and were believed.
 
+Next bounded cadence change (2026-10-11): native paired uploads now reuse one
+DEFAULT-usage RGBA8/R32_FLOAT texture/SRV pair on same-size, same-generation
+advance, using ordered immediate-context UpdateSubresource calls. Resize/reset
+creates a complete private replacement. Headless policy and native build pass;
+installed cmp-clean with backup build/rollback.W0pIsw. The reuse path is NOT
+runtime-accepted and no fps/latency gain is claimed. See docs/world-frame-transport.md.
+Obtain fresh composition/cadence evidence before widening this tuning change;
+keep all freshness/F5 gates.
+
 Validate same-frame Minecraft world colour/depth capture before changing native
 composition. WorldCapture currently fails closed permanently after a timeout or
 setup/copy exception, retaining at most its existing buffer pair until process exit.

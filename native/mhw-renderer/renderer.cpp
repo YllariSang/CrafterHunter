@@ -27,6 +27,7 @@
 #include "world_alignment.hpp"
 #include "paired_grid.hpp"
 #include "stream_cadence.hpp"
+#include "world_upload.hpp"
 #include "player_model.hpp"
 #include "player_uv_debug.hpp"
 #include "exclusive_input.hpp"
@@ -179,10 +180,14 @@ ComPtr<ID3D11Buffer> frameConstants;
 struct FrameMapping { float uvRect[4]; float frameFlags[4]; };
 FrameMapping frameMapping{};
 
-// Upload-only diagnostic, never bound by either existing draw path.
+// Captured pair shared by the paired preview and full-resolution draw.
 crafterhunter::world::Freshness worldFreshness;
-ComPtr<ID3D11Texture2D> worldColourTexture, worldDepthTexture;
-ComPtr<ID3D11ShaderResourceView> worldColourView, worldDepthView;
+struct WorldSurface {
+    ComPtr<ID3D11Texture2D> texture;
+    ComPtr<ID3D11ShaderResourceView> view;
+    explicit operator bool() const { return texture && view; }
+};
+crafterhunter::world::UploadPair<WorldSurface> worldTextures;
 crafterhunter::world::Snapshot worldMetadata;
 crafterhunter::reprojection::Matrix worldInverseProjection{};
 crafterhunter::reprojection::Matrix worldEyeToGuest{};
@@ -219,8 +224,7 @@ void clearWorldUpload(const char* reason="upload unavailable") {
     alignmentSession.anchor.reset();
     if (worldMetadata.identity) log("paired world upload cleared generation=%llu identity=%llu (upload-only)",
         static_cast<unsigned long long>(worldMetadata.generation), static_cast<unsigned long long>(worldMetadata.identity));
-    worldColourView.Reset(); worldDepthView.Reset();
-    worldColourTexture.Reset(); worldDepthTexture.Reset();
+    worldTextures.reset();
     worldMetadata=crafterhunter::world::Snapshot{};
     worldInverseProjection={};
     worldEyeToGuest={};
@@ -329,23 +333,31 @@ void serviceWorldUpload() {
             || !crafterhunter::reprojection::eyeToWorld(view,snapshot.cameraPosition,eyeToGuest)) {
         clearWorldUpload(); log("paired world projection refused: singular or nonfinite"); return;
     }
-    // Create both immutable textures and views privately. Publish neither on a
-    // partial D3D failure; the metadata belongs to this exact uploaded pair.
-    D3D11_TEXTURE2D_DESC desc{};
-    desc.Width=snapshot.width; desc.Height=snapshot.height;
-    desc.MipLevels=1; desc.ArraySize=1; desc.SampleDesc.Count=1;
-    desc.Usage=D3D11_USAGE_IMMUTABLE; desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
-    ComPtr<ID3D11Texture2D> colour,depth;
-    ComPtr<ID3D11ShaderResourceView> colourView,depthView;
-    D3D11_SUBRESOURCE_DATA data{}; data.SysMemPitch=snapshot.stride;
-    desc.Format=DXGI_FORMAT_R8G8B8A8_UNORM; data.pSysMem=snapshot.colour.data();
-    if (FAILED(device->CreateTexture2D(&desc,&data,&colour))
-            || FAILED(device->CreateShaderResourceView(colour.Get(),nullptr,&colourView))) { clearWorldUpload(); return; }
-    desc.Format=DXGI_FORMAT_R32_FLOAT; data.pSysMem=snapshot.depth.data();
-    if (FAILED(device->CreateTexture2D(&desc,&data,&depth))
-            || FAILED(device->CreateShaderResourceView(depth.Get(),nullptr,&depthView))) { clearWorldUpload(); return; }
-    worldColourTexture=std::move(colour); worldDepthTexture=std::move(depth);
-    worldColourView=std::move(colourView); worldDepthView=std::move(depthView);
+    using A=crafterhunter::world::Attachment;
+    const auto upload=worldTextures.upload(snapshot,
+        [](WorldSurface& surface,A attachment,const crafterhunter::world::Snapshot& source) {
+            // Allocate privately only on startup, resize or producer replacement.
+            // Neither attachment is published on a partial creation failure.
+            D3D11_TEXTURE2D_DESC desc{};
+            desc.Width=source.width; desc.Height=source.height;
+            desc.MipLevels=desc.ArraySize=desc.SampleDesc.Count=1;
+            desc.Usage=D3D11_USAGE_DEFAULT; desc.BindFlags=D3D11_BIND_SHADER_RESOURCE;
+            desc.Format=attachment==A::Colour ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_R32_FLOAT;
+            D3D11_SUBRESOURCE_DATA data{}; data.SysMemPitch=source.stride;
+            data.pSysMem=attachment==A::Colour ? source.colour.data() : source.depth.data();
+            return SUCCEEDED(device->CreateTexture2D(&desc,&data,&surface.texture))
+                && SUCCEEDED(device->CreateShaderResourceView(surface.texture.Get(),nullptr,&surface.view));
+        },
+        [](WorldSurface& surface,A attachment,const crafterhunter::world::Snapshot& source) {
+            // Immediate-context ordering keeps old draws before these updates,
+            // and new draws after BOTH updates. UpdateSubresource snapshots the
+            // CPU bytes before returning; no Map, wait, Flush or GPU ring needed.
+            // Depth is an R32_FLOAT shader resource, never a host depth target.
+            const void* bytes=attachment==A::Colour ? source.colour.data() : source.depth.data();
+            context->UpdateSubresource(surface.texture.Get(),0,nullptr,bytes,source.stride,0);
+        });
+    if(upload==crafterhunter::world::UploadResult::Refused
+            || FAILED(device->GetDeviceRemovedReason())) { clearWorldUpload(); return; }
     std::vector<std::uint8_t>().swap(snapshot.colour); // metadata only; release CPU attachments
     std::vector<std::uint8_t>().swap(snapshot.depth);
     worldMetadata=std::move(snapshot);
@@ -357,11 +369,12 @@ void serviceWorldUpload() {
     // the moment the paired draw existed.
     const bool previewRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-compose.enabled")!=INVALID_FILE_ATTRIBUTES;
     const bool fullRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-full.enabled")!=INVALID_FILE_ATTRIBUTES;
-    log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition=%s anchor=%s",
+    log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition=%s anchor=%s textures=%s",
         static_cast<unsigned long long>(worldMetadata.generation),static_cast<unsigned long long>(worldMetadata.identity),
         worldMetadata.width,worldMetadata.height,
         fullRequested ? "full" : (previewRequested ? "preview" : "none"),
-        alignmentSession.anchor.armed ? "armed" : "unarmed");
+        alignmentSession.anchor.armed ? "armed" : "unarmed",
+        upload==crafterhunter::world::UploadResult::Created ? "created" : "updated");
 }
 
 int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui);
@@ -1810,7 +1823,7 @@ bool drawFrameComposite(ID3D11Texture2D* back) {
 struct PairedConstants { float inverse[16],eye[16],sizes[4],mapping[4]; };
 
 bool preparePaired(PairedConstants& pair, ComPtr<ID3D11ShaderResourceView>& scene) {
-    if(pairedFailed || !worldColourView || !worldDepthView || !worldMetadata.playerKnown
+    if(pairedFailed || !worldTextures.colour || !worldTextures.depth || !worldMetadata.playerKnown
             || !alignmentPlayerKnown || worldMetadata.clipOrigin!=1
             || !worldFreshness.live(GetTickCount64()) || !alignmentSession.anchor.armed) return false;
     crafterhunter::reprojection::Matrix view{},eyeToHost{};
@@ -1879,7 +1892,7 @@ bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     context->HSSetShader(nullptr,nullptr,0); context->DSSetShader(nullptr,nullptr,0); context->GSSetShader(nullptr,nullptr,0);
     context->VSSetConstantBuffers(0,1,pairedConstants.GetAddressOf()); context->VSSetConstantBuffers(1,1,&camera);
     context->PSSetConstantBuffers(0,1,pairedConstants.GetAddressOf()); context->PSSetConstantBuffers(2,1,&ui);
-    ID3D11ShaderResourceView* guest[]={worldColourView.Get(),worldDepthView.Get()};
+    ID3D11ShaderResourceView* guest[]={worldTextures.colour.view.Get(),worldTextures.depth.view.Get()};
     context->VSSetShaderResources(0,2,guest); context->PSSetShaderResources(2,1,scene.GetAddressOf());
     context->RSSetState(rasterizer.Get());
     D3D11_VIEWPORT viewport{0,0,static_cast<float>(width),static_cast<float>(height),0,1}; context->RSSetViewports(1,&viewport);
@@ -1942,7 +1955,7 @@ bool drawPairedFull(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui)
     context->HSSetShader(nullptr,nullptr,0); context->DSSetShader(nullptr,nullptr,0); context->GSSetShader(nullptr,nullptr,0);
     context->VSSetConstantBuffers(0,1,pairedConstants.GetAddressOf()); context->VSSetConstantBuffers(1,1,&camera);
     context->PSSetConstantBuffers(0,1,pairedConstants.GetAddressOf()); context->PSSetConstantBuffers(2,1,&ui);
-    ID3D11ShaderResourceView* guest[]={worldColourView.Get(),worldDepthView.Get()};
+    ID3D11ShaderResourceView* guest[]={worldTextures.colour.view.Get(),worldTextures.depth.view.Get()};
     context->VSSetShaderResources(0,2,guest); context->PSSetShaderResources(2,1,scene.GetAddressOf());
     context->RSSetState(rasterizer.Get());
     D3D11_VIEWPORT viewport{0,0,static_cast<float>(width),static_cast<float>(height),0,1}; context->RSSetViewports(1,&viewport);
