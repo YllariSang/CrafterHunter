@@ -66,9 +66,13 @@ captured frame at native resolution as a letterboxed sky overlay, and
 `drawPairedFull` merges them - one point primitive per captured texel, same
 gates, constants, private depth target and host-depth test as the preview - and
 is opt-in via `paired-full.enabled` (`tools/control-paired-preview.py
-start-full`), which takes precedence over the preview flag. It has now rendered:
-483,041 points per frame at ~40 fps sustained, which is MHW's frame rate rather
-than a composite cost.
+start-full`), which takes precedence over the preview flag. It has now rendered
+and been seen: guest geometry composites into MHW at native resolution and the
+player model draws in world space, in all three F5 modes, at 483,041 points/frame
+and ~41 fps. Two defects are visible and unlocalised: the player figure reads
+flat/pale despite a byte-verified skin (CPU and GPU CRC both ab329927, equal=1),
+and it appears to float slightly above the ground. Next probe is the UV debug
+skin, which separates wrong UVs from wrong sampling in one screenshot.
 
 The remaining half of the spike is **cadence**. Both transport floors are now
 negotiable rather than hardcoded: each flag file's content is an interval in

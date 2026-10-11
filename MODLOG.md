@@ -1,5 +1,37 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Spike accepted visually: guest composite and player both render
+
+Three screenshots with both games live, full-resolution path armed, anchor
+calibrated at epoch 1825 / identity 45200:
+
+1. first person - a guest block composites into MHW's scene;
+2. F5 rear third person - the composition persists where the block was, and the
+   player model is drawn in the world beside the hunter;
+3. F5 front third person - the same, from the opposite side.
+
+So the spike's visual claim holds: guest geometry composites into MHW at native
+resolution with real depth, the player model renders in world space, and both
+survive camera-mode changes. Measured alongside it this session: 483,041 points
+per frame at ~41 fps, upload age 15-24 ms, host observing 39.5 uploads/s.
+
+**Two things the images do not explain, recorded rather than smoothed over.**
+
+The player figure reads flat and pale, while the skin it is drawn with is
+verified correct: `player skin CPU/upload crc32=ab329927` (the value recorded in
+July as matching the cached user skin), `player skin GPU crc32=ab329927
+CPU=ab329927 equal=1`, UV range [0,1]x[0,1], SRV format 28, sampler point/clamp,
+`PlayerPS` reading `skin.Sample(skinSampler,input.uv)` with an alpha cutoff. The
+asset is right, the binding is right, and the pixels are still wrong - so the
+defect is in the draw, not the data, and it is not yet localised.
+
+The figure also appears to sit slightly above the ground rather than standing on
+it, which points at the feet anchor rather than the skin.
+
+Neither is claimed as understood. The UV debug skin is the next step: one flag,
+one screenshot, and it separates "UVs are wrong" from "the skin samples wrong" -
+if the per-face gradient pattern is correct, the defect is downstream of UVs.
+
 ## 2026-10-11 — Spike measured: the transport is not the wall
 
 Ran the negotiated cadence with both games live, Minecraft focused with focus
