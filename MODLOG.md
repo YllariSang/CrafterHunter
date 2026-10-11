@@ -49,6 +49,12 @@ and frame-composite suites, and the MinHook cross-build. The cadence and draw
 figures are measured live; the corrected log strings are built but not yet
 installed.
 
+Installed once MHW was closed (installed SHA-256
+`f21ac801678796b7b5866e8efaf591efb7365bad7c2ac496432585f4373186e3`, `cmp`-clean
+against the build, corrected strings verified present in the binary; previous DLL
+preserved in `build/rollback.OeLnLc`). The log tells the truth from the next
+launch.
+
 ## 2026-10-11 — Make transport cadence a negotiation, and measure it
 
 The full-resolution composite is still slow, and the reason was never measured:
