@@ -6,10 +6,13 @@
   `981858aec9780b0114098e0c69df39f68e1a7392c63961e5f52f2e22d4598cde`),
   matched to the pinned MHW build 421810 (image base `0x140000000`). Cases 1,
   3 and 4 pass; case 2 fails on this build.
-- New build awaiting installation adds the end-transition rewrite that targets
-  case 2. Headless-checked, **not installed and not runtime-accepted**. Build
-  outputs are not byte-reproducible (PE timestamp), so identity comes from
-  `cmp` against the installed file, not from a quoted build hash.
+- Installed 2026-10-11 with the end-transition rewrite that targets case 2
+  (installed SHA-256
+  `257b9cc6514f5e81c75fdd98bfbe57f92352e1965e6c59dcd4798b0284a79a9e`, `cmp`-clean
+  against the build; previous DLL kept in `build/rollback.78uMwX`). Deployed,
+  **not runtime-accepted**: case 2 still needs its acceptance run. Build outputs
+  are not byte-reproducible (PE timestamp), so identity comes from `cmp`, not a
+  quoted build hash.
 - Filter is DISARMED at rest. Nothing is patched until a request arrives.
 - Repo clean apart from this work.
 

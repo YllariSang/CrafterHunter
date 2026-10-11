@@ -39,12 +39,15 @@ Verified headless: `bash tools/test-exclusive-input.sh` (policy tests extended:
 end rewrite, foreign end object, foreign player link, aliased resolution still
 suppresses the move) and the MinHook cross-build. Verified static, read-only:
 the tables, objects and predicates above, from the loaded pinned image.
-**NOT verified at runtime and NOT installed** - MHW was running, the installer
-refuses to write under a live game, and case 2 still needs its acceptance run
-(hold W, arm without releasing, expect the hunter to stop and `released` to
-advance). Design evidence in docs/exclusive-input-design.md, updated handoff in
-docs/exclusive-input-handoff.md. Scratch dumps and disassembly helpers live
-outside the repository.
+**NOT verified at runtime.** Installed 2026-10-11 once MHW was closed
+(installed SHA-256
+`257b9cc6514f5e81c75fdd98bfbe57f92352e1965e6c59dcd4798b0284a79a9e`, `cmp`-clean
+against the build; the previous DLL is preserved in
+`native/mhw-renderer/build/rollback.78uMwX`). Case 2 still needs its
+acceptance run: hold W, arm without releasing, expect the hunter to stop and
+`released` to advance. Design evidence in docs/exclusive-input-design.md,
+updated handoff in docs/exclusive-input-handoff.md. Scratch dumps and
+disassembly helpers live outside the repository.
 
 ## 2026-10-11 — Exclusive-input filter installed and live-tested
 

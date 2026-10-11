@@ -379,9 +379,12 @@ Installed and live-tested 2026-10-11 (SHA-256
 3, 4 pass; case 2 (mid-run stop) did not. Resolver non-determinism fixed (all
 local cMove slots covered) in ad54597.
 
-Built, not yet installed or runtime-accepted: the end-transition rewrite that
-targets case 2. Its mechanism is established from the loaded image, not
-inferred; see the section above. Build outputs are not byte-reproducible (the
+Installed 2026-10-11 after MHW was closed (installed SHA-256
+`257b9cc6514f5e81c75fdd98bfbe57f92352e1965e6c59dcd4798b0284a79a9e`, `cmp`-clean
+against the build; previous DLL preserved in `build/rollback.78uMwX`). The
+end-transition rewrite that targets case 2 is therefore deployed but **not
+runtime-accepted**; its mechanism is established from the loaded image, not
+inferred (see the section above). Build outputs are not byte-reproducible (the
 PE header carries a timestamp, so the same source hashes differently each
 build): identity is established by `cmp` against the installed file, which is
 what `tools/install-mhw-renderer.sh` does, not by quoting a build hash. The

@@ -9,14 +9,14 @@ Playable mode must preserve Minecraft's native F5 first-person, rear third-perso
 and front-facing third-person cameras. Use the actual render camera, not player
 angles alone; camera displacement/collision and model visibility must follow MC.
 
-Verified checkpoint: exclusive-input suppression. The filter is built, installed
-and live-tested against pinned MHW build 421810; enabling it at rest stops the
+Verified checkpoint: exclusive-input suppression. The filter is installed and
+live-tested against pinned MHW build 421810; enabling it at rest stops the
 local hunter starting a move (cases 1, 3, 4 pass). Enabling it mid-run did not
 stop the hunter, and the reason is now structural rather than mysterious: the
 engine's per-state transition tables are split - the idle table contains
 `cMove`, the running table contains `cMoveEnd` - so suppressing `cMove` cannot
 end a run. A rewrite that forces the local `cMoveEnd` predicate's ineligible
-result to eligible is built and awaits its acceptance run. Read README.md,
+result to eligible is installed and awaits its acceptance run. Read README.md,
 MODDING_PLAN.md, docs/exclusive-input-design.md,
 docs/exclusive-input-handoff.md and the latest MODLOG.md entries before changes;
 distinguish plans from measured evidence.
@@ -28,13 +28,13 @@ regress it while working on input.
 
 Case 2 of the exclusive-input matrix: arm the filter while the hunter is already
 running, without releasing the key, and confirm the hunter stops and the
-`released` counter advances. The end-transition rewrite is built and
-headless-checked but not installed and not runtime-accepted: install it once MHW
-is closed, then run the acceptance. Build outputs are not byte-reproducible (PE
-timestamp), so identify artifacts with `cmp`, not a quoted hash. Cases 5-8
-(repeat toggles, scene reload and re-resolution, plugin unload while enabled,
-menus/UI) are untested. `cMoveTurn` is deliberately still unfiltered; turning
-under exclusive mode is an open measurement, not an assumption.
+`released` counter advances. The end-transition rewrite is installed (2026-10-11)
+but **not runtime-accepted** - run the acceptance before claiming it. Build
+outputs are not byte-reproducible (PE timestamp), so identify artifacts with
+`cmp`, not a quoted hash. Cases 5-8 (repeat toggles, scene reload and
+re-resolution, plugin unload while enabled, menus/UI) are untested.
+`cMoveTurn` is deliberately still unfiltered; turning under exclusive mode is
+an open measurement, not an assumption.
 
 Addresses are never persisted: they change per session and per scene load.
 Re-resolve with `python3 tools/resolve-exclusive-input.py --pid <MHW_PID>` in a
