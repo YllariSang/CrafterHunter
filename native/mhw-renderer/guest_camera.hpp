@@ -1,4 +1,5 @@
 #pragma once
+#include "world_frame.hpp"
 #include "world_alignment.hpp"
 #include <cstdio>
 #include <cstring>
@@ -83,6 +84,7 @@ struct Plan {
     std::array<float,16> view{},projection{};
     std::uint32_t mode{};
     std::uint64_t generation{},request{},sequence{},epoch{},expires{};
+    std::uint64_t captureIdentity{}; // render source; sequence still identifies the ownership feed
 };
 inline bool makePlan(const Sample& s,const alignment::Anchor& anchor,std::uint64_t epoch,Plan& output) {
     reprojection::Matrix eye{},view{},perspective{},effect{};
@@ -103,6 +105,26 @@ inline bool makePlan(const Sample& s,const alignment::Anchor& anchor,std::uint64
         if(!std::isfinite(p.view[i]) || !std::isfinite(p.projection[i])) return false;
     }
     output=p;return true;
+}
+// The moving body and its captured cape/items must see the camera from their
+// own issue-time render. The independent newer camera feed remains authoritative
+// for ownership/lease liveness, never substitutes a different rendering time.
+inline bool makePairedPlan(const world::Snapshot& captured,const Sample& control,
+        const alignment::Anchor& anchor,std::uint64_t epoch,Plan& output) {
+    if(!captured.identity || !captured.playerKnown || captured.cameraMode>2
+            || captured.generation!=control.generation || !control.request
+            || !control.sequence || control.flags!=1) return false;
+    Sample render=control;
+    render.mode=captured.cameraMode;
+    render.position=captured.cameraPosition;
+    for(unsigned i=0;i<16;++i) {
+        render.view[i]=captured.viewRotation[i];
+        render.projection[i]=captured.projection[i];
+    }
+    Plan candidate;
+    if(!makePlan(render,anchor,epoch,candidate)) return false;
+    candidate.captureIdentity=captured.identity;
+    output=candidate;return true;
 }
 inline bool projection(const Plan& p,float aspect,float* native) {
     if(!std::isfinite(aspect) || aspect<=0) return false;

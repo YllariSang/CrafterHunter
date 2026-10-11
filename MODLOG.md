@@ -1,5 +1,47 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Moving Steve/camera time mismatch selects a bounded fix
+
+User authorizes stabilizing the ACTIVE camera path, clarifies flicker only during
+walking/look and then identifies cape/held-item involvement. White diagnostic and
+real shading both flicker during movement; flying makes Steve jitter strongly.
+Existing host-depth bypass affects only the separate body; captured attachments
+still use production host rejection and shared guest depth. Do not infer that
+all host-depth effects were bypassed. Stationary off/on normal/source captures
+keep Steve intact. Same generation 43698606417375, fixed epoch 1763, current
+control token 7814624920158794757; normal shader flags restored after comparison.
+Evidence ignored under captures/player-camera-occlusion/runtime-20261011-221924Z/.
+
+Read-only own-symbol sampling compares the native camera plan with its uploaded
+capture's embedded body and actual camera. Stationary probe discrepancy is less
+than 0.00002 pixels over 959 coherent samples. Requested flying run: 2160 coherent
+samples, 262 distinct captured feet positions, seven frame-straddle samples
+refused. Projection disagreement becomes large during movement (full-run 95th
+absolute X/Y probe deltas about 58.77/90.24 pixels). This is an analytic centre
+probe from native plan/metadata, not synchronous GPU draw or E2E latency.
+
+Body and captured attachments are correctly frozen together, but the host camera
+plan uses the newer independent camera.pose. Select one bounded native correction:
+build the rendered camera from the same uploaded capture's actual camera/view/final
+projection. Keep independent camera.pose for token/generation/advancing-sequence
+ownership and the unchanged 500ms lease. Keep paired receipt freshness, immutable
+getter plan, native Z/W, F5 capture mode, fixed anchor and body/attachment binding.
+Log the capture identity separately from the fast control sequence. No mesh/skin,
+depth-test relaxation, capture lifetime, protocol or gameplay change. Camera now
+follows capture cadence; latency/responsiveness and visible improvement require
+fresh runtime acceptance. Add movement/flying/F5/effect regressions plus an
+original newer-camera mutant, build and install native-only after verified closure.
+
+Implemented makePairedPlan from uploaded capture metadata, with the independent
+control sequence retained separately and capture identity logged/applied. Standalone
+keeps makePlan on the fast sample. New regression verifies numerical flying
+relative-position/effect/F5 invariants and rejects the newer-position mutant.
+Fourteen actual captures replay. Native Release, guest camera, player body,
+v2-v5 transport, paired depth viewport, player/paired controller and depth selection
+checks pass; all five HLSL literals are text-identical. No protocol or shader change.
+Scoped native installation follows authorized closure. Capture cadence now paces
+the rendered camera; no visible stability or responsiveness acceptance yet.
+
 ## 2026-10-12 — Steve occlusion issue narrowed to ACTIVE camera control
 
 User corrects the acceptance report: Steve's jumpy occlusion occurs only when

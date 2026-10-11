@@ -820,7 +820,7 @@ void* mainCamera=nullptr;
 void* mainPlayer=nullptr;
 bool hooksReady=false,hooksEnabled=false,hookFailure=false,ownsFilter=false,reportedReleased=false;
 ULONGLONG nextReply=0,nextLog=0;
-unsigned long long applied=0,appliedSequence=0;
+unsigned long long applied=0,appliedSequence=0,appliedCapture=0;
 using MatrixGetter=float* (STDMETHODCALLTYPE*)(void*,float*);
 MatrixGetter originalView=nullptr,originalProjection=nullptr;
 constexpr uintptr_t ViewAddress=0x141fa0cc0,ProjectionAddress=0x1404d9810;
@@ -850,7 +850,7 @@ float* STDMETHODCALLTYPE viewHook(void* camera,float* output) {
     gc::Plan copy;
     if(result && currentPlan(camera,copy)) {
         std::memcpy(result,copy.view.data(),64);
-        std::lock_guard lock(mutex);++applied;appliedSequence=copy.sequence;
+        std::lock_guard lock(mutex);++applied;appliedSequence=copy.sequence;appliedCapture=copy.captureIdentity;
     }
     return result;
 }
@@ -965,7 +965,11 @@ void service() {
             && crafterhunter::alignment::valid(alignmentSession.anchor,sample.generation,alignmentSession.epoch);
         if(lease.observe(sample,alignmentSession.epoch,healthy,now)) {
             gc::Plan candidate;
-            if(gc::makePlan(sample,alignmentSession.anchor,alignmentSession.epoch,candidate)) {
+            const bool pairedRequested=compositionRequests.value().full || compositionRequests.value().preview;
+            const bool validPlan=pairedRequested
+                ? gc::makePairedPlan(worldMetadata,sample,alignmentSession.anchor,alignmentSession.epoch,candidate)
+                : gc::makePlan(sample,alignmentSession.anchor,alignmentSession.epoch,candidate);
+            if(validPlan) {
                 candidate.expires=lease.advancedAt+500;plan=candidate;
             } else {lease.release();plan={};}
         }
@@ -984,13 +988,14 @@ void service() {
         }
         if(lease.state!=gc::Lease::State::Off && now>=nextLog) {
             nextLog=now+500;
-            log("guest camera: request=%llu generation=%llu sequence=%llu epoch=%llu state=%s mode=%u applied=%llu applied-sequence=%llu camera=%d hooks=%d filter=%d paired=%d matched=%d",
+            log("guest camera: request=%llu generation=%llu sequence=%llu epoch=%llu state=%s mode=%u applied=%llu applied-sequence=%llu camera=%d hooks=%d filter=%d paired=%d matched=%d render-capture=%llu applied-capture=%llu",
                 static_cast<unsigned long long>(lease.request),static_cast<unsigned long long>(lease.generation),
                 static_cast<unsigned long long>(lease.sequence),static_cast<unsigned long long>(lease.epoch),
                 lease.live(now) ? "active" : lease.state==gc::Lease::State::Released ? "released" : "waiting",
                 plan.mode,applied,appliedSequence,mainCamera && mainPlayer ? 1 : 0,hooksEnabled ? 1 : 0,
                 inputReady && filteredPlayer==mainPlayer ? 1 : 0,worldFreshness.live(now) ? 1 : 0,
-                received && sample.generation==worldMetadata.generation ? 1 : 0);
+                received && sample.generation==worldMetadata.generation ? 1 : 0,
+                static_cast<unsigned long long>(plan.captureIdentity),appliedCapture);
         }
     }
     if(release) disableOwnedFilter();

@@ -1,5 +1,12 @@
 # Minecraft-owned camera slice
 
+2026-10-12 paired timing follow-up: the rendered host camera now uses the actual
+camera frozen with the uploaded world/body/attachment capture. The independent
+camera channel retains ownership and its unchanged lease; standalone still uses
+its fast pose. Build/tests and actual capture replay pass, live acceptance pending.
+See [camera/body timing](camera-body-time.md) for measurements and the capture
+cadence/responsiveness tradeoff. Native F5/effects/Z/W/fixed-anchor behavior stays.
+
 2026-10-11: implemented, headless-verified and installed; live acceptance pending.
 
 Matching Fabric, managed and native artifacts installed after the user closed

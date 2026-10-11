@@ -59,6 +59,22 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Current authorized fix (2026-10-12): moving/flying Steve jitter includes cape and
+held item and appears in real and white diagnostics. Stationary off/on is good.
+Read-only native plan versus atomic capture probe: stationary <0.00002px;
+261 moving feet samples median absolute X/Y 23.77/46.16px, 95th 119.59/153.21px.
+This is a centre probe, not exact GPU/screen latency. Source body/attachments are
+frozen together while the independent host camera was newer. Paired render plan
+now uses the uploaded capture's actual camera/view/final projection/F5 mode;
+independent feed still owns token/generation/sequence and 500ms lease. Source
+capture freshness and all depth/anchor gates unchanged; standalone keeps fast
+camera. New capture-ID logs distinguish render source from control sequence.
+Regressions reject newer-camera mutant; 14 actual captures replay; native build
+and relevant camera/body/depth/controller/transport tests pass. All shaders
+text-identical. See docs/camera-body-time.md. Next verified native-only installation
+after authorized game closure, then restart/one calibration/walking+flying/all-F5
+and F6 evidence, including responsiveness. No live improvement claim yet.
+
 User correction (2026-10-12): Steve's jumpy occlusion occurs only while
 Minecraft owns the MHW camera (CONTROL ACTIVE). With camera control unarmed,
 Steve's occlusion is "pretty good". Do not describe this as a general player

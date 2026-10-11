@@ -56,6 +56,11 @@ screenshots, fixed-anchor traces and matching release support that checkpoint.
 Steve's own occlusion flickers only while Minecraft controls the MHW camera;
 the unarmed camera looks good. Stabilizing that camera path is the next bounded
 rendering goal, with its cause still to be measured.
+Moving/flying measurements now show the independent camera leading the captured
+player/attachments. The [camera/body timing correction](docs/camera-body-time.md)
+uses their capture's actual camera for paired rendering while retaining the fast
+ownership lease. Build/regressions and fourteen real capture replays pass; visible
+improvement and camera responsiveness remain to be checked after installation.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link
 work, and the native DX11 renderer displays Minecraft geometry with fixed world

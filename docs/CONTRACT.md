@@ -46,4 +46,11 @@ must match the resident model. Paired bodies never substitute the independent
 newest player.pose. Capture freshness remains authoritative; the embedded pose
 does not renew a lease. Standalone uses the fast independent pose channel.
 This synchronizes body with captured attachments at world-capture cadence;
-camera.pose remains independent and F5 never changes the anchor.
+camera.pose remains independent for ownership/freshness and F5 never changes the
+anchor. In paired preview/full rendering, the immutable rendered camera plan now
+uses that same world.frame's actual position/view/final projection/F5 mode. The
+fast feed still controls token/generation/advancing-sequence and the 500ms lease;
+capture identity cannot renew it. Log render-capture/applied-capture separately
+from control/applied-sequence. Standalone rendering retains the fast camera.
+This prevents a newer camera chasing an older body/attachment pose; responsiveness
+and visible improvement require a live check. See camera-body-time.md.
