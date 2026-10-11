@@ -1,5 +1,31 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Viewport correction stationary capture and control reactivation
+
+Ready session: verified all installed builds and loaded native shadow by cmp;
+MHW 1497410, Minecraft 1496818, generation 43698606417375. One first-person
+calibration epoch 1763 accepted. First control token 8879856895882257958 reaches
+ACTIVE with fresh sequences. Read-only state again measures depth writer
+1440x810 in a 1920x1080 allocation. Original pre-UI GPU traces 3/4/5 agree with
+stationary CPU VP X/Y/W exactly; colour shows foreground occlusion through the
+right/bottom target edges. Native floor/body dithering remains. Not all-view motion
+or temporal depth/camera pairing acceptance. Evidence ignored under
+captures/composition-timing/runtime-20261011-215804Z/.
+
+Detailed existing trace spans host-ms 43932481..43933025 (>500ms), blocking the
+native render thread. Guest sequence advances and request flag stays present,
+while last applied sequence is 38. Guard latches release at 43933113, paired=1
+matched=1. This is diagnostic interference, not user F6 or a movement failure.
+Preserved initial samples/logs under trace-triggered-release/. Do not arm that
+synchronous multi-buffer trace in ACTIVE acceptance runs; no guard relaxation.
+
+Explicit fresh control start re-resolves input and recovers token
+893139907560709530 with the original generation/epoch; no recalibration. Matching
+ACTIVE sequences advance, same-capture body feet agree. Lighter native capture
+44234092 completes while control stays ACTIVE. Bounded collector runs for the
+requested user walking/look/all-F5/F6 check; movement and release acceptance are
+pending. No code, game artifacts, settings, saves or cadence changes this turn.
+
 ## 2026-10-12 — Paired depth viewport correction installed
 
 User permits closing only the games, even forcefully. Requested camera/filter

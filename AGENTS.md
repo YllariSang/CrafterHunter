@@ -59,6 +59,18 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Viewport fix runtime (2026-10-12): matching installed/loaded ef56144, new
+generation 43698606417375 and one epoch 1763. Full-size stationary pre-UI traces
+show host foreground occlusion through right/bottom edges; GPU/CPU VP X/Y/W
+matches exactly. Detailed existing `trace` blocks for >500ms and triggered
+lease release at applied sequence 38 despite advancing guest feed/flag present.
+Do not run this synchronous multi-buffer trace while ACTIVE during acceptance.
+Explicit fresh start recovered at token 893139907560709530 with same anchor;
+lighter native capture 44234092 stays ACTIVE. Evidence:
+captures/composition-timing/runtime-20261011-215804Z/. User all-view walking and
+F6 report/collector pending. Fine native dithering remains, temporal pairing and
+latency unaccepted. No guard change or F5 re-anchor.
+
 Latest depth correction (2026-10-12): fresh optimized session generation
 42796309633712/epoch 1498/token 2179040981719813127 stayed ACTIVE for the 30s
 first-person timing window. Metadata stage is approximately zero over 873 captures;

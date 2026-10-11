@@ -53,3 +53,22 @@ Next reopen loaded offline scenes, focus Minecraft in first person with F7/F9
 OFF, calibrate once for the fresh session, then walk/look in all three F5 views.
 Check that the hunter and other foreground geometry hide guest surfaces through
 the entire target, and press F6 once afterward. Never re-anchor on F5.
+
+## First installed-build observation
+
+Fresh generation 43698606417375, calibration epoch 1763, matching installed and
+loaded native artifacts by cmp. Ignored evidence:
+`captures/composition-timing/runtime-20261011-215804Z/`. Full-size pre-UI traces
+show foreground occlusion continuing through the right/bottom target edges;
+GPU camera X/Y/W matches the stationary CPU matrix exactly. Fine floor/body
+dithering remains visible. These are stationary samples, not all-view acceptance.
+
+The existing detailed `trace` request blocked the native render thread for more
+than the camera's 500ms lease. Guest sequences kept advancing and its request flag
+remained present, but the native guard correctly latched release at sequence 38.
+This was diagnostic interference, not a user F6 check or proof of a movement bug.
+Do not use that synchronous multi-buffer trace during an ACTIVE acceptance run.
+No lease/freshness guard was weakened. An explicit fresh control request recovered
+with the same generation and epoch, token 893139907560709530. Lighter native
+capture 44234092 completed while control remained ACTIVE. The user walking/F5/F6
+check and bounded screenshot/identity collector are pending; no re-anchor occurred.
