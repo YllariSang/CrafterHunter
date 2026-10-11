@@ -1,5 +1,21 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Single-body builds installed
+
+After the user reported both games closed, fresh exact-process and host-window
+checks confirmed both absent. Installed e1002a8's verified Fabric and native
+artifacts; preserved managed code. All three installed artifacts cmp-match their
+tested build outputs. Unified previous artifacts, scoped flags and install
+manifest are in native/mhw-renderer/build/rollback.single-body.3_t40x8e/;
+the pinned-executable native installer also saved rollback.iE08EA/.
+
+Body separation is enabled alongside existing full/player composition. World,
+upload and pose intervals remain zero; camera/input requests are OFF and the
+guest-control flag is absent. Live channels were preserved, and no game was
+launched or save changed. Live single-body, held-item, all-F5, occlusion and F6
+acceptance remains pending restart and one fresh-session calibration. Extra
+third-person pass cost remains unmeasured.
+
 ## 2026-10-12 — Single player-body rendering plan
 
 User requests keeping the exported player body and removing its duplicate from

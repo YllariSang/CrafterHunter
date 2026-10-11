@@ -1,6 +1,8 @@
 # One local player body
 
-2026-10-12: implementation and headless verification; live acceptance pending.
+2026-10-12: implemented, headless verified and matching builds installed;
+live acceptance pending. Scoped backup:
+`native/mhw-renderer/build/rollback.single-body.3_t40x8e/`. Control starts OFF.
 
 The paired world previously included Minecraft's third-person player body while
 the native renderer drew the exported body again. Keep the real baked model and

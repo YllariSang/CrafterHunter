@@ -71,7 +71,10 @@ v4 adds issue-time body-excluded flag bit 1; v2/v3 still read but cannot claim i
 Native suppresses duplicate model drawing for unfiltered paired snapshots, and
 shares only same-frame/generation/identity/epoch/target/camera private guest depth
 with the model for filtered ones; MHW depth remains read-only. Fabric/native
-builds and relevant regressions pass; installation awaits both games closed.
+builds and relevant regressions pass. Both games closed; matching Fabric/native
+installed, managed preserved, all three cmp-verified. Scoped backup:
+native/mhw-renderer/build/rollback.single-body.3_t40x8e/. Control starts OFF;
+body separation/full/player flags enabled and zero cadence intervals preserved.
 No live single-body/held-item/occlusion or extra-pass cost acceptance yet.
 Do not re-anchor on F5 or expand gameplay. Controller start/stop owns the new
 player-body-separate.enabled flag alongside export/composition.

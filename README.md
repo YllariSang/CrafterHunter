@@ -30,8 +30,8 @@ fail-closed version handling. See [docs/prior-art.md](docs/prior-art.md).
 
 2026-10-12 latest slice: keep one exported player body, exclude its duplicate from
 paired world capture, retain held-item/armor layers and normal Minecraft display.
-The implementation needs fresh live acceptance after matched guest/native setup;
-see [single-body rendering](docs/player-single-body.md) for scope and checks.
+Matching verified guest/native builds are installed; fresh live acceptance is pending.
+See [single-body rendering](docs/player-single-body.md) for scope and checks.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link
 work, and the native DX11 renderer displays Minecraft geometry with fixed world
