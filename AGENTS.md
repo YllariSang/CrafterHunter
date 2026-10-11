@@ -69,15 +69,16 @@ is opt-in via `paired-full.enabled` (`tools/control-paired-preview.py
 start-full`), which takes precedence over the preview flag. It has now rendered
 and been seen: guest geometry composites into MHW at native resolution and the
 player model draws in world space, in all three F5 modes, at 483,041 points/frame
-and ~41 fps. The player figure and the composited block both read pale, which is
-unexplained. Two things are now ruled out: the UV debug skin renders correct
-per-face colours with a vertical gradient in all three modes, so UVs, geometry,
-pose and placement are right; and the guest colour attachment is measured healthy
-straight out of the shared frame (mean luminance 117/255, 88.5% saturated, 0%
-near-white, grass green at the origin). The defect is therefore downstream of the
-guest bytes. It is not yet located, and it may partly be an artefact of judging a
-1920x1080 window from a 960-wide screenshot - one native-resolution shot of the
-MHW window alone settles it.
+and ~41 fps. It is now accepted: six native-resolution screenshots confirm guest
+geometry composites into MHW at native resolution with correct colour and depth
+and the player model draws in world space with the real skin, in all three F5
+modes. The "pale player and pale block" defect recorded earlier did not exist -
+it was an artefact of reading a 960-wide screenshot of a 1920x1080 window, where
+dark suit against pale interior cannot be distinguished from grey. UVs were
+verified good (debug skin, correct per-face gradient in all three modes) and the
+guest colour attachment measured healthy (mean luminance 117/255, 88.5%
+saturated, 0% near-white), but neither changed the conclusion. Measure the thing
+at its real resolution before believing a defect is in the thing.
 
 The remaining half of the spike is **cadence**. Both transport floors are now
 negotiable rather than hardcoded: each flag file's content is an interval in

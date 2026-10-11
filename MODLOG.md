@@ -1,5 +1,41 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Spike accepted at native resolution: there was no pale-surface defect
+
+Six screenshots at native resolution, both games live, `paired-full.enabled` and
+the player preview armed, anchor calibrated at epoch 1825: **everything renders as
+intended**. Guest geometry composites into MHW at native resolution with correct
+colour and depth, and the player model draws in world space with the real skin,
+across all three F5 modes.
+
+So the two defects recorded an hour ago - "the player figure reads flat/pale" and
+"the composited block reads pale" - were not defects. They were artefacts of
+judging a 1920x1080 window from a 960-wide screenshot, where the figure is about
+40 pixels tall and dark suit against pale MHW interior cannot be distinguished
+from grey. One native-resolution shot of the MHW window alone settled it, exactly
+as flagged, and the thing I would have gone on to instrument did not exist.
+
+Worth stating plainly because it cuts against the work, not for it: the two
+probes run to "localise" it were both correct and both unnecessary. UVs were
+verified good, the guest colour attachment was measured healthy, and neither
+changed the conclusion. They cost nothing and would have been the right calls had
+the defect been real - but they were not, and reading a thumbnail as a bug is the
+failure mode here, not a missing measurement.
+
+Final measured state alongside the acceptance:
+
+    paired FULL-RESOLUTION draw submitted: 949x509 guest -> 483041 points,
+      host 1920x1080, upload age 16-20ms
+    alignment epoch=1825 generation=4688807262529 identity=83313 mode=2
+      mapped-camera-metres=(-5.662906,-5.745375,1.679934); composition=full
+    guest streamCadence=n83309 min=10ms mean=26ms max=1053ms, interval 0 (no floor)
+    131,098 paired world uploads in this session
+
+This is the Steve-rendering spike only. It is not isolated Steve, not input
+ownership, not host camera control and not MHW terrain collision, and no playable
+MVP is claimed. Standing diagnostic flags still set: `paired-full.enabled`,
+`world-upload.enabled`, `player-compose.enabled`, `player-skin-check.enabled`.
+
 ## 2026-10-11 — UVs exonerated; the pale surfaces are downstream of the guest bytes
 
 The UV debug skin separates "UVs are wrong" from "the skin samples wrong" in one
