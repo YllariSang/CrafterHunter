@@ -66,7 +66,12 @@ steady-clock aggregates distinguish read, duplicate-read, upload-submit and tota
 upload service, at most one report set/sec. See docs/composition-timing.md.
 No wire-format, scheduling, shaders, control, F5, depth or capture lifetime change.
 This profiles the remaining lag; no latency reduction is claimed. Matching
-guest/native deployment and live advancing stage reports remain pending. The
+1073845 guest/native artifacts are installed after verified closure, managed
+preserved, all three cmp-clean; scoped backup
+native/mhw-renderer/build/rollback.stage-timing.mknkcojy/ (native installer also
+saved rollback.UtS5zI). Control OFF, composition/body separation ON, cadence zero
+and live channels preserved. Restart, one calibration and live advancing stage
+reports remain pending. The
 read-only collector is tools/collect-composition-timing.py; do not run it headless.
 
 Live attachment follow-up (2026-10-12): user reports "so far so good" after

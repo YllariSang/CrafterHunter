@@ -1,5 +1,22 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Stage timing builds installed
+
+User says go; fresh exact-process and host-window checks confirm both games have
+exited. Installed verified 1073845 Fabric/native artifacts, managed preserved.
+All three installed artifacts cmp-match their tested build outputs. Previous
+artifacts, flags and manifest: native/mhw-renderer/build/rollback.stage-timing.mknkcojy/.
+Pinned native installer additionally saved rollback.UtS5zI/. Control/input requests
+start OFF; guest-control flag absent. Body separation/full/player composition
+remain enabled and world/upload/pose floors remain zero. Live channels preserved;
+no game launch or save/settings changes. Ignored backup pointer:
+captures/composition-timing/install-path.txt.
+
+Next load both offline scenes, keep both visible and focus Minecraft in first
+person with F7/F9 OFF. Calibrate once for the new session, reactivate control and
+collect advancing guest/native stage reports during movement/all F5. No delay
+reduction or live instrumentation acceptance is claimed from installation.
+
 ## 2026-10-12 — Stage timing implementation plan
 
 User authorizes the next delay work. Keep the existing Fabric/SPL/native

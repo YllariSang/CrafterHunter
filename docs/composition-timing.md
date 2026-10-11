@@ -1,7 +1,12 @@
 # Composition stage timing
 
-2026-10-12: CPU stage instrumentation is implemented; live measurements await
-matching guest/native installation and restart. This is the next step toward
+2026-10-12: CPU stage instrumentation is built/tested and matching guest/native
+artifacts are installed. Managed code is preserved; all three cmp-match tested
+builds. Scoped backup: `native/mhw-renderer/build/rollback.stage-timing.mknkcojy/`;
+native installer additionally saved `rollback.UtS5zI/`. Both games were verified
+closed first. Control starts OFF; body separation/full/player composition and zero
+cadence floors remain enabled, and live channels are preserved. Live measurements
+await restart and one calibration. This is the next step toward
 reducing user-reported slight occlusion delay, not an accepted latency fix.
 World.frame stays v5; body/attachments, actual F5 camera, fixed anchor, all
 freshness/depth checks and permanent GPU failure handling are unchanged.
