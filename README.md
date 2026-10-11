@@ -46,6 +46,11 @@ Fresh stage reports identify about 9ms/capture of discarded diagnostic work.
 The guest stream now skips it while explicit archives keep statistics/hashes;
 the verified optimization is installed and awaits a live comparison. User reports
 jumpy occlusion/hunter overlap in all views; that issue remains unresolved.
+Fresh GPU/depth captures establish a world-layer address mismatch: MHW writes
+1440×810 depth inside a 1920×1080 allocation. The
+[paired depth viewport correction](docs/paired-depth-viewport.md) extends the
+player's measured viewport conversion to world composition. Checks/build pass;
+visible all-view movement acceptance remains pending installation and restart.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link
 work, and the native DX11 renderer displays Minecraft geometry with fixed world

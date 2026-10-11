@@ -1,5 +1,35 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Measured paired world depth address correction
+
+Fresh matching optimized guest/native/managed installation and loaded native
+shadow cmp verified. New offline session generation 42796309633712, one feet
+calibration epoch 1498, token 2179040981719813127; ACTIVE acknowledgement advances.
+30s first-person collection: 298 summaries, 120 native interval rows, zero errors,
+873 guest timing advances, no invalidation. Metadata preparation is approximately
+0ms, confirming measured unused work removal. Other CPU stages and limits are in
+docs/paired-depth-viewport.md; no controlled cross-session speed or latency claim.
+
+Read-only own-symbol state records selected depth 0, allocation 1920x1080 and
+writer viewport (0,0,1440,810). Existing bounded pre-UI GPU traces 3/4/5 agree with
+stationary CPU VP X/Y/W exactly. Native original colour/depth capture 43203517
+confirms all depth outside that writer rectangle is zero and foreground overlap
+at right/bottom borders. Evidence ignored under
+captures/composition-timing/runtime-20261011-214505Z/. Cross-frame stationary
+inspection does not accept camera/depth temporal pairing during movement.
+
+Bounded fix extends the player's measured writer-viewport conversion to paired
+full/preview world pixels. Shared production helper preserves the player's
+current-frame/finite/in-bounds refusal checks. No guessed scale, looser depth
+comparison, source interpolation change, camera/input or GPU capture-policy change.
+Paired constants append measured scale/origin; both pixel shaders convert before
+integer host depth Load. Player/stone/frame shaders remain text-identical.
+Production helper/expression regression rejects the original direct-address
+mutant and checks clear-storage vs foreground occlusion. Native Release, all 13
+shader entries, paired preview/coverage/plane, player preview/body, depth selection
+and guest-camera tests pass. No wire format changes. Scoped native installation
+follows authorized closure; live all-view motion/hunter occlusion remains pending.
+
 ## 2026-10-12 — Stream metadata optimization installed
 
 Fresh process/window checks after authorized exact-PID termination confirm both

@@ -59,6 +59,21 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Latest depth correction (2026-10-12): fresh optimized session generation
+42796309633712/epoch 1498/token 2179040981719813127 stayed ACTIVE for the 30s
+first-person timing window. Metadata stage is approximately zero over 873 captures;
+that removes measured unused work, not a controlled speed/E2E latency result.
+Native capture 43203517 and own-symbol state establish a 1920x1080 depth allocation
+written only through (0,0,1440,810), with right/bottom storage entirely zero.
+Pre-UI GPU traces 3/4/5 match stationary CPU VP X/Y/W exactly; samples span frames.
+World full/preview shaders wrongly sampled full-size coordinates; player already
+mapped the measured viewport. All three now share the player's existing guarded
+conversion; strict host rejection/private guest depth/body binding/F5 unchanged.
+Original-address mutant, production helper/shader regression, Release build and
+relevant depth/body/camera/coverage/shader checks pass. See
+docs/paired-depth-viewport.md. Installation and fresh all-view movement acceptance
+follow; do not claim all jumpiness or temporal pairing solved by this spatial fix.
+
 Measured optimization follow-up (2026-10-12): fresh stage build session generation
 41941336025126, fixed epoch 1522, token 9002085177750611168 reports ACTIVE through
 30s with all F5 modes observed. Metadata preparation averages about 9.03ms per

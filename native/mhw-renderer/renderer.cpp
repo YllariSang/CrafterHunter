@@ -1364,12 +1364,16 @@ cbuffer Pair : register(b0) {
     row_major float4x4 eyeToHost;
     float4 sizes; // guest width/height, host width/height
     float4 mapping; // clip mapping, clear, sampling stride, unused
+    float4 depthMapping; // measured host depth viewport scale XY, origin ZW
 };
 cbuffer Host : register(b1) { row_major float4x4 hostVP; };
 cbuffer UI : register(b2) { float4 uiScale; };
 Texture2D<float4> guestColour : register(t0);
 Texture2D<float> guestDepth : register(t1);
 Texture2D<float> hostDepth : register(t2);
+int2 PairedDepthTexel(float2 pixel) {
+    return int2(floor(pixel*depthMapping.xy+depthMapping.zw));
+}
 struct Splat { float4 pos:SV_Position; nointerpolation float4 colour:COLOR0; float valid:SV_ClipDistance0; };
 Splat PairedVS(uint id:SV_VertexID) {
     Splat o; o.pos=float4(0,0,0,1); o.valid=-1; o.colour=0;
@@ -1404,7 +1408,7 @@ Splat PairedVS(uint id:SV_VertexID) {
 }
 float4 PairedPS(Splat input):SV_Target {
     if(any(abs(uiScale.xy-float2(2,-2)/sizes.zw)>0.000001)) discard;
-    float host=hostDepth.Load(int3(int2(input.pos.xy),0));
+    float host=hostDepth.Load(int3(PairedDepthTexel(input.pos.xy),0));
     if(!isfinite(host) || input.pos.z<=host+0.000001 || input.colour.a<0.5) discard;
     return float4(input.colour.rgb,1);
 }
@@ -1422,12 +1426,16 @@ cbuffer Pair : register(b0) {
     row_major float4x4 eyeToHost;
     float4 sizes; // guest width/height, host width/height
     float4 mapping; // clip mapping, clear, unused, unused
+    float4 depthMapping; // measured host depth viewport scale XY, origin ZW
 };
 cbuffer Host : register(b1) { row_major float4x4 hostVP; };
 cbuffer UI : register(b2) { float4 uiScale; };
 Texture2D<float4> guestColour : register(t0);
 Texture2D<float> guestDepth : register(t1);
 Texture2D<float> hostDepth : register(t2);
+int2 PairedDepthTexel(float2 pixel) {
+    return int2(floor(pixel*depthMapping.xy+depthMapping.zw));
+}
 struct Splat { float4 pos:SV_Position; nointerpolation float4 colour:COLOR0; float valid:SV_ClipDistance0; };
 // Window depth is affine in screen XY on a projected plane. Only use its slope
 // when the complete 3x3 neighbourhood agrees; this is not an edge-bridging mesh.
@@ -1486,7 +1494,7 @@ Splat PairedFullVS(uint id:SV_VertexID) {
 }
 float4 PairedFullPS(Splat input):SV_Target {
     if(any(abs(uiScale.xy-float2(2,-2)/sizes.zw)>0.000001)) discard;
-    float host=hostDepth.Load(int3(int2(input.pos.xy),0));
+    float host=hostDepth.Load(int3(PairedDepthTexel(input.pos.xy),0));
     if(!isfinite(host) || input.pos.z<=host+0.000001 || input.colour.a<0.5) discard;
     return float4(input.colour.rgb,1);
 }
@@ -2070,7 +2078,30 @@ bool drawFrameComposite(ID3D11Texture2D* back) {
 // host scene depth the fragment test reads, the per-frame constants, the
 // constant buffer, the depth state and the private D32 target that orders
 // overlapping guest splats without ever touching MHW's own depth.
-struct PairedConstants { float inverse[16],eye[16],sizes[4],mapping[4]; };
+struct PairedConstants { float inverse[16],eye[16],sizes[4],mapping[4],depthMapping[4]; };
+static_assert(sizeof(PairedConstants)==176);
+
+// Convert full-target pixel centres to the current selected scene depth's
+// measured writer viewport. Texture allocation dimensions are not render scale.
+// Both guest surfaces and the player must sample the same host-space occluder.
+bool selectedDepthMapping(float* mapping) {
+    {
+        std::lock_guard lock(gate);
+        if(lastSelected>=depths.size()) return false;
+        const auto& selected=depths[lastSelected];
+        const auto& v=selected.debugViewport;
+        // Never reuse a viewport from an older frame or guess a render scale.
+        if(selected.debugViewportFrame!=frame || !std::isfinite(v.Width) || !std::isfinite(v.Height)
+                || !std::isfinite(v.TopLeftX) || !std::isfinite(v.TopLeftY)
+                || v.Width<=0 || v.Height<=0 || v.TopLeftX<0 || v.TopLeftY<0
+                || v.TopLeftX+v.Width>width || v.TopLeftY+v.Height>height) return false;
+        mapping[0]=v.Width/width;
+        mapping[1]=v.Height/height;
+        mapping[2]=v.TopLeftX;
+        mapping[3]=v.TopLeftY;
+    }
+    return true;
+}
 
 bool preparePaired(PairedConstants& pair, ComPtr<ID3D11ShaderResourceView>& scene) {
     if(pairedFailed || !worldTextures.colour || !worldTextures.depth || !worldMetadata.playerKnown
@@ -2080,7 +2111,7 @@ bool preparePaired(PairedConstants& pair, ComPtr<ID3D11ShaderResourceView>& scen
     for(unsigned i=0;i<16;++i) view[i]=worldMetadata.viewRotation[i];
     if(!crafterhunter::alignment::eyeMatrix(alignmentSession.anchor,worldMetadata.generation,
             alignmentSession.epoch,view,worldMetadata.cameraPosition,eyeToHost)) return false;
-    if(selectSceneDepth(scene)<0 || !ensureSharedState()) return false;
+    if(selectSceneDepth(scene)<0 || !selectedDepthMapping(pair.depthMapping) || !ensureSharedState()) return false;
     for(unsigned row=0;row<4;++row) for(unsigned col=0;col<4;++col) {
         pair.inverse[row*4+col]=static_cast<float>(worldInverseProjection[col*4+row]);
         // Host GPU VP uses raw centimetres; scale all host spatial rows once.
@@ -2379,21 +2410,7 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     ComPtr<ID3D11ShaderResourceView> scene;
     if(selectSceneDepth(scene)<0 || !ensureSharedState()) return false;
     struct Placement { float matrix[16],screen[4],depthMapping[4]; } parameters{};
-    {
-        std::lock_guard lock(gate);
-        if(lastSelected>=depths.size()) return false;
-        const auto& selected=depths[lastSelected];
-        const auto& v=selected.debugViewport;
-        // Never reuse a viewport from an older frame or guess a render scale.
-        if(selected.debugViewportFrame!=frame || !std::isfinite(v.Width) || !std::isfinite(v.Height)
-                || !std::isfinite(v.TopLeftX) || !std::isfinite(v.TopLeftY)
-                || v.Width<=0 || v.Height<=0 || v.TopLeftX<0 || v.TopLeftY<0
-                || v.TopLeftX+v.Width>width || v.TopLeftY+v.Height>height) return false;
-        parameters.depthMapping[0]=v.Width/width;
-        parameters.depthMapping[1]=v.Height/height;
-        parameters.depthMapping[2]=v.TopLeftX;
-        parameters.depthMapping[3]=v.TopLeftY;
-    }
+    if(!selectedDepthMapping(parameters.depthMapping)) return false;
     reprojection::Matrix mapping;
     if(!alignment::worldMatrix(alignmentSession.anchor,pose.generation,alignmentSession.epoch,mapping)) return false;
     const auto feet=reprojection::transform(mapping,{pose.feet[0],pose.feet[1],pose.feet[2],1});
