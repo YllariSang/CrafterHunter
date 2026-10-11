@@ -44,6 +44,50 @@ public final class WorldFrameChannelTest {
             Files.copy(file,file.resolveSibling("separate-"+mode+".frame"));
             if(ByteBuffer.wrap(Files.readAllBytes(file)).order(ByteOrder.LITTLE_ENDIAN).getInt(12)!=3)
                 throw new AssertionError("missing body-exclusion provenance");
+            float[] bone={1,0,0,0,0,1,0,0,0,0,1,0,3,0,0,1};
+            byte[] issued=PlayerModelChannel.pose(99,42,17,feet[0],feet[1],feet[2],
+                java.util.List.of(bone),java.util.List.of(true));
+            // A later pose exists when the older GPU capture finishes.
+            byte[] later=PlayerModelChannel.pose(99,42,18,feet[0]+5,feet[1],feet[2],
+                java.util.List.of(bone),java.util.List.of(true));
+            Files.write(file.resolveSibling("latest-player.pose"),later);
+            WorldFrameChannel.publish(file,8,4,99,1,1234,0.05f,1024,matrix,pose,view,position,
+                1,1,mode,0,1,feet,true,issued,colour,depth);
+            Files.copy(file,file.resolveSibling("capture-"+mode+".frame"));
+            byte[] complete=Files.readAllBytes(file);
+            ByteBuffer header=ByteBuffer.wrap(complete).order(ByteOrder.LITTLE_ENDIAN);
+            if(header.getInt(4)!=5 || header.getInt(308)!=issued.length
+                    || !Arrays.equals(issued,Arrays.copyOfRange(complete,576,complete.length)))
+                throw new AssertionError("capture lost its issue-time pose");
+            for(int mutation=0;mutation<7;mutation++) {
+                byte[] wrong=issued.clone();
+                ByteBuffer bb=ByteBuffer.wrap(wrong).order(ByteOrder.LITTLE_ENDIAN);
+                switch(mutation) {
+                    case 0 -> bb.putLong(8,100);
+                    case 1 -> bb.putLong(16,0);
+                    case 2 -> bb.putLong(24,0);
+                    case 3 -> bb.putInt(56,65);
+                    case 4 -> bb.putDouble(32,Double.NaN);
+                    case 5 -> bb.putFloat(80,1); // nonaffine W row
+                    case 6 -> bb.putInt(64,2);
+                }
+                try {
+                    WorldFrameChannel.publish(file,8,4,99,1,1234,0.05f,1024,matrix,pose,view,position,
+                        1,1,mode,0,1,feet,true,wrong,colour,depth);
+                    throw new AssertionError("bad issue-time pose accepted");
+                } catch(IllegalArgumentException expected) { }
+                if(!Arrays.equals(complete,Files.readAllBytes(file))) throw new AssertionError("bad pose replaced pair");
+            }
+            for(boolean excluded:new boolean[]{false,true}) {
+                try {
+                    WorldFrameChannel.publish(file,8,4,99,1,1234,0.05f,1024,matrix,pose,view,position,
+                        1,1,mode,0,1,feet,excluded,excluded ? null:issued,colour,depth);
+                    throw new AssertionError("exclusion/pose disagreement accepted");
+                } catch(IllegalArgumentException expected) { }
+            }
+            WorldFrameChannel.publish(file,8,4,99,1,1234,0.05f,1024,matrix,pose,view,position,
+                1,1,mode,0,1,feet,false,null,colour,depth);
+            Files.copy(file,file.resolveSibling("unfiltered-"+mode+".frame"));
             Files.write(file,paired);
             feet[1]=Double.NaN;
             try {
@@ -84,6 +128,34 @@ public final class WorldFrameChannelTest {
         }
         reader.join();
         if (failure.get()!=null) throw new AssertionError(failure.get());
+        // Concurrent reads must bind pixels AND serialized body to one capture inode.
+        double[] feet={0,0,0};
+        float[] bone={1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1};
+        Arrays.fill(colour,(byte)60);Arrays.fill(depth,(byte)60);
+        byte[] body=PlayerModelChannel.pose(99,42,60,0,0,0,java.util.List.of(bone),java.util.List.of(true));
+        WorldFrameChannel.publish(file,8,4,99,60,1234,0.05f,1024,matrix,pose,view,position,
+            1,1,1,0,1,feet,true,body,colour,depth);
+        Thread pairedReader=new Thread(() -> {
+            try {
+                for(int n=0;n<500;n++) {
+                    byte[] bytes=Files.readAllBytes(file);
+                    ByteBuffer b=ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+                    long id=b.getLong(40);
+                    if(bytes.length!=708 || b.getInt(4)!=5 || b.getLong(600)!=id)
+                        throw new AssertionError("pose/pixels torn across captures");
+                    for(int i=320;i<576;i++) if(bytes[i]!=(byte)id) throw new AssertionError("mixed attachments");
+                }
+            } catch(Throwable problem) { failure.set(problem); }
+        });
+        pairedReader.start();
+        for(int id=61;id<=110;id++) {
+            Arrays.fill(colour,(byte)id);Arrays.fill(depth,(byte)id);
+            body=PlayerModelChannel.pose(99,42,id,0,0,0,java.util.List.of(bone),java.util.List.of(true));
+            WorldFrameChannel.publish(file,8,4,99,id,1234,0.05f,1024,matrix,pose,view,position,
+                1,1,1,0,1,feet,true,body,colour,depth);
+        }
+        pairedReader.join();
+        if(failure.get()!=null) throw new AssertionError(failure.get());
         // Restart plus resize: no reader-visible truncation or mixed geometry.
         publish(file,4,4,100,1,5678,0.05f,1024,matrix,pose,new byte[64],new byte[64]);
         Files.copy(file,file.resolveSibling("resized.frame"));

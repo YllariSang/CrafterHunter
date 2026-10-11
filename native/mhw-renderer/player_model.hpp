@@ -54,10 +54,9 @@ inline bool readAsset(const char* path,Asset& out) {
     }
     a.skin.assign(b.begin()+40+count*24,b.end()); out=std::move(a); return true;
 }
-inline bool readPose(const char* path,Pose& out) {
+inline bool decodePose(const std::vector<std::uint8_t>& b,Pose& out) {
     using namespace world;
-    std::vector<std::uint8_t> b;
-    if(!bytes(path,64+MaxParts*68,b) || b.size()<64) return false;
+    if(b.size()<64 || !validBodyPose(b.data(),b.size(),u64(b.data()+8))) return false;
     const auto p=b.data();
     if(u32(p)!=0x50504843 || u32(p+4)!=1 || u32(p+60)) return false;
     Pose s; s.generation=u64(p+8); s.asset=u64(p+16); s.sequence=u64(p+24);
@@ -76,6 +75,25 @@ inline bool readPose(const char* path,Pose& out) {
         s.bones.push_back(bone);
     }
     out=std::move(s); return true;
+}
+inline bool readPose(const char* path,Pose& out) {
+    std::vector<std::uint8_t> b;
+    return bytes(path,64+MaxParts*68,b) && decodePose(b,out);
+}
+// Separated paired bodies must never substitute the later live-channel pose.
+// Liveness comes from the containing capture's identity/receipt guard.
+inline bool capturedPose(const world::Snapshot& snapshot,Pose& out) {
+    Pose next;
+    if(!snapshot.bodyExcluded || !decodePose(snapshot.bodyPose,next)
+            || next.generation!=snapshot.generation) return false;
+    out=std::move(next); return true;
+}
+template<class ReadLive>
+inline bool selectPose(const world::Snapshot& snapshot,bool paired,ReadLive readLive,Pose& out) {
+    if(paired) return capturedPose(snapshot,out);
+    Pose next;
+    if(!readLive(next) || next.generation!=snapshot.generation) return false;
+    out=std::move(next); return true;
 }
 inline bool matches(const Asset& a,const Pose& p,std::uint64_t generation) {
     return a.generation==generation && p.generation==generation && a.identity==p.asset && a.parts==p.bones.size();

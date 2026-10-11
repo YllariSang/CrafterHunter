@@ -4,6 +4,12 @@
 live acceptance pending. Scoped backup:
 `native/mhw-renderer/build/rollback.single-body.3_t40x8e/`. Control starts OFF.
 
+Follow-up: user reports all cameras work and F6 stops control, but cape and held
+item lag behind the body during movement. Fresh matching release was observed;
+the bounded collector only captured stationary first person before that later
+manual test. All-F5 screenshots and attachment/occlusion acceptance remain open.
+The issue-time pose fix below is built/headless verified, awaiting scoped install.
+
 The paired world previously included Minecraft's third-person player body while
 the native renderer drew the exported body again. Keep the real baked model and
 its Minecraft pose/skin as the body renderer. Exclude only the local main-body
@@ -68,6 +74,42 @@ depth testing, while the existing pixel shader still tests MHW scene depth.
 MHW's depth is never written. Standalone model preview retains its own private
 self-depth target. Actual F5 camera handling, first-person body suppression,
 fixed anchors and input/F6 control are unchanged.
+
+## Body and attachment timing
+
+The former separated body read newest `player.pose`, independently of the older
+GPU-captured attachment pixels. Even zero cadence floors allow readback and
+publication to span newer player poses, so their feet and animation can disagree.
+Do not infer GPU latency from packet receipt age.
+
+Snapshot v5 retains the 320-byte header and unchanged colour/depth offsets.
+Header offset 308 holds a u32 body-pose byte count; bytes 312–319 remain zero.
+After depth, append the actual serialized `player.pose` sampled during this level
+render invocation and cloned at readback issue. Its existing version-1 format
+includes generation, asset identity, pose sequence, interpolated feet and bounded
+affine bone matrices/visibility. At most 4416 bytes are appended. It is frozen
+with the issue-time camera and published by the same atomic file replacement.
+Completion never reads the later pose channel. Metadata reports `bodyPoseBytes`;
+native upload logs report `body-pose` sequence.
+
+Only a successful body export in the current render invocation permits separation;
+the per-frame reference is cleared before cadence/disabled checks. If unavailable,
+retain the ordinary captured body and suppress its separate draw. Existing export
+cadence settings remain honored. For separated paired drawing the host uses only
+the embedded pose; absence, malformed data, another generation or unmatched asset
+refuse drawing without falling back to newest state. The containing snapshot's
+existing advancing-identity/receipt gates provide liveness; rereading its pose
+cannot renew them. Standalone preview retains independent pose freshness.
+Legacy v2/v3/v4 snapshots remain readable, but separated v4 lacks the required
+pose and cannot draw a replacement body on the new host. Install both builds.
+
+This keeps the exported mesh, skin and depth policy, but ties composited body
+updates to world-capture cadence and its transport delay. It does not accelerate
+capture, export attachment geometry, or claim visible timing acceptance.
+Regression presents a captured pose at sequence 17 and an independently advancing
+live pose at 18, five blocks ahead. Paired drawing must never read the newer pose;
+standalone must still use it. Restoring newest-pose selection fails this oracle.
+Concurrent-reader tests bind both attachments and pose to the capture identity.
 
 ## Checks and live gate
 

@@ -9,7 +9,8 @@
 #include <vector>
 
 namespace crafterhunter::world {
-constexpr std::uint32_t Magic = 0x50574843, Version = 4, HeaderBytes = 320, MaxDimension = 4096;
+constexpr std::uint32_t Magic = 0x50574843, Version = 5, HeaderBytes = 320, MaxDimension = 4096;
+constexpr std::uint32_t MaxBodyPoseBytes = 64+64*68;
 struct Snapshot {
     std::uint32_t width{}, height{}, stride{};
     std::uint64_t generation{}, identity{}, issueNanos{};
@@ -24,6 +25,7 @@ struct Snapshot {
     std::uint32_t clipMapping{},clipOrigin{},cameraMode{};
     float clearDepth{},rangeMin{},rangeMax{};
     std::vector<std::uint8_t> colour, depth;
+    std::vector<std::uint8_t> bodyPose; // same issue-time body as captured attachment pixels
 };
 inline std::uint32_t u32(const std::uint8_t* p) {
     return std::uint32_t(p[0]) | std::uint32_t(p[1]) << 8 | std::uint32_t(p[2]) << 16 | std::uint32_t(p[3]) << 24;
@@ -31,27 +33,44 @@ inline std::uint32_t u32(const std::uint8_t* p) {
 inline std::uint64_t u64(const std::uint8_t* p) { return u32(p) | std::uint64_t(u32(p + 4)) << 32; }
 inline float f32(const std::uint8_t* p) { auto bits = u32(p); float value; std::memcpy(&value, &bits, 4); return value; }
 inline double f64(const std::uint8_t* p) { auto bits = u64(p); double value; std::memcpy(&value, &bits, 8); return value; }
+inline bool validBodyPose(const std::uint8_t* p,std::size_t bytes,std::uint64_t generation) {
+    if(bytes<132 || bytes>MaxBodyPoseBytes) return false;
+    const auto parts=u32(p+56);
+    if(u32(p)!=0x50504843 || u32(p+4)!=1 || !generation || u64(p+8)!=generation
+            || !u64(p+16) || !u64(p+24) || u32(p+60) || !parts || parts>64
+            || bytes!=64+parts*68) return false;
+    for(unsigned i=0;i<3;++i) if(!std::isfinite(f64(p+32+i*8))) return false;
+    for(unsigned i=0;i<parts;++i) {
+        const auto b=p+64+i*68;
+        if(u32(b)>1) return false;
+        for(unsigned j=0;j<16;++j) if(!std::isfinite(f32(b+4+j*4))) return false;
+        if(f32(b+16)!=0 || f32(b+32)!=0 || f32(b+48)!=0 || f32(b+64)!=1) return false;
+    }
+    return true;
+}
 // Opening once holds one inode across an atomic replacement: header and pixels
 // cannot come from different publications. A refusal never replaces output.
 inline bool read(const char* path, Snapshot& output) {
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file) return false;
     const auto size = file.tellg();
-    if (size < HeaderBytes || size > std::streamoff(HeaderBytes + std::uint64_t(MaxDimension) * MaxDimension * 8)) return false;
+    if (size < HeaderBytes || size > std::streamoff(HeaderBytes + std::uint64_t(MaxDimension) * MaxDimension * 8+MaxBodyPoseBytes)) return false;
     file.seekg(0);
     std::array<std::uint8_t, HeaderBytes> h{};
     if (!file.read(reinterpret_cast<char*>(h.data()), h.size())) return false;
     const auto version=u32(h.data()+4);
     const auto flags=u32(h.data()+12);
-    if (u32(h.data()) != Magic || (version!=2 && version!=3 && version!=Version) || u32(h.data()+8) != HeaderBytes
+    if (u32(h.data()) != Magic || (version!=2 && version!=3 && version!=4 && version!=Version) || u32(h.data()+8) != HeaderBytes
             || (version<4 ? flags!=1 : (flags!=1 && flags!=3)) || u32(h.data()+28) != 0) return false;
     Snapshot candidate;
-    candidate.bodyExcluded=version==4 && (flags&2)!=0;
+    candidate.bodyExcluded=version>=4 && (flags&2)!=0;
+    const auto poseBytes=version==Version ? u32(h.data()+308) : 0;
+    if(poseBytes>MaxBodyPoseBytes || (version==Version && candidate.bodyExcluded!=(poseBytes!=0))) return false;
     candidate.width = u32(h.data()+16); candidate.height = u32(h.data()+20); candidate.stride = u32(h.data()+24);
     if (!candidate.width || !candidate.height || candidate.width > MaxDimension || candidate.height > MaxDimension
             || candidate.stride != candidate.width * 4) return false;
     const std::uint64_t bytes = std::uint64_t(candidate.stride) * candidate.height;
-    if (u64(h.data()+56) != bytes || u64(h.data()+64) != bytes || size != std::streamoff(HeaderBytes + bytes * 2)) return false;
+    if (u64(h.data()+56) != bytes || u64(h.data()+64) != bytes || size != std::streamoff(HeaderBytes + bytes * 2+poseBytes)) return false;
     candidate.generation=u64(h.data()+32); candidate.identity=u64(h.data()+40); candidate.issueNanos=u64(h.data()+48);
     candidate.nearPlane=f32(h.data()+72); candidate.farPlane=f32(h.data()+76);
     if (!candidate.generation || !candidate.identity || !candidate.issueNanos
@@ -87,12 +106,17 @@ inline bool read(const char* path, Snapshot& output) {
             candidate.playerPosition[i]=f64(h.data()+280+i*8);
             if(!std::isfinite(candidate.playerPosition[i])) return false;
         }
-        candidate.playerKnown=true; reserved=308;
+        candidate.playerKnown=true; reserved=version==Version ? 312:308;
     }
     for (unsigned i=reserved; i<HeaderBytes; ++i) if (h[i]) return false;
     candidate.colour.resize(bytes); candidate.depth.resize(bytes);
     if (!file.read(reinterpret_cast<char*>(candidate.colour.data()), bytes)
             || !file.read(reinterpret_cast<char*>(candidate.depth.data()), bytes)) return false;
+    if(poseBytes) {
+        candidate.bodyPose.resize(poseBytes);
+        if(!file.read(reinterpret_cast<char*>(candidate.bodyPose.data()),poseBytes)
+                || !validBodyPose(candidate.bodyPose.data(),poseBytes,candidate.generation)) return false;
+    }
     output = std::move(candidate);
     return true;
 }

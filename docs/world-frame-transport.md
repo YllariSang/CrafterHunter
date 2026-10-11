@@ -105,14 +105,15 @@ recorder's rate, not an independent MHW fps measurement. Next isolate MHW frame
 cost under matching conditions before another tuning change.
 
 The file `/dev/shm/crafterhunter/world.frame` contains one little-endian header,
-bottom-up RGBA8 colour, then bottom-up raw D32_FLOAT window depth. Source rows
+bottom-up RGBA8 colour, then bottom-up raw D32_FLOAT window depth, then the
+optional v5 issue-time body pose. Source rows
 are tightly packed; matrix coefficients are column-major. Clip-control mode/origin
 and depth range are explicit: the matrix alone cannot define the window-depth
 mapping. Never compare these floats directly to MHW depth.
 
 | Offset | Field |
 | --- | --- |
-| 0, 4, 8, 12 | u32 magic `0x50574843`, version 4, header size 320, flags bit 0 bottom-up, bit 1 local body excluded |
+| 0, 4, 8, 12 | u32 magic `0x50574843`, version 5, header size 320, flags bit 0 bottom-up, bit 1 local body excluded |
 | 16, 20, 24, 28 | u32 width, height, row stride, reserved zero |
 | 32, 40, 48 | u64 generation, capture identity, issue-time Java monotonic nanos |
 | 56, 64 | u64 colour and depth byte counts |
@@ -127,17 +128,26 @@ mapping. Never compare these floats directly to MHW depth.
 | 268, 272, 276 | f32 depth-range min/max (currently requires 0/1), u32 provenance 1 (render arguments) |
 | 280 | three f64 player feet x, y, z, interpolated at the level render's partial tick |
 | 304 | u32 player provenance 1 (local player is the active camera entity) |
-| 308–319 | reserved zeros |
-| 320 | colour, followed immediately by depth |
+| 308 | u32 body-pose byte count (0 unless the local body was excluded) |
+| 312–319 | reserved zeros |
+| 320 | colour, followed immediately by depth, then body pose |
 
 Version 1 is rejected. Version 2 still reads for archived camera/depth evidence,
 but lacks player provenance and cannot calibrate or draw the player-anchored
 preview. Version 3 archives retain player provenance but cannot claim body
 exclusion. Missing player references publish v2, never a fabricated player origin.
-Version 4 requires matching rebuilt Fabric/native artifacts; the managed plugin
-is preserved. Flags must be 1 or 3 on v4 and exactly 1 on v2/v3. The issue-time
+Version 4 archives retain exclusion provenance and reserved zeros at 308–319.
+Version 5 requires matching rebuilt Fabric/native artifacts; managed is preserved.
+Flags must be 1 or 3 on v4/v5 and exactly 1 on v2/v3. The issue-time
 exclusion bit is atomic with its color/depth identity, never inferred from a flag
 file at host draw time. See [single-body rendering](player-single-body.md).
+On v5 exclusion and body-pose presence must agree. The appended existing player
+pose format is bounded to 64+64*68 bytes; generation, asset/sequence, finite feet,
+affine bone matrices and visibility are validated. Capture freezes the actual
+successful current-render export before GPU copies; it never resamples at
+completion. Separated body drawing uses only this pose, with matching resident
+asset and capture liveness. Legacy separated v4 cannot supply that replacement
+body. Unfiltered paired frames already include their body and need no payload.
 Player feet are copied at LevelRenderer HEAD using the level delta's partial tick,
 then frozen with the view/camera/projection for that capture identity, not sampled
 when GPU callbacks finish. Nonfinite feet or unknown provenance refuse player frames.
@@ -153,7 +163,7 @@ The host watchdog still expires that old file; it must not be treated as an upda
 Clear-depth provenance is bytecode-pinned, not a query of unrelated GL clear state.
 
 Each attachment is width × height × 4 bytes. Dimensions are capped at 4096 each;
-one snapshot is at most 128 MiB plus header. One private same-directory temporary
+one snapshot is at most 128 MiB plus header and 4416 pose bytes. One private same-directory temporary
 and one published snapshot bound on-disk producer storage to two snapshots during
 publication. The complete private file is closed before atomic replacement;
 failure removes only its own temporary and keeps the previous published file.

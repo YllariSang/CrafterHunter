@@ -59,6 +59,21 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Latest follow-up (2026-10-12): user reports all cameras work and F6 stops control,
+but captured cape/held item lag behind the newest separately rendered body.
+Fresh release matches generation 30989782490149/epoch 1736; cleanup armed=0.
+Bounded collector only captured stationary first-person; all-F5 motion is user
+reported, not new native screenshot acceptance. Snapshot v5 now appends the
+current-render body pose frozen at capture issue, with u32 byte count at 308,
+reserved zeros 312–319, unchanged colour/depth offsets and 4416-byte bound.
+Paired body selection uses only that pose; standalone keeps the fast pose channel.
+Per-render pose availability resets before cadence checks; missing current pose
+keeps body in ordinary capture. Legacy separated v4 reads but cannot provide a
+replacement body on the new host. Builds/headless selection/refusal/atomic and
+newest-pose mutant pass; matching guest/native install awaits both games closed.
+Body updates now follow world-capture cadence; no latency/performance/live timing
+claim. Keep existing capture lifetime/freshness/depth/F5 guards.
+
 Latest authorized slice (2026-10-12): render one local body. Read
 docs/player-single-body.md. PlayerBodyCapture tags
 only the local AvatarRenderState/PlayerModel main submit. Due third-person

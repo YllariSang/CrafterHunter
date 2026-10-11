@@ -92,6 +92,7 @@ public final class WorldCapture {
     private String worldBoundary;
     private String inFlightBoundary;
     private boolean inFlightBodyExcluded;
+    private byte[] inFlightBodyPose;
 
     public void beginWorldFrame() {
         worldBoundarySeen = false;
@@ -417,6 +418,8 @@ public final class WorldCapture {
             inFlightQueuedNanos = nowNanos;
             inFlightColourFormat = wantColour ? String.valueOf(colour.getFormat()) : "not requested";
             inFlightBodyExcluded = PlayerBodyCapture.excludedAtIssue();
+            // Freeze before GPU copies; publication may happen after many newer poses.
+            inFlightBodyPose = inFlightBodyExcluded ? PlayerModelExport.capturePose() : null;
             inFlightDepthFormat = wantDepth ? String.valueOf(depth.getFormat()) : "not requested";
             final WorldCopyState completion = new WorldCopyState(wantColour, wantDepth);
             copyState = completion;
@@ -695,7 +698,8 @@ public final class WorldCapture {
                         new float[] {inFlightX, inFlightY, inFlightZ, inFlightXRot, inFlightYRot},
                         inFlightView, inFlightPosition, inFlightClipMapping, inFlightClipOrigin,
                         inFlightCameraMode, inFlightDepthRangeMin, inFlightDepthRangeMax,
-                        inFlightPlayerKnown ? inFlightPlayerPosition : null, inFlightBodyExcluded, colour, depth);
+                        inFlightPlayerKnown ? inFlightPlayerPosition : null, inFlightBodyExcluded,
+                        inFlightBodyPose, colour, depth);
                     metadata += "worldFrameChannel=/dev/shm/crafterhunter/world.frame\n";
                 } catch (IOException | IllegalArgumentException refused) {
                     // Preserve diagnostic captures even if shared memory is full,
@@ -776,6 +780,7 @@ public final class WorldCapture {
         text.append("anchorSource=").append(inFlightAnchorSource).append('\n');
         text.append("captureBoundary=").append(inFlightBoundary).append('\n');
         text.append("localPlayerBody=").append(inFlightBodyExcluded ? "excluded" : "included-or-native-first-person").append('\n');
+        text.append("bodyPoseBytes=").append(inFlightBodyPose == null ? 0 : inFlightBodyPose.length).append('\n');
         text.append(String.format(Locale.ROOT, "anchor=%.4f %.4f %.4f%n",
             inFlightX, inFlightY, inFlightZ));
         text.append(String.format(Locale.ROOT, "anchorRot=%.3f %.3f%n",

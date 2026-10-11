@@ -374,13 +374,14 @@ void serviceWorldUpload() {
     // the moment the paired draw existed.
     const bool previewRequested=compositionRequests.value().preview;
     const bool fullRequested=compositionRequests.value().full;
-    log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition=%s anchor=%s textures=%s local-body=%s",
+    log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition=%s anchor=%s textures=%s local-body=%s body-pose=%llu",
         static_cast<unsigned long long>(worldMetadata.generation),static_cast<unsigned long long>(worldMetadata.identity),
         worldMetadata.width,worldMetadata.height,
         fullRequested ? "full" : (previewRequested ? "preview" : "none"),
         alignmentSession.anchor.armed ? "armed" : "unarmed",
         upload==crafterhunter::world::UploadResult::Created ? "created" : "updated",
-        worldMetadata.bodyExcluded ? "excluded" : "captured-or-native-first-person");
+        worldMetadata.bodyExcluded ? "excluded" : "captured-or-native-first-person",
+        static_cast<unsigned long long>(worldMetadata.bodyPose.empty() ? 0 : crafterhunter::world::u64(worldMetadata.bodyPose.data()+24)));
 }
 
 int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui);
@@ -2249,12 +2250,16 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
         pairedDSV && pairedDepthStamp.matches(requestedDepth));
     if(bodyDepth==player::BodyDepth::Hidden) return false;
     player::Pose next;
-    if(!player::readPose("Z:\\dev\\shm\\crafterhunter\\player.pose",next)
-            && !player::readPose("/dev/shm/crafterhunter/player.pose",next)) return false;
-    if(next.generation!=worldMetadata.generation) return false;
-    // Receipt freshness is not E2E latency. Require producer advance before first draw.
-    if(poseFreshness.observe(next.generation,next.sequence,now)==world::Freshness::Result::Refused
-            || !poseFreshness.live(now)) return false;
+    if(!player::selectPose(worldMetadata,bodyDepth==player::BodyDepth::SharedGuest,
+            [](player::Pose& live) {
+                return player::readPose("Z:\\dev\\shm\\crafterhunter\\player.pose",live)
+                    || player::readPose("/dev/shm/crafterhunter/player.pose",live);
+            },next)) return false;
+    if(bodyDepth!=player::BodyDepth::SharedGuest) {
+        // Receipt freshness is not E2E latency. Standalone requires pose advance.
+        if(poseFreshness.observe(next.generation,next.sequence,now)==world::Freshness::Result::Refused
+                || !poseFreshness.live(now)) return false;
+    }
     auto structured=[&](const void* data,UINT bytes,UINT stride,ComPtr<ID3D11Buffer>& buffer,
             ComPtr<ID3D11ShaderResourceView>& view) {
         D3D11_BUFFER_DESC b{}; b.ByteWidth=bytes; b.Usage=D3D11_USAGE_DEFAULT;

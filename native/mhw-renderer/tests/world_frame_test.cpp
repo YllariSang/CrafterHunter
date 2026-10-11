@@ -1,5 +1,6 @@
 #include "world_frame.hpp"
 #include "world_freshness.hpp"
+#include "player_model.hpp"
 #include <cassert>
 #include <cstdio>
 #include <filesystem>
@@ -47,6 +48,31 @@ int main(int argc, char** argv) {
         assert(!frame.bodyExcluded);
         const auto separatePath=std::filesystem::path(argv[1]).parent_path()/ ("separate-"+std::to_string(mode)+".frame");
         assert(read(separatePath.string().c_str(),frame) && frame.bodyExcluded && frame.playerKnown);
+        const auto capturedPath=std::filesystem::path(argv[1]).parent_path()/ ("capture-"+std::to_string(mode)+".frame");
+        assert(read(capturedPath.string().c_str(),frame) && frame.cameraMode==mode && frame.bodyPose.size()==132);
+        crafterhunter::player::Pose issued;
+        assert(crafterhunter::player::capturedPose(frame,issued));
+        assert(issued.sequence==17 && issued.asset==42 && issued.feet==frame.playerPosition);
+        crafterhunter::player::Pose newest,selected;
+        const auto livePath=std::filesystem::path(argv[1]).parent_path()/"latest-player.pose";
+        assert(crafterhunter::player::readPose(livePath.string().c_str(),newest) && newest.sequence==18);
+        unsigned reads=0;
+        auto latest=[&](crafterhunter::player::Pose& p) { ++reads; p=newest; return true; };
+        assert(crafterhunter::player::selectPose(frame,true,latest,selected));
+        assert(reads==0 && selected.sequence==17 && selected.feet==frame.playerPosition);
+        // Attachment pixels are at these older feet/bones; the live pose is five blocks ahead.
+        assert(selected.feet[0]+selected.bones[0].matrix[12]==frame.playerPosition[0]+3);
+        assert(crafterhunter::player::selectPose(frame,false,latest,selected));
+        assert(reads==1 && selected.sequence==18);
+        auto unavailable=frame; unavailable.bodyPose.clear();
+        assert(!crafterhunter::player::selectPose(unavailable,true,latest,selected) && reads==1);
+        auto wrongGeneration=frame; ++wrongGeneration.generation;
+        assert(!crafterhunter::player::selectPose(wrongGeneration,true,latest,selected) && reads==1);
+        crafterhunter::player::Asset asset;asset.generation=99;asset.identity=43;asset.parts=1;
+        assert(!crafterhunter::player::matches(asset,issued,99));
+        asset.identity=42;assert(crafterhunter::player::matches(asset,issued,99));
+        const auto unfilteredPath=std::filesystem::path(argv[1]).parent_path()/ ("unfiltered-"+std::to_string(mode)+".frame");
+        assert(read(unfilteredPath.string().c_str(),frame) && !frame.bodyExcluded && frame.bodyPose.empty());
     }
     assert(read(argv[2],frame));
     assert(frame.width==4 && frame.generation==100 && frame.identity==1);
@@ -80,9 +106,23 @@ int main(int argc, char** argv) {
     bad=playerBytes; bad[12]=7; refuse(bad); // unknown v4 flags
     bad=playerBytes; bad[12]=3; bad[4]=3; refuse(bad); // v3 cannot claim body exclusion
     bad=bytes; bad[12]=3; refuse(bad); // v2 cannot claim body exclusion
+    const auto capturedPath=std::filesystem::path(argv[1]).parent_path()/"capture-0.frame";
+    std::ifstream capturedInput(capturedPath,std::ios::binary);
+    std::vector<char> capturedBytes((std::istreambuf_iterator<char>(capturedInput)),{});
+    bad=capturedBytes; bad[308]=0; refuse(bad); // size and exclusion must agree
+    bad=capturedBytes; bad[312]=1; refuse(bad); // reserved bytes
+    bad=capturedBytes; bad[12]=1; refuse(bad); // hidden body pose cannot accompany unfiltered capture
+    bad=capturedBytes; bad[584]=100; refuse(bad); // another generation in embedded pose
+    bad=capturedBytes; bad[592]=0; refuse(bad); // missing asset
+    bad=capturedBytes; bad[600]=0; refuse(bad); // missing pose sequence
+    bad=capturedBytes; bad[632]=65; refuse(bad); // too many bones
+    bad=capturedBytes; bad[640]=2; refuse(bad); // unsupported visibility
+    bad=capturedBytes; bad[656]=1; refuse(bad); // nonaffine body pose
+    bad=capturedBytes; bad.pop_back(); refuse(bad); // incomplete pose
+    bad=capturedBytes; bad.push_back(0); refuse(bad); // trailing bytes
     // Retain actual v3 archive compatibility, without claiming exclusion.
     bad=playerBytes; bad[4]=3;
     { std::ofstream out(rejected,std::ios::binary); out.write(bad.data(),bad.size()); }
     assert(read(rejected.c_str(),frame) && frame.playerKnown && !frame.bodyExcluded);
-    std::puts("PASS: v2/v3/v4 Java/native round trip, exclusion provenance, all F5 modes, resize and malformed-frame refusals");
+    std::puts("PASS: v2/v3/v4/v5 Java/native round trip, issue-time pose, all F5 modes, resize and malformed-frame refusals");
 }

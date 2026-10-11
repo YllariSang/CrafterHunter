@@ -55,10 +55,18 @@ capture = (CLIENT/'WorldCapture.java').read_text()
 assert 'if (BodyCapturePass.restoring()) return;' in capture
 assert 'if (issue && remaining > 0 && !inFlight)' in capture
 assert 'inFlightBodyExcluded = PlayerBodyCapture.excludedAtIssue();' in capture
+assert capture.index('inFlightBodyPose = inFlightBodyExcluded ? PlayerModelExport.capturePose() : null;') < capture.index('CommandEncoder encoder = RenderSystem.getDevice().createCommandEncoder();',capture.index('private void queueCapture'))
+assert 'inFlightBodyPose, colour, depth' in capture
+export=(CLIENT/'PlayerModelExport.java').read_text()
+assert export.index('framePose = null;',export.index('public static void capture')) < export.index('if (failed || !cadence.due(now))')
+assert export.index('atomic("player.pose",pose);') < export.index('framePose = pose;')
+assert 'framePose == null ? null : framePose.clone()' in export
 renderer = (ROOT/'native/mhw-renderer/renderer.cpp').read_text()
 player = renderer.split('bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {',1)[1].split('// The Minecraft frame, drawn',1)[0]
 assert 'worldMetadata.bodyExcluded' in player and 'pairedDepthStamp.matches(requestedDepth)' in player
 assert 'if(bodyDepth==player::BodyDepth::Hidden) return false;' in player
+assert 'player::selectPose(worldMetadata,bodyDepth==player::BodyDepth::SharedGuest' in player
+assert 'if(bodyDepth!=player::BodyDepth::SharedGuest)' in player
 assert 'if(bodyDepth==player::BodyDepth::SharedGuest) modelDepth=pairedDSV.Get();' in player
 assert 'else context->ClearDepthStencilView(privateDSV.Get()' in player
 assert 'OMSetRenderTargets(1,target.GetAddressOf(),modelDepth)' in player

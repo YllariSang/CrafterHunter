@@ -1,5 +1,52 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — User reports attachment timing mismatch
+
+User reports all cameras work and F6 stops control, but cape and held item lag
+on movement. Fresh release acknowledgement matches token 5628684270122769202,
+generation 30989782490149 and fixed epoch 1736; guest flag absent. Explicit stop
+then obtained armed=0 and both requests consumed. Loaded native shadow cmp
+matches the tested renderer; initial paired v4 flags=3 and native
+depth=shared-current-guest were observed. Ignored evidence is in
+captures/player-single-body/runtime-20261012-022657/. Its bounded collectors
+captured stationary first-person only before the user performed the later test;
+all-F5 motion is user-reported, not fresh native screenshot acceptance. Do not
+claim held-item, single-body or foreground-occlusion acceptance from this report.
+
+The body draw independently reads newest player.pose; attachment pixels belong
+to an earlier issue-time world.frame. This allows different animation/feet times
+even with zero cadence floors. Proposed bounded fix: freeze the actual serialized
+player pose at capture issue, atomically carry it with the colour/depth snapshot,
+and use that pose for separated paired-body drawing. Standalone keeps the fast
+pose channel. Same-capture body/attachment timing trades independent body updates
+for world-capture cadence; user preference requested before choosing this route.
+No faster GPU readback or E2E latency claim. Regression must expose use of a newer
+pose when the retained capture is older, plus generation/asset/affine/refusal
+checks, atomic concurrent publication and legacy fallback behavior. Preserve
+actual F5 cameras, fixed anchor, capture failure/lifetimes and strict depth.
+
+Implemented the bounded same-capture route. Snapshot v5 retains the header and
+attachment offsets, stores pose byte count at 308 and appends the immutable
+serialized issue-time body pose after depth (max 4416 bytes). Current-render pose
+availability resets before export cadence checks; unavailable export retains the
+ordinary captured body. Host separated drawing selects only the embedded pose,
+using existing capture liveness and matching asset; missing/malformed/generation
+mismatch refuses without live-pose fallback. Standalone retains independent pose
+advance/freshness. Old v2/v3/v4 archives read; separated v4 cannot supply a body
+replacement on the new host. Upload logs include bound body-pose sequence.
+
+Passed Fabric build/testBodyCapture/testBakedPlayer (actual normal/slim models),
+native Release, test-world-frame-transport.sh (Java/native v2-v5 all F5, malformed
+poses, atomic concurrent pose/pixel readers, and newest-live-pose mutant),
+test-player-body.py with existing replay/display/resource mutants,
+test-player-preview.py, test-paired-preview.py, test-world-capture-hook.py,
+test-world-reprojection.sh, test-world-upload.sh, test-stream-cadence.sh,
+test-guest-camera.sh, test-exclusive-input.sh, test-composition-requests.sh and
+cargo workspace (26 tests). All five production shader literals match HEAD;
+diff --check passes. Both games remain open, so matching guest/native install
+awaits safe closure. New single-body timing and its cadence tradeoff are untested
+live; no attachment geometry export or latency/fps improvement claim.
+
 ## 2026-10-12 — Single-body builds installed
 
 After the user reported both games closed, fresh exact-process and host-window

@@ -37,14 +37,19 @@ public final class PlayerModelExport {
     private static int lastParts;
     private static boolean failed;
     private static long publishedNanos;
+    private static byte[] framePose;
     private PlayerModelExport() {}
 
     public static boolean available(long now) {
-        return !failed && publishedNanos != 0 && now - publishedNanos < 500_000_000L
+        return framePose != null && !failed && publishedNanos != 0 && now - publishedNanos < 500_000_000L
             && Files.isRegularFile(ENABLED);
     }
 
+    /** Only this render invocation's successful immutable publication, never last frame. */
+    public static byte[] capturePose() { return framePose == null ? null : framePose.clone(); }
+
     public static void capture(float partialTick, CameraRenderState camera) {
+        framePose = null;
         long now = System.nanoTime();
         if (failed || !cadence.due(now)) return;
         cadence.schedule(now, null); // Keep disabled/unreadable checks on the conservative budget.
@@ -131,8 +136,10 @@ public final class PlayerModelExport {
             lastGeometry=bytes; lastParts=matrices.size(); assetIdentity=id;
             System.out.println("CrafterHunter player asset published: parts="+matrices.size()+" vertices="+vertices.size()+" skin="+skinWidth+"x"+skinHeight);
         }
-        atomic("player.pose",PlayerModelChannel.pose(generation,assetIdentity,++sequence,
-            state.x,state.y,state.z,matrices,visibility));
+        byte[] pose = PlayerModelChannel.pose(generation,assetIdentity,++sequence,
+            state.x,state.y,state.z,matrices,visibility);
+        atomic("player.pose",pose);
+        framePose = pose;
         publishedNanos = System.nanoTime();
     }
 

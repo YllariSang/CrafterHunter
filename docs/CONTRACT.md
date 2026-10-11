@@ -38,3 +38,12 @@ disables camera hooks before resources are retired, and DLL code remains mapped.
 All writers use private temporary files and atomic same-directory replacement.
 Stop never deletes the live world/player/camera channels. Fabric restores the
 prior incoming-link toggle states when its request flag is removed or F6 releases.
+
+Separated player timing: world.frame v5 atomically carries colour/depth and the
+body pose frozen at their readback issue. Header offset 308 is the appended pose
+byte count, bounded to 4416; its generation must match the capture, and its asset
+must match the resident model. Paired bodies never substitute the independent
+newest player.pose. Capture freshness remains authoritative; the embedded pose
+does not renew a lease. Standalone uses the fast independent pose channel.
+This synchronizes body with captured attachments at world-capture cadence;
+camera.pose remains independent and F5 never changes the anchor.
