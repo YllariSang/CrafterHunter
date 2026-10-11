@@ -1,5 +1,46 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Player cadence fix accepted live
+
+After reopening both games, Minecraft was focused in first person with F7/F9
+OFF, both windows visible in loaded offline scenes. Guest jar remained
+cmp-identical to the tested build; the loaded native renderer matched its existing
+build. Requested one new-session player-feet calibration. Generation
+11771983026613 and alignment epoch 1452 stayed fixed throughout; no F5 re-anchor
+or freshness/alignment invalidation. Pose/world/upload intervals all remained
+zero, Minecraft's agreed AFK setting stayed restored, and capture channels,
+input ownership and game settings were not changed by the collector.
+
+Read-only sampling of the atomic player.pose header/bone matrices and our own
+native renderer's Pose state, frame counter and successful-player-draw flag:
+
+| Capture | Duration | Guest pose advances/s | Observed distinct host poses/s | Successful player frames observed |
+| --- | ---: | ---: | ---: | ---: |
+| Idle first person | 45.00s | 29.87 | 29.62 | 1807 |
+| Mixed idle/walking/head motion/F5 | 43.33s | 35.05 | 33.44 | 1740 |
+
+The second trace records guest pose sequences 11671–13175, changed feet and
+bone matrices in first-person/rear-third-person modes, and all three world
+camera modes. Original 1920x1080 desktop screenshots show the player inside
+MHW in each view. Front-facing mode was sampled only briefly (one sampled mode
+entry before the bounded collector completed), so this is not a sustained
+front-facing animation test. The user answered "Much smoother now" to the
+walking/head-motion/F5 check. This accepts removal of the separate ~3.8Hz player
+pose bottleneck and the visible smoothness improvement, not overall 60fps or
+a complete playable MVP.
+
+Host counts are sampled lower bounds. Native pose state updates precede final
+depth/draw gates; successful draw flags and screenshots establish submission
+separately. No independent Present rate, exact visible animation fps, export-cost
+isolation or end-to-end latency claim. Idle cadence near 30/s is consistent with
+the restored AFK limit; no temporary FPS-setting change was required here.
+Local ignored evidence includes exact read-only collectors, preconditions,
+samples, fresh renderer log appends, reports and screenshots in
+captures/player-pose-cadence/runtime-20261011-210836/ and
+captures/player-pose-cadence/runtime-20261011-211117/.
+Code/install commit c058ed3 is already pushed. This entry records its runtime
+acceptance; no further artifact change or deployment is needed.
+
 ## 2026-10-11 — Player-only cadence defect: separate 250ms pose cap
 
 The user reports smooth world composition, placing/moving/breaking, while the

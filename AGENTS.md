@@ -70,11 +70,16 @@ controller defaults --pose-ms 0 and preserves existing world floors. Headless
 60Hz/4Hz regression, old-floor mutant, actual normal/slim models and Fabric build
 pass. Guest jar installed cmp-clean, pose flag 0, scoped jar/flag backup
 minecraft/fabric/build/rollback.player-cadence.7py_t945. Native/managed/bridge,
-capture lifetime, skin/geometry, depth/F5/freshness gates unchanged. Next runtime
-gate: fresh guest pose/host-consumption sequences plus walking/head motion in all
-F5 modes, one calibration for the new session, no F5 re-anchor. Live smoothness
-and 60fps not yet accepted. Do not return to broad composition optimization
-before checking this player-specific fix.
+capture lifetime, skin/geometry, depth/F5/freshness gates unchanged. Runtime fix
+accepted: user reports "Much smoother now" after walking/head-motion/F5 check.
+Fresh generation 11771983026613, fixed alignment epoch 1452, no invalidation:
+43.33s trace gives 35.05 guest pose advances/s and 33.44 observed distinct host
+poses/s, 1740 observed successful player frames. Original desktop screenshots
+show all three F5 views; front-facing mode was sampled only briefly, not a
+sustained motion test in that mode. Evidence in ignored
+captures/player-pose-cadence/runtime-20261011-211117/. Native consumption counts
+are sampled lower bounds, not Present fps or latency; exact 60fps remains
+unaccepted. Player cadence work is complete; no new gameplay scope is implied.
 
 The Steve-rendering spike is the active line. Two of its three requirements
 existed separately and neither had both: `drawFrame` composites the whole

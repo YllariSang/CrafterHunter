@@ -5,8 +5,11 @@ are visually accepted in all three F5 modes; see MODLOG for screenshot evidence.
 The user reports that character animation alone is choppy despite smooth world
 composition. A separate hardcoded 250ms pose gate was found and observed live at
 ~3.8 updates/s. It is now configurable, built/tested and installed with the guest
-pose floor set to zero. New live pose cadence and animation smoothness still need
-walking/head-motion/F5 evidence; overall 60fps is not claimed. This is a
+pose floor set to zero. The live fix is accepted: the user reports "Much smoother
+now" after walking/head-motion/F5 checks. A 43.33s trace measured 35.05 guest pose
+advances/s and 33.44 observed distinct host poses/s with fixed calibration and
+screenshots in all three F5 views (front-facing view captured briefly). See the
+latest MODLOG entry for evidence and sampling limits; overall 60fps is not claimed. This is a
 player-body/skin-layer slice, not a complete playable MVP. Existing frame and
 stone compositors are preserved; no world mesh, collision, combat or input
 ownership is added.
@@ -74,7 +77,9 @@ startup warmup. Receipt age is NOT end-to-end latency.
 Typical vanilla static payload is 432 vertices (10,368 bytes) + 64x64 skin
 (16,384 bytes) + header, transferred once. Dynamic payload is 64 + 68*parts
 bytes per update. The old live cadence was ~3.8 advances/s under the 250ms gate;
-new achieved pose cadence/export cost and visible smoothness remain unmeasured.
+new live cadence measured 29.87/s while idle and 35.05/s across a mixed idle/motion
+capture. The user accepts the visible smoothness improvement. Export cost has
+not been isolated; these are not exact animation/Present fps measurements.
 
 `python3 tools/control-player-preview.py start --pose-ms 0` enables per-render
 sampling (also the default). Existing world stream/upload floors are preserved;
