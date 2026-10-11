@@ -1,5 +1,18 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Planar ground-depth renderer installed
+
+User closed both games normally; fresh host window and exact process checks
+confirmed both absent. Installed native-only eeae2d4's tested build using the
+pinned-executable installer. Previous native DLL, renderer marker, MinHook notice
+and scoped install manifest are preserved in
+native/mhw-renderer/build/rollback.ycAqC3/. Installed native plus preserved managed
+and Fabric artifacts all cmp-match their corresponding tested builds. Camera/input
+requests remain OFF, guest-control flag absent, full/player composition and zero
+world/upload/pose floors preserved. No game launched or frame channel deleted;
+no graphics, saves or anchor reused. Runtime ground-band/F5/occlusion acceptance
+and added sampling cost remain pending restart and one new-session calibration.
+
 ## 2026-10-12 — Bounded planar-footprint depth correction plan
 
 Continue the paired colour/depth passthrough; no new gameplay subsystem. Saved
