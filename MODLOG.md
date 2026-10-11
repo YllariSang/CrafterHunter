@@ -1,5 +1,54 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Spike measured: the transport is not the wall
+
+Ran the negotiated cadence with both games live, Minecraft focused with focus
+pausing disabled, first person, both floors at zero.
+
+    guest publishes 12325 -> 14502 in 45.04s
+      achieved 48.33 publishes/s (20.7 ms apart), best case 11 ms
+    host 1776 uploads in the same window = 39.5/s
+      producer issue step ms: min 12.1  median 22.7  max 100
+      consumer observation ms: min 21    median 25    max 76
+
+The host polls once per MHW frame and can only observe one identity per frame, so
+39.5/s against a guest capable of 48.3/s places MHW's own frame rate at roughly
+40 fps. Transport latency is ~25 ms against a 16.7 ms budget at 60 Hz.
+
+An earlier run with Minecraft unfocused measured 15 publishes/s. That was focus
+pausing, not the readback, and it is why no architectural conclusion was drawn
+from it. The mesh-path fork raised earlier - "if the numbers are bad, stop
+streaming pixels" - is **not** forced by this data and is dropped.
+
+Then the draw itself, which had never been rendered:
+
+    paired FULL-RESOLUTION draw submitted: 949x509 guest -> 483041 points,
+      host 1920x1080, upload age 14-40ms, 362-437 draws per 10s report
+
+~40 fps sustained with a 483,041-point full-resolution composite in the frame.
+Resolution is achieved; cadence is bounded by MHW, not by the composite. The
+remaining gap to 60 fps is MHW's frame rate and ~25 ms of latency, both of which
+are tuning problems rather than redesign.
+
+**Defect found by reading this session's own log.** Two lines asserted a state
+that had stopped being true: every upload ended in "; composition disabled" and
+every alignment line in "; drawing disabled", both hardcoded, both left over from
+when those paths were diagnostic-only. They were believed - "composition is
+disabled" is why the first alignment attempt looked like a failure - while a
+483,041-point composite was being submitted thirty times a second. Both now
+report actual state. A log that states a falsehood is worse than no log, and this
+one had been sitting there long enough to mislead a reader who wanted to believe
+it.
+
+Also corrected: the probe's own 19.27/s figure was its 20 Hz sampling limit, not
+the transport, and is not used.
+
+Verified: `bash tools/test-fabric-frame.sh`, `tools/test-stream-cadence.sh`,
+`tools/test-paired-grid.sh`, the exclusive-input, reprojection, depth-selection
+and frame-composite suites, and the MinHook cross-build. The cadence and draw
+figures are measured live; the corrected log strings are built but not yet
+installed.
+
 ## 2026-10-11 — Make transport cadence a negotiation, and measure it
 
 The full-resolution composite is still slow, and the reason was never measured:

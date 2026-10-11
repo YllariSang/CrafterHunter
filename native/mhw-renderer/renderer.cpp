@@ -254,11 +254,17 @@ void serviceAlignment() {
     if(now<alignmentNextLog) return;
     alignmentNextLog=now+500;
     const auto origin=crafterhunter::reprojection::transform(mapped,{0,0,0,1});
-    log("alignment epoch=%llu generation=%llu identity=%llu mode=%u mapped-camera-metres=(%.6f,%.6f,%.6f); drawing disabled",
-        static_cast<unsigned long long>(alignmentSession.epoch),
+    // This line used to end in "; drawing disabled" unconditionally, which became a
+    // lie at exactly the moment it matters: an armed anchor driving a submitted
+    // draw still claimed no drawing was happening.
+    const bool fullRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-full.enabled")!=INVALID_FILE_ATTRIBUTES;
+    const bool previewRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-compose.enabled")!=INVALID_FILE_ATTRIBUTES;
+    log("alignment epoch=%llu generation=%llu identity=%llu mode=%u mapped-camera-metres=(%.6f,%.6f,%.6f); composition=%s",
+        static_cast<std::uint64_t>(alignmentSession.epoch),
         static_cast<unsigned long long>(worldMetadata.generation),
         static_cast<unsigned long long>(worldMetadata.identity),worldMetadata.cameraMode,
-        origin[0],origin[1],origin[2]);
+        origin[0],origin[1],origin[2],
+        fullRequested ? "full" : (previewRequested ? "preview" : "none"));
 }
 
 // Reads a flag file's content, or "" when it is absent. Small and bounded: the
@@ -346,9 +352,16 @@ void serviceWorldUpload() {
     worldInverseProjection=inverseProjection;
     worldEyeToGuest=eyeToGuest;
     if (!worldFreshness.live(GetTickCount64())) { clearWorldUpload(); return; }
-    log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition disabled",
+    // State, not a slogan. This line used to end in "; composition disabled",
+    // which was true when the upload path was diagnostic-only and became a lie
+    // the moment the paired draw existed.
+    const bool previewRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-compose.enabled")!=INVALID_FILE_ATTRIBUTES;
+    const bool fullRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-full.enabled")!=INVALID_FILE_ATTRIBUTES;
+    log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition=%s anchor=%s",
         static_cast<unsigned long long>(worldMetadata.generation),static_cast<unsigned long long>(worldMetadata.identity),
-        worldMetadata.width,worldMetadata.height);
+        worldMetadata.width,worldMetadata.height,
+        fullRequested ? "full" : (previewRequested ? "preview" : "none"),
+        alignmentSession.anchor.armed ? "armed" : "unarmed");
 }
 
 int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui);

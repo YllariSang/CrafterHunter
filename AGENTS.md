@@ -66,19 +66,27 @@ captured frame at native resolution as a letterboxed sky overlay, and
 `drawPairedFull` merges them - one point primitive per captured texel, same
 gates, constants, private depth target and host-depth test as the preview - and
 is opt-in via `paired-full.enabled` (`tools/control-paired-preview.py
-start-full`), which takes precedence over the preview flag. It has never been
-rendered.
+start-full`), which takes precedence over the preview flag. It has now rendered:
+483,041 points per frame at ~40 fps sustained, which is MHW's frame rate rather
+than a composite cost.
 
 The remaining half of the spike is **cadence**. Both transport floors are now
 negotiable rather than hardcoded: each flag file's content is an interval in
 milliseconds, zero means no floor, anything unreadable falls back to 250 ms.
 `StreamCadence.java` (guest) and `stream_cadence.hpp` (host) implement the same
 contract and are tested against the same input table. The guest reports achieved
-cadence (count/min/mean/max) in `world-capture.summary`; the host reports upload
-age. **No cadence has been measured yet** - that is next, and the first number to
-look for is what the guest achieves at interval zero, because
-`copyTextureToBuffer` is a GPU sync point and 3.9 MB of readback per frame may or
-may not fit in Minecraft's frame budget.
+cadence (count/min/mean/max) in `world-capture.txt`; the host reports upload age.
+
+**Measured with Minecraft focused:** 48.3 publishes/s at no floor (best 11 ms),
+39.5 uploads/s observed by the host, ~25 ms median consumer observation. The
+host polls once per MHW frame, so ~40 fps is MHW's rate, not the transport's. An
+unfocused guest measures ~15 publishes/s, which is focus pausing - do not read
+that as a readback limit.
+
+What remains for the spike: MHW's frame rate and ~25 ms of latency. Neither is a
+redesign. Note that log lines must report state, not slogans: two hardcoded
+claims ("composition disabled", "drawing disabled") survived into the session
+where a 483,041-point composite was running, and were believed.
 
 Validate same-frame Minecraft world colour/depth capture before changing native
 composition. WorldCapture currently fails closed permanently after a timeout or
