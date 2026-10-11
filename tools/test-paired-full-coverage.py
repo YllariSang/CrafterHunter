@@ -13,9 +13,10 @@ draw = source.rsplit("bool drawPairedFull(", 1)[1].split("bool drawPlayer(", 1)[
 assert "uint sample=id/6;" in shader
 assert "sample>=uint(sizes.x*sizes.y)" in shader
 assert "corners[id%6]*0.5" in shader
-assert "cell/sizes.xy*2-1,z,1" in shader
+assert "cell/sizes.xy*2-1,cornerZ,1" in shader
 assert "mul(eyeToHost,cornerEye)" in shader
-assert shader.count("guestDepth.Load") == 1  # no neighbour mesh across edges
+assert "PairedPlaneSlope" in shader  # bounded validation, no neighbour mesh
+assert "o.colour=guestColour.Load(int3(xy,0))" in shader
 assert "depth<=mapping.y" in shader and "!isfinite(depth)" in shader
 assert "clip.z<=0 || clip.z>clip.w" in shader
 assert "input.pos.z<=host+0.000001" in shader

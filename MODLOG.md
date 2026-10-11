@@ -1,5 +1,42 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Bounded planar-footprint depth correction plan
+
+Continue the paired colour/depth passthrough; no new gameplay subsystem. Saved
+runtime capture 21600025's ground patch (610,730)-(738,826) has near-exact planar
+Minecraft depth (fit residual <=2.19e-9). CPU camera rotation matches its captured
+view within 8.20e-8. Using the native reversed-Z convention measured in earlier
+GPU traces, the old constant-depth footprints predict the observed green/host
+pixel mask exactly (100% of this 128x96 patch), including horizontal bands and
+native depth dithering. Fitting the actual plane removes the horizontal bands,
+leaving only the host's dithered silhouette. Old footprint window-depth error
+reaches 1.318e-4. Analysis is a stationary cross-frame replay, not a new same-frame
+GPU acceptance or proof of every ground defect. Ignored ground-analysis.json and
+flat/plane predicted masks reside alongside the archived native readback.
+
+Bounded native-only fix: use source-window-depth gradients only when every sample
+in a valid 3x3 neighbourhood agrees with one local plane within float precision.
+Evaluate that plane at each source-pixel corner before unprojection; retain flat
+centre-depth fallback for borders, invalid/nonplanar samples or uncertain edges.
+No geometry connects separate pixels. Preserve per-texel colour, draw budget,
+host/private depth, player/preview/frame/stone, capture lifetime, cadence, input
+and fixed F5 anchor. Regression oracle: magnified tilted plane against a smooth
+host plane must avoid alternating visibility bands; original flat-depth mutant
+must reproduce them. Test axis/diagonal discontinuities, holes, borders, clip
+mapping and unchanged strict host occlusion. Build/verify, install native-only
+with closed games/backup/cmp, commit/push. Actual ground appearance, all-F5 views
+and additional sampling cost remain runtime questions after deployment.
+
+Implemented native-only 3x3 validated plane slope for full-path corner depths.
+Passed production-HLSL-body numerical tests via tools/test-paired-plane.py and
+its old-flat mutant; tools/test-paired-full-coverage.py, test-paired-preview.py,
+test-paired-grid.sh, all 13 entries via test-shader-source.sh,
+test-world-reprojection.sh, test-world-upload.sh, test-guest-camera.sh and
+test-exclusive-input.sh. Native Release build and diff --check pass. Other shader
+literals, drawPairedFull budget/bindings, preparePaired and selectSceneDepth match
+HEAD exactly. Ground replay script is archived with the ignored evidence.
+No changed binary has run yet. Installation awaits both games' normal closure.
+
 ## 2026-10-11 — User confirms solid surfaces; explicit cleanup verified
 
 User reports "Surfaces look solid; control stayed attached; F6 released" and

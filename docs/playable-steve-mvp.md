@@ -116,6 +116,25 @@ uncaptured surfaces, different-view depth edges and native camera-fade dither
 remain limitations. More shader work may reduce host frame rate; runtime cost
 and visual coverage of this change remain unaccepted.
 
+2026-10-12 correction: centre-depth quads introduce artificial horizontal bands
+when a magnified sloped guest plane nearly coincides with native ground. The
+archived 128x96 ground patch's constant-depth replay reproduces every observed
+guest/host pixel; plane-corrected depths remove the bands while leaving native
+fade dithering. This is a stationary replay, not new GPU acceptance.
+
+The full shader now estimates a source-window-depth gradient only when all eight
+neighbours in a valid 3x3 neighbourhood agree with a plane within roughly eight
+float ULPs (tolerance max(1e-9, abs(depth)*1e-6)). It evaluates that plane at each
+source-pixel corner before applying the existing inverse projection and host
+mapping. Borders, invalid neighbours, depth discontinuities and nonplanar patches
+retain the centre-depth footprint. No neighbour vertices/colours are joined into
+a mesh. The host-depth fragment test and private depth target remain unchanged;
+native camera-fade silhouettes are still respected. More VS texture reads add
+unmeasured GPU work, with the same six-vertex budget. The production HLSL helper
+is executed through test-only C++ vector/texture shims by
+`python3 tools/test-paired-plane.py`; its flat-depth mutant fails the numerical
+occlusion regression. Runtime ground/F5 appearance remains pending installation.
+
 Stream/upload cadence is unchanged and controlled by the existing interval flags.
 The periodic log reports footprint vertex count, host-local upload age and draw
 count; these do not measure end-to-end latency or prove 60 fps.

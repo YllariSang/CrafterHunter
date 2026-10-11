@@ -1397,7 +1397,8 @@ float4 PairedPS(Splat input):SV_Target {
 // of them, leaving a regular grid of gaps at enlarged resolutions. Reproject its
 // four source-pixel corners at that texel's own depth, as in the preview, without
 // connecting samples across depth edges. Uncaptured/disoccluded surfaces remain
-// absent. The private depth target and host-depth fragment test are unchanged.
+// absent. A verified local plane supplies corner depths; uncertain edges retain
+// the flat footprint. Private depth and the host-depth fragment test are unchanged.
 constexpr char PairedFullShader[] = R"hlsl(
 cbuffer Pair : register(b0) {
     row_major float4x4 guestInverseProjection;
@@ -1411,6 +1412,31 @@ Texture2D<float4> guestColour : register(t0);
 Texture2D<float> guestDepth : register(t1);
 Texture2D<float> hostDepth : register(t2);
 struct Splat { float4 pos:SV_Position; nointerpolation float4 colour:COLOR0; float valid:SV_ClipDistance0; };
+// Window depth is affine in screen XY on a projected plane. Only use its slope
+// when the complete 3x3 neighbourhood agrees; this is not an edge-bridging mesh.
+float2 PairedPlaneSlope(uint2 xy,float depth) {
+    if(any(xy<1) || any(xy+1>=uint2(sizes.xy))) return 0;
+    float4 axial=float4(guestDepth.Load(int3(int2(xy)+int2(-1,0),0)),
+        guestDepth.Load(int3(int2(xy)+int2(1,0),0)),
+        guestDepth.Load(int3(int2(xy)+int2(0,-1),0)),
+        guestDepth.Load(int3(int2(xy)+int2(0,1),0)));
+    if(!all(isfinite(axial)) || any(axial<=mapping.y) || any(axial>1)) return 0;
+    float2 slope=float2(axial.y-axial.x,axial.w-axial.z)*0.5;
+    // About eight float ULPs at the centre depth; a small floor handles far depth.
+    float tolerance=max(1e-9,abs(depth)*0.000001);
+    float4 expected=depth+float4(-slope.x,slope.x,-slope.y,slope.y);
+    if(any(abs(axial-expected)>tolerance)) return 0;
+    [unroll] for(int y=-1;y<=1;y+=2) {
+        [unroll] for(int x=-1;x<=1;x+=2) {
+            float value=guestDepth.Load(int3(int2(xy)+int2(x,y),0));
+            if(!isfinite(value) || value<=mapping.y || value>1
+                    || abs(value-(depth+dot(slope,float2(x,y))))>tolerance) return 0;
+        }
+    }
+    float extent=dot(abs(slope),float2(0.5,0.5));
+    if(depth-extent<=mapping.y || depth+extent>1) return 0;
+    return slope;
+}
 Splat PairedFullVS(uint id:SV_VertexID) {
     Splat o; o.pos=float4(0,0,0,1); o.valid=-1; o.colour=0;
     uint width=uint(sizes.x);
@@ -1428,9 +1454,11 @@ Splat PairedFullVS(uint id:SV_VertexID) {
     float4 clip=mul(mul(eyeToHost,eye),hostVP);
     if(!all(isfinite(clip)) || clip.w<=1e-8 || clip.z<=0 || clip.z>clip.w) return o;
     static const float2 corners[6]={float2(-1,-1),float2(1,-1),float2(-1,1),float2(-1,1),float2(1,-1),float2(1,1)};
-    // One SOURCE texel at this sample's depth; no neighbour depth interpolation.
+    // One SOURCE texel; only a verified plane may tilt its own footprint.
     float2 cell=clamp(float2(xy)+0.5+corners[id%6]*0.5,0,sizes.xy);
-    float4 cornerEye=mul(guestInverseProjection,float4(cell/sizes.xy*2-1,z,1));
+    float cornerDepth=depth+dot(PairedPlaneSlope(xy,depth),cell-(float2(xy)+0.5));
+    float cornerZ=mapping.x==1 ? cornerDepth : cornerDepth*2-1;
+    float4 cornerEye=mul(guestInverseProjection,float4(cell/sizes.xy*2-1,cornerZ,1));
     if(!all(isfinite(cornerEye)) || abs(cornerEye.w)<1e-8) return o;
     cornerEye/=cornerEye.w;
     if(cornerEye.z>=0) return o;
