@@ -1,5 +1,19 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Full-surface footprint renderer installed
+
+User closed both games normally. Fresh host window and exact process checks
+confirmed both absent before installing native-only implementation e5c7da2 with
+the pinned-executable installer. Prior native DLL, opt-in marker and MinHook notice
+plus the scoped install manifest are retained in
+native/mhw-renderer/build/rollback.ZN0mSy/. Installed native, preserved managed
+and Fabric artifacts each cmp-match their corresponding tested builds.
+Camera/input requests are OFF; guest control flag absent. Existing full/player
+composition flags and zero world/upload/player-pose intervals are preserved.
+No games launched, channels deleted, anchor reused or graphics/saves changed.
+Runtime coverage/performance/F5/occlusion acceptance of this build is pending
+restart, one new-session calibration and fresh native-resolution evidence.
+
 ## 2026-10-11 — Bounded full-surface coverage plan
 
 Continue the existing two-process paired colour/depth passthrough on Linux/Proton.
