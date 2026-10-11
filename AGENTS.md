@@ -70,10 +70,19 @@ applies the effects to the mapped view (translations in centimetres), and retain
 native projection Z/W. Measured-packet regression and old-guard mutant pass;
 native build and all-1699-packet replay pass. Walking fix installed native-only
 after both games exited; cmp verified all three matching artifacts. Previous
-native files/manifest: native/mhw-renderer/build/rollback.08pPmO. Not live accepted.
-Next: loaded offline scenes, one new-session calibration and walking/F5/release
-evidence. No re-anchor on F5. Earlier stationary/all-F5 evidence does
-not accept walking continuity or culling/depth compatibility.
+native files/manifest: native/mhw-renderer/build/rollback.08pPmO. Fresh live trace
+now accepts first-person walking continuity: generation 17345001885735/epoch
+1575 fixed, 359 feet positions and 172 old-rejected effect samples while ACTIVE;
+user reports no problems so far. All F5 modes observed but rear/front were brief
+and stationary; sustained walking in those modes and explicit F6 acceptance
+remain unmeasured. Released after the guest flag disappeared; explicit cleanup
+completed. Later paired-freshness invalidation is 69.926s AFTER release, not a
+walking failure. See captures/guest-camera/walking-fix-20261011-223848/report.json.
+User screenshot shows checkerboard gaps: full path really submits 483041 points
+from 949x509 onto 1920x1080. Point footprints can leave gaps; this is not finished
+surface rendering. Next diagnose actual GPU camera/depth pairing and coverage
+before changing native composition. No automatic re-anchor, culling/depth/MVP
+acceptance or gameplay expansion is implied.
 
 New actual-camera atomic channel, token acknowledgement/HUD,
 F7/F9 feedback prevention, F6 release, bounded lease and guarded main-camera

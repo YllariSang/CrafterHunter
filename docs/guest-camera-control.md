@@ -101,5 +101,21 @@ managed artifacts were preserved. One new-session calibration is required.
 User-observed
 camera/F5 following does not accept culling or native depth compatibility.
 
+Walking-fix runtime: generation 17345001885735 and epoch 1575 stayed fixed during
+1205 ACTIVE samples, including 359 first-person feet positions and 172 effect
+samples the old guard would reject. User reports "no problems so far". Rear/front
+F5 were seen briefly with stationary feet; sustained walking in those views and
+explicit F6 return still need confirmation. The guest flag was absent after
+release and explicit cleanup completed. A paired-freshness invalidation 69.926s
+later correctly dropped the anchor, separate from active walking.
+Evidence: captures/guest-camera/walking-fix-20261011-223848/ (ignored).
+
+The supplied screenshot shows checkerboard gaps. Full-resolution logs confirm
+483041 one-pixel points (949x509 guest) onto 1920x1080 host, with no cell-footprint
+coverage in this shader. This method can leave holes as samples spread apart;
+the grid is not the intended final rendering. Verify actual GPU camera/depth
+pairing and projected coverage before choosing a fix; point count and resolution
+alone do not prove the whole visual cause or accept native scene compatibility.
+
 Primary loader source: [Viewport](https://github.com/Fexty12573/SharpPluginLoader/blob/master/SharpPluginLoader.Core/View/Viewport.cs)
 and [hook lifecycle](https://github.com/Fexty12573/SharpPluginLoader/blob/master/docs/Development/FunctionHooking.md).

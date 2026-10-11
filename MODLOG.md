@@ -1,5 +1,37 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Walking fix survives live bob; surface gaps remain
+
+After reopening, installed native/managed/guest and the loaded native copy all
+cmp-match their tested builds. Minecraft focused, both offline scenes visible,
+first-person F7/F9 OFF, zero world/upload/pose floors unchanged. Calibrated once:
+generation 17345001885735, epoch 1575. Token 4272173214285826285 advanced ACTIVE.
+The 180-second read-only trace contains 1205 active samples: first-person walking
+has 359 feet positions, 296 view states and 172 effect projections rejected by
+the old decoder. All three F5 modes were recorded; rear has 31 sampled frames
+with stationary feet, front just one sampled frame. This accepts first-person
+walking/bob continuity, not sustained third-person walking. User says "no problems
+so far" and supplies an ACTIVE screenshot. No alignment invalidation during
+active control. Release follows the camera feed stopping; the guest flag was
+observed absent afterward. Explicit F6 action/return was not verbally confirmed.
+Camera/filter cleanup completed with the existing stop controller.
+
+Paired freshness invalidates 69926ms AFTER camera release, correctly leaving
+the anchor unarmed. This is not the walking defect returning. Do not silently
+re-anchor. Ignored evidence, exact collector, screenshots, packets, fresh log
+appends and report: captures/guest-camera/walking-fix-20261011-223848/.
+
+The user's rendering screenshot has pronounced checkerboard gaps. Logs prove
+the full path, 949x509 -> 483041 points onto a 1920x1080 host, not stride-4
+fallback. Current full shader draws one rasterized point per texel and has no
+reprojected cell footprint; enlarged/reprojected samples can leave uncovered
+pixels. This is a prototype limitation, not the intended finished appearance.
+Resolution and shader inspection do not establish the whole visual defect's
+cause. Actual GPU camera/depth pairing, field/cache consumers and complete
+surface coverage remain unaccepted. Next bounded work is that investigation,
+not collision/combat/inventory or weakening freshness gates. No artifact change
+or new deployment was needed for this runtime evidence.
+
 ## 2026-10-11 — Walking projection caused camera control to release
 
 User confirms the MHW camera follows Minecraft and all F5 angles work, but
