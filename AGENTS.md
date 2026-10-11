@@ -68,9 +68,11 @@ p[11] == -1 check; release follows at 8436 with matched=0 and no invalidation.
 Native now factors final projection into perspective plus rigid camera effects,
 applies the effects to the mapped view (translations in centimetres), and retains
 native projection Z/W. Measured-packet regression and old-guard mutant pass;
-native build passes. This walking fix is not installed/live accepted yet.
-Next: safe native-only install, then new-session calibration and walking/F5/
-release evidence. No re-anchor on F5. Earlier stationary/all-F5 evidence does
+native build and all-1699-packet replay pass. Walking fix installed native-only
+after both games exited; cmp verified all three matching artifacts. Previous
+native files/manifest: native/mhw-renderer/build/rollback.08pPmO. Not live accepted.
+Next: loaded offline scenes, one new-session calibration and walking/F5/release
+evidence. No re-anchor on F5. Earlier stationary/all-F5 evidence does
 not accept walking continuity or culling/depth compatibility.
 
 New actual-camera atomic channel, token acknowledgement/HUD,

@@ -30,8 +30,16 @@ camera lease/F5/controller tests. A headless replay accepts all 1699 archived
 stationary/F5/walking packets. Restoring the old rigid guard in a temporary
 mutant fails the measured-packet assertion. Native Release build and existing
 world reprojection/alignment, world upload, composition flag cache, shader
-compilation and exclusive-input tests pass. Native-only installation pending
-safe closure of both games. Walking continuity after this fix remains unaccepted;
+compilation and exclusive-input tests pass. After the user closed both games,
+fresh exact host process/window checks confirmed exit. Installed only the native
+renderer using the pinned-executable installer; previous native DLL, renderer
+opt-in and MinHook notice plus a scoped manifest are preserved in
+native/mhw-renderer/build/rollback.08pPmO/. Native/managed/guest all pass cmp against
+their corresponding builds; the latter two were preserved. Camera mode had been
+explicitly stopped before closure. No channels, anchors, pacing, graphics or saves
+were changed. Implementation 74b155e is pushed. Next loaded offline scenes, one
+new-session calibration and fresh walking/F5/release evidence.
+Walking continuity after this fix remains unaccepted;
 camera/F5 user observation does not establish culling/depth compatibility or MVP.
 
 ## 2026-10-11 — Matching Minecraft-owned camera build installed

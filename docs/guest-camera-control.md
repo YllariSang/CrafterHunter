@@ -93,8 +93,12 @@ The old final-projection check required p[11] == -1 within 1e-5 and p[15] == 0;
 valid walking effects violate it. The new native-only fix passes the measured
 packet and exact clip-XY/W equivalence with unchanged native projection depth
 rows. Restoring the old guard fails that regression. Walking continuity after
-the fix remains pending safe installation and fresh live testing; a headless
-replay accepts all 1699 archived packets. User-observed
+the fix remains pending fresh live testing; a headless replay accepts all 1699
+archived packets. The native-only fix was installed after both games exited,
+with previous files and a manifest in native/mhw-renderer/build/rollback.08pPmO.
+All three installed artifacts cmp-match their corresponding builds; guest and
+managed artifacts were preserved. One new-session calibration is required.
+User-observed
 camera/F5 following does not accept culling or native depth compatibility.
 
 Primary loader source: [Viewport](https://github.com/Fexty12573/SharpPluginLoader/blob/master/SharpPluginLoader.Core/View/Viewport.cs)
