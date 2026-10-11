@@ -85,17 +85,19 @@ def main() -> int:
               file=sys.stderr)
         return 3
     player, human, inst = winners[0]
-    moves = resolver.all_cmove_slots(args.pid, player)
-    turn, end = inst["cMoveTurn"], inst["cMoveEnd"]
-    if not moves:
-        print("no cMove slots matched the local player", file=sys.stderr)
+    moves = resolver.all_cmove_slots(args.pid, player, resolver.VMOVE)
+    turns = resolver.all_cmove_slots(args.pid, player, resolver.VTURN)
+    end = inst["cMoveEnd"]
+    if not moves or not turns:
+        print("no cMove/cMoveTurn slots matched the local player", file=sys.stderr)
         return 3
 
     plugin = args.game / "nativePC/plugins/CSharp/CrafterHunter"
     controller = human + 0x10
     state = player + 0x61C8
     offsets = [base + i * 4 for base, size in WINDOWS for i in range(size // 4)]
-    print(f"P=0x{player:x} H=0x{human:x} slots={len(moves)} turn=0x{turn:x} end=0x{end:x}")
+    print(f"P=0x{player:x} H=0x{human:x} move_slots={len(moves)} "
+          f"turn_slots={len(turns)} end=0x{end:x}")
 
     start = time.monotonic()
 
@@ -129,8 +131,8 @@ def main() -> int:
             time.sleep(1.0 / args.rate)
         bounds.append(time.monotonic() - start)
         if phase == 0:
-            publish(f"on {player} {human} {','.join(str(m) for m in moves)} {turn} {end}\n",
-                    plugin)
+            publish(f"on {player} {human} {','.join(str(m) for m in moves)} "
+                    f"{','.join(str(t) for t in turns)} {end}\n", plugin)
             print(f"[{bounds[-1]:5.1f}s] published arm request")
         elif phase == 1:
             publish("off\n", plugin)

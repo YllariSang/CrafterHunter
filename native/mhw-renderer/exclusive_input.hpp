@@ -13,11 +13,12 @@
 //
 // Semantics this encodes, each traceable to a verified observation:
 //   * the local cMove predicate is forced to ineligible (-1), so no run starts;
+//   * every local cMoveTurn predicate is forced to ineligible (-1), so the
+//     hunter does not turn while the guest owns input;
 //   * the local cMoveEnd predicate is forced to eligible (0) when it would
 //     refuse, so a run that started before exclusive mode can end. The engine
 //     consults cMoveEnd, not cMove, while a run is in progress, so both
 //     rewrites are required and neither substitutes for the other;
-//   * cMoveTurn is never rewritten, so turning is a known, measured gap;
 //   * the registered callback propagates -1 unchanged for the move predicate,
 //     so the engine takes its own native "not eligible" path instead of a
 //     fabricated state;
@@ -54,6 +55,13 @@ struct LocalInstances {
     const void* const* c_move_slots = nullptr;
     unsigned c_move_slot_count = 0;
 
+    // The same duplication was measured for cMoveTurn: the local set's object
+    // array maps index 0x9b to an object that is not the one a single-hit
+    // resolver returns, so one published address is not enough. Same shape as
+    // the move slots: `c_move_turn` holds the first, the array the rest.
+    const void* const* c_move_turn_slots = nullptr;
+    unsigned c_move_turn_slot_count = 0;
+
     // Everything needed to act must be present. A partially resolved set is
     // treated as unresolved so a half-finished scan can never filter anything.
     [[nodiscard]] bool resolved() const noexcept {
@@ -70,6 +78,21 @@ struct LocalInstances {
         }
         for (unsigned i = 0; i < c_move_slot_count; ++i) {
             if (c_move_slots[i] == object) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool ownsCMoveTurn(const void* object) const noexcept {
+        if (object == nullptr || !resolved()) {
+            return false;
+        }
+        if (object == c_move_turn) {
+            return true;
+        }
+        for (unsigned i = 0; i < c_move_turn_slot_count; ++i) {
+            if (c_move_turn_slots[i] == object) {
                 return true;
             }
         }
@@ -104,23 +127,28 @@ enum class Action {
 
 // The policy. Fails open in every uncertain case.
 //
-// The two rewritten objects are chosen because the engine's transition tables
-// split start from end, not because the two classes are related. Measured on
-// build 421810 from the loaded image, for the local hunter's set T = H+0xa00:
+// The rewritten objects are chosen from the engine's transition tables, not
+// from class kinship. Measured on build 421810 from the loaded image, for the
+// local hunter's set T = H+0xa00:
 //
 //   * the per-state table for the idle state (1,0) contains cMove (index 0x93,
 //     required predicate result 0), so the move predicate is consulted every
 //     frame while at rest and never while a run is in progress;
-//   * the per-state table for the running state (1,4) contains cMoveEnd (index
-//     0x94, required result 0, destination (1,3)) and cMoveTurn (0x9b) and no
-//     cMove at all, so suppressing cMove cannot stop a run that already began.
+//   * every locomotion state's table contains cMoveEnd (index 0x94, required
+//     result 0) and cMoveTurn (0x9b) and no cMove at all, so suppressing
+//     cMove cannot stop a run that already began.
 //
-// Suppressing only cMove is therefore correct for starting and structurally
+// Suppressing cMove is therefore correct for starting and structurally
 // incapable of stopping. Forcing the end predicate's ineligible result to
 // eligible is the other half: it asks the engine for the end transition it
 // would have selected had the stick been released, and the engine applies it
 // through its own path. At rest the end predicate already returns eligible, so
 // the rewrite changes nothing while idle.
+//
+// cMoveTurn is suppressed rather than forwarded. It sits in the locomotion
+// table next to cMoveEnd, so a run that is being ended consults it; leaving it
+// alone meant the hunter could still strafe while the guest owned input, which
+// is the same class of hole case 2 was.
 [[nodiscard]] inline Action decide(
     const TransitionView& view,
     const LocalInstances& local,
@@ -141,7 +169,13 @@ enum class Action {
     if (view.object == local.c_move_end && view.player == local.player) {
         return Action::release;
     }
-    // Turning is a known, documented gap: it is never rewritten.
+    if (local.ownsCMoveTurn(view.object) && view.player == local.player) {
+        // Turning is movement too. It used to be forwarded as a documented
+        // gap, which left the hunter free to strafe while the guest owned
+        // input; suppressing it takes the engine down its own ineligible path
+        // exactly as the move rewrite does.
+        return Action::suppress;
+    }
     // Another entity, or an object we cannot attribute. Forward.
     return Action::forward;
 }

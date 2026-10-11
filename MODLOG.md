@@ -1,5 +1,36 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Close the turn gap: cMoveTurn is now suppressed
+
+The last measured hole in exclusive input: the hunter could not start a run and
+could not continue one, but `cMoveTurn` was forwarded, so it could still strafe
+while Minecraft owned the keyboard. Turning is movement.
+
+`cMoveTurn` (index `0x9b`) sits in every locomotion table immediately after
+`cMoveEnd`, so it is consulted while a run is being ended. It is now suppressed
+by the same shape as the move predicate: run the real predicate, return `-1`,
+let the engine take its own "not eligible" path.
+
+Not a one-line change, because the turn slots are duplicated like the move
+slots: the local set's group-1 object array maps index `0x9b` to an object that
+a single-hit heap scan does not return (one session published `0x5f427070` while
+the engine's table addressed `0x5f426cf0`). The resolver now emits every local
+turn slot - three in the session measured - and the renderer patches them all
+against one shared private vtable, restoring each only if it still carries ours.
+Request format is now `on <player> <human> <cmove,...> <turn,...> <cMoveEnd>`;
+an older single-address turn field still parses, so a stale request cannot
+misfire. Reply file gained `turned=`.
+
+Policy tests invert the documented-gap test into the fix's regression, plus
+foreign turn object, foreign player link and multi-slot coverage. Verified:
+`bash tools/test-exclusive-input.sh`, MinHook cross-build, resolver dry run
+against the live pinned build (3 turn slots resolved).
+
+**Not verified at runtime and not installed** - both games were running, and the
+user asked to stop manual acceptance testing and fix problems as they surface
+instead. The derivation is the same transition-table evidence that made the move
+and end rewrites work; no run has measured turning yet.
+
 ## 2026-10-11 — Exclusive input accepted: cases 1-4 pass
 
 Ran the acceptance against the installed end-transition rewrite, MHW live, key

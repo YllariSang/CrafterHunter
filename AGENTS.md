@@ -1,5 +1,16 @@
 # CrafterHunter agent contract
 
+## Shell
+
+fish is the shell for this machine (4.9.3 at `$SHELL`). Write fish syntax:
+`for i in $list` with no `do`/`done`, `test` rather than `[[ ]]`, `set -l` for
+locals, and no `for i in 1 2 3; do` C-style loops - fish rejects them
+("Missing end to balance this for loop"). The harness has been handing commands
+to `/usr/bin/bash`, so bash-only syntax can appear to work and then mislead the
+next reader; run commands through `fish -c '...'` when the difference matters.
+Repository scripts that carry a `#!/usr/bin/env bash` shebang (`tools/*.sh`)
+are bash on purpose - do not rewrite them in fish.
+
 ## Goal and current checkpoint
 
 The goal is real Minecraft gameplay inside MHW on Linux/Proton: Minecraft owns
@@ -15,8 +26,8 @@ rest stops it, enabling mid-run stops it without a key release, disabling
 resumes it. Enabling it mid-run used to fail because the filter was pointed at
 the wrong object - the engine's per-state transition tables are split, the idle
 table containing `cMove` and every locomotion table containing `cMoveEnd` and no
-`cMove` - so the current build rewrites the local `cMoveEnd` predicate's
-ineligible result to eligible as well. Read README.md, MODDING_PLAN.md,
+`cMove`. Turning is now suppressed as well; that half is derived and headless
+tested but unmeasured. Read README.md, MODDING_PLAN.md,
 docs/exclusive-input-design.md, docs/exclusive-input-handoff.md and the latest
 MODLOG.md entries before changes; distinguish plans from measured evidence.
 
@@ -25,21 +36,26 @@ regress it while working on input.
 
 ## Next acceptance gate
 
-Cases 5-8 of the exclusive-input matrix: repeat toggles and duplicate enables
-(no stacked patch, no stuck state), scene reload and re-resolution, plugin
-unload while enabled, and menus/UI. Run them with
-`python3 tools/accept-exclusive-input.py --pid <MHW_PID>` or the resolver's
-`--publish`, always ending with a disarm. `cMoveTurn` is deliberately still
-unfiltered: turning under exclusive mode is an open measurement, not an
-assumption. The end rewrite changes only a `-1` result, so a cutscene whose end
-predicate returns `-1` would be rewritten; that is untested.
+The hunter's movement suppression is now complete in code: `cMove` (start),
+`cMoveEnd` (end a run already under way) and `cMoveTurn` (turning) are all
+rewritten, the first two accepted live and turning derived from the same
+transition tables but unmeasured. Do not start new acceptance runs to look for
+bugs; build the next thing and fix what surfaces.
+
+Cases 5-8 (repeat toggles, scene reload and re-resolution, plugin unload while
+enabled, menus/UI) are untested and stay that way until asked for. The end
+rewrite changes only a `-1` result, so a cutscene whose end predicate returns
+`-1` would be rewritten; that is untested.
 
 Build outputs are not byte-reproducible (PE timestamp), so identify artifacts
 with `cmp`, not a quoted hash.
 
 Addresses are never persisted: they change per session and per scene load.
 Re-resolve with `python3 tools/resolve-exclusive-input.py --pid <MHW_PID>` in a
-loaded offline scene, before every run.
+loaded offline scene. The request format is
+`on <player> <human> <cmove,...> <turn,...> <cMoveEnd>`; every local move and
+turn slot must be listed, because the engine's locomotion tables address slots a
+single-hit scan does not return.
 
 ### Still-open composition line (earlier checkpoint, unchanged)
 

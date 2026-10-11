@@ -39,10 +39,15 @@ constexpr std::uintptr_t kCMoveVtable = 0x1431C53E0;
 // found last, so it selected a different slot on different runs.
 constexpr std::uintptr_t kCMoveSlot2 = 0x5E240600;
 constexpr std::uintptr_t kCMoveSlot3 = 0x5E240C20;
+// The turn slots are duplicated the same way. Measured live: the set's object
+// array maps index 0x9b to the second of these, not to kCMoveTurn.
+constexpr std::uintptr_t kCMoveTurnSlot2 = 0x5E23EB80;
 // Not constexpr: reinterpret_cast is not a constant expression.
 const void* const kExtraSlots[] = {
     reinterpret_cast<const void*>(kCMoveSlot2),
     reinterpret_cast<const void*>(kCMoveSlot3)};
+const void* const kExtraTurnSlots[] = {
+    reinterpret_cast<const void*>(kCMoveTurnSlot2)};
 
 ex::LocalInstances resolved() {
     return ex::LocalInstances{
@@ -53,6 +58,8 @@ ex::LocalInstances resolved() {
         reinterpret_cast<const void*>(kCMoveEnd),
         kExtraSlots,
         2,
+        kExtraTurnSlots,
+        1,
     };
 }
 
@@ -127,14 +134,50 @@ void testCMoveEndWithForeignPlayerLinkForwards() {
           "cMoveEnd observed with a foreign player link is forwarded");
 }
 
-// Regression: turning is a known, deliberately accepted gap; it must not be
-// claimed fixed, and it must not be rewritten by the end rule either.
-void testCMoveTurnIsNeverRewritten() {
+// The turn gap is closed. Turning is movement, so the hunter must not be able
+// to strafe while the guest owns input; cMoveTurn sits in the same locomotion
+// table as cMoveEnd, which is why it is consulted while a run is ending.
+void testCMoveTurnIsSuppressed() {
     ex::Gate gate;
     gate.set_local(resolved());
     gate.enable();
-    check(gate.evaluate(view(kCMoveTurn, kPlayer)) == ex::Action::forward,
-          "cMoveTurn forwards (documented gap)");
+    check(gate.evaluate(view(kCMoveTurn, kPlayer)) == ex::Action::suppress,
+          "the local cMoveTurn is suppressed");
+}
+
+// Regression: the owner duplicates its turn slots the same way it duplicates
+// move slots, and the engine's locomotion table addresses one of them rather
+// than whichever a single-hit resolver returns. Covering one leaves the hunter
+// free to turn.
+void testAllLocalCMoveTurnSlotsAreSuppressed() {
+    ex::Gate gate;
+    gate.set_local(resolved());
+    gate.enable();
+    check(gate.evaluate(view(kCMoveTurn, kPlayer)) == ex::Action::suppress,
+          "primary cMoveTurn slot is suppressed");
+    check(gate.evaluate(view(kCMoveTurnSlot2, kPlayer)) == ex::Action::suppress,
+          "second cMoveTurn slot is suppressed");
+}
+
+// A turn object belonging to this hunter but reached with a foreign player link
+// is not ours, even though the address is in our slot list.
+void testTurnSlotWithForeignPlayerLinkForwards() {
+    ex::Gate gate;
+    gate.set_local(resolved());
+    gate.enable();
+    constexpr std::uintptr_t kOtherPlayer = 0x6E470700;
+    check(gate.evaluate(view(kCMoveTurnSlot2, kOtherPlayer)) == ex::Action::forward,
+          "a turn slot observed with a foreign player link is forwarded");
+}
+
+// Another entity's turn transition shares the same vtable and must be untouched.
+void testOtherEntitiesCMoveTurnIsForwarded() {
+    ex::Gate gate;
+    gate.set_local(resolved());
+    gate.enable();
+    constexpr std::uintptr_t kOtherTurn = 0x5E240D00;
+    check(gate.evaluate(view(kOtherTurn, kPlayer)) == ex::Action::forward,
+          "another entity's cMoveTurn is forwarded");
 }
 
 // Regression: a partially resolved set must not filter anything, otherwise a
@@ -283,7 +326,10 @@ int main() {
     testCMoveEndIsRewrittenToEndTheRun();
     testOtherEntitiesCMoveEndIsForwarded();
     testCMoveEndWithForeignPlayerLinkForwards();
-    testCMoveTurnIsNeverRewritten();
+    testCMoveTurnIsSuppressed();
+    testAllLocalCMoveTurnSlotsAreSuppressed();
+    testTurnSlotWithForeignPlayerLinkForwards();
+    testOtherEntitiesCMoveTurnIsForwarded();
     testUnresolvedFailsOpen();
     testAliasedEndStillSuppressesTheMove();
     testInvalidateStopsFiltering();

@@ -19,10 +19,11 @@ Identification method, verified 2026-10-11 on build 421810:
 Addresses change on scene load, so this must be re-run per scene; the renderer
 re-validates everything before it acts, and fails open if anything disagrees.
 
-Publishes `on <player> <human> <cmove,...> <cMoveTurn> <cMoveEnd>`. Every field
+Publishes `on <player> <human> <cmove,...> <turn,...> <cMoveEnd>`. Every field
 is load-bearing: the cMove slots are the objects whose move predicate is forced
-ineligible, and the cMoveEnd object is the one whose end predicate is forced
-eligible so a run already in progress can be ended.
+ineligible, the cMoveTurn slots the objects whose turn predicate is, and the
+cMoveEnd object the one whose end predicate is forced eligible so a run already
+in progress can be ended.
 
 Writes a request file consumed by the renderer's claim-before-read service.
 """
@@ -110,12 +111,14 @@ def find_matching(pid: int) -> dict[int, dict[str, int]]:
     return found
 
 
-def all_cmove_slots(pid: int, player: int) -> list[int]:
-    """Every object carrying the cMove vtable whose [obj+0x10] is `player`.
+def all_cmove_slots(pid: int, player: int, vtable: int = VMOVE) -> list[int]:
+    """Every object carrying this vtable whose [obj+0x10] is `player`.
 
     find_matching overwrites on each hit, so it yields only the last slot found.
     The owner keeps several for one player and uses one at a time, so all of
-    them must be covered or suppression is intermittent.
+    them must be covered or suppression is intermittent. cMoveTurn is duplicated
+    the same way, and the engine's own locomotion tables address a turn slot
+    that a single-hit resolver does not return, so it needs the same treatment.
     """
     mem = Mem(pid)
     slots: list[int] = []
@@ -126,7 +129,7 @@ def all_cmove_slots(pid: int, player: int) -> list[int]:
             continue
         if not data:
             continue
-        needle = struct.pack("<Q", VMOVE)
+        needle = struct.pack("<Q", vtable)
         i = 0
         while True:
             i = data.find(needle, i)
@@ -190,9 +193,15 @@ def main() -> int:
     # The owner keeps several cMove slots for one player and uses one at a
     # time. find_matching overwrites on each hit, so this is the last one found,
     # not the only one. Collect every slot explicitly and emit them all.
-    moves = all_cmove_slots(args.pid, player)
+    moves = all_cmove_slots(args.pid, player, VMOVE)
     if not moves:
         print("no cMove slots matched the local player", file=sys.stderr)
+        return 3
+    # cMoveTurn is duplicated the same way. Covering one leaves the hunter free
+    # to turn through whichever slot the engine happens to use.
+    turns = all_cmove_slots(args.pid, player, VTURN)
+    if not turns:
+        print("no cMoveTurn slots matched the local player", file=sys.stderr)
         return 3
 
     print(f"candidates validated : {len(candidates)}")
@@ -200,7 +209,7 @@ def main() -> int:
     print(f"human controller H   : 0x{human:x}")
     print(f"command controller C : 0x{human + 0x10:x}")
     print(f"cMove slots ({len(moves)})     : {', '.join('0x%x' % m for m in moves)}")
-    print(f"cMoveTurn            : 0x{inst['cMoveTurn']:x}")
+    print(f"cMoveTurn slots ({len(turns)}) : {', '.join('0x%x' % t for t in turns)}")
     print(f"cMoveEnd             : 0x{inst['cMoveEnd']:x}")
 
     if not args.publish:
@@ -214,7 +223,7 @@ def main() -> int:
     request = plugin / "render" / "exclusive-input.request"
     request.parent.mkdir(parents=True, exist_ok=True)
     payload = (f"on {player} {human} {','.join(str(m) for m in moves)} "
-               f"{inst['cMoveTurn']} {inst['cMoveEnd']}\n")
+               f"{','.join(str(t) for t in turns)} {inst['cMoveEnd']}\n")
     with tempfile.NamedTemporaryFile("w", dir=request.parent, delete=False) as out:
         temporary = Path(out.name)
         out.write(payload)

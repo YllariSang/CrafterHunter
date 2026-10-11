@@ -373,12 +373,43 @@ Why this is the right shape:
   branches return codes of their own, and records select on them) passes
   through untouched, so the filter cannot promote a state the engine was
   deliberately refusing.
-- `cMoveTurn` is still never rewritten, so turning remains the documented gap.
+- `cMoveTurn` is not rewritten here; it is handled separately below, because it
+  needs a different rule and more than one object.
 
-**Accepted 2026-10-11.** `tools/accept-exclusive-input.py` runs the three phases
-with the key held across all of them and reports units/s per player field, so
-the numbers come from the game's own position rather than an assumed offset. Two
-runs, filter armed at t=7s mid-run:
+### The turn half
+
+`cMoveTurn` (index `0x9b`) sits in every locomotion table, immediately after
+`cMoveEnd`. Leaving it forwarded was the last documented gap in exclusive
+input: the hunter could not start a run and could not continue one, but it
+could still strafe while Minecraft owned the keyboard. Turning is movement, so
+it is now suppressed exactly like the move predicate - the real predicate runs,
+its result is discarded and `-1` is returned, taking the engine down its own
+"not eligible" path.
+
+Two details make this more than a one-line policy change:
+
+- **The turn slots are duplicated.** The local set's group-1 object array maps
+  index `0x9b` to an object that is *not* the one a single-hit heap scan
+  returns; a live resolution published `0x5f427070` while the engine's table
+  addressed `0x5f426cf0`. Suppressing one turn object would have left the
+  hunter free to turn through the other, so the resolver now emits every local
+  turn slot the same way it already emitted every move slot (three in the
+  session measured), and the renderer patches them all against one shared
+  private vtable.
+- **The request format changed** to `on <player> <human> <cmove,...> <turn,...>
+  <cMoveEnd>`. A request written by an older resolver has a single address in
+  the turn field, which still parses and still works, so a stale file cannot
+  misfire; it simply covers one slot.
+
+**Not verified.** This is derived from the same transition tables that made the
+move and end rewrites work, and the policy is headless-tested, but no run has
+measured it. `turned=` in the reply file is the counter to watch when it is
+eventually tested.
+
+**Case 2 accepted 2026-10-11.** `tools/accept-exclusive-input.py` runs the
+three phases with the key held across all of them and reports units/s per
+player field, so the numbers come from the game's own position rather than an
+assumed offset. Two runs, filter armed at t=7s mid-run:
 
 | field | A baseline | B armed | C released |
 |---|---|---|---|
@@ -408,6 +439,6 @@ makes case 2 pass. Build outputs are not byte-reproducible (the PE header
 carries a timestamp), so identity is `cmp` against the installed file, which is
 what `tools/install-mhw-renderer.sh` does, not a quoted build hash.
 
-Open: cases 5-8, `cMoveTurn` (deliberately unfiltered - turning under exclusive
-mode is a measurement, not an assumption), and the cutscene case noted in the
-handoff.
+Open: cases 5-8, and the cutscene case noted in the handoff. Turning is now
+suppressed by the same mechanism as movement; it is derived from the transition
+tables and headless-tested, not yet measured in a run.

@@ -40,6 +40,17 @@ Nothing in cases 1-4. The earlier build that rewrote only `cMove` failed case
 2 (195 units/s, trampoline silent) - that failure is what identified the wrong
 object, and it is kept in the design doc rather than edited away.
 
+Turning is now suppressed too (same mechanism as movement: run the real
+predicate, return `-1`), which closes the last measured hole - but it is
+**built and headless-tested only**, not run. Watch `turned=` in the reply when
+it is eventually tested.
+
+One consequence to remember: the request format is now
+`on <player> <human> <cmove,...> <turn,...> <cMoveEnd>`. The resolver emits
+every local turn slot, because the engine's locomotion table addresses one that
+a single-hit scan does not return (published `0x5f427070`, engine used
+`0x5f426cf0` in the same session).
+
 ## Mechanism (proven live, then explained statically)
 
 The filter gives each local cMove object a private vtable copy whose
@@ -100,12 +111,10 @@ running with the filter off, and under 1 unit/s with it on.
 
 ## Open work
 
+- **Turning** is now suppressed rather than forwarded, so the hunter should not
+  strafe while the guest owns input. Still unmeasured.
 - **Cases 5-8:** repeat toggles/duplicate enables, scene reload and
   re-resolution, plugin unload while enabled, menus/UI.
-- **Turning** (`cMoveTurn`, index `0x9b`) is still never rewritten. It sits in
-  the locomotion-state table right after `cMoveEnd`, so it will be consulted
-  while a run is being ended; whether the hunter can still turn under exclusive
-  mode is a measurement, not an assumption.
 - **Cutscene/scripted movement:** the transition tables are not consulted there,
   so the filter does nothing (by design - cutscenes should not be blocked). Do
   not mistake a cutscene for a filter failure: the signature is both counters
@@ -114,7 +123,8 @@ running with the filter off, and under 1 unit/s with it on.
 ## Cautions
 
 - Cases 1-4 pass. Do not read that as exclusive input being finished: cases 5-8
-  and turning are open, and the cutscene risk below is untested.
+  are open, turning is suppressed but unmeasured, and the cutscene risk below is
+  untested.
 - The end rewrite changes only a `-1` result. Any other result code the engine
   produces passes through untouched, so it cannot promote a state the engine was
   refusing - but that also means a cutscene whose end predicate returns `-1`
