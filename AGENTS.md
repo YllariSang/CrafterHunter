@@ -102,10 +102,15 @@ Next bounded cadence change (2026-10-11): native paired uploads now reuse one
 DEFAULT-usage RGBA8/R32_FLOAT texture/SRV pair on same-size, same-generation
 advance, using ordered immediate-context UpdateSubresource calls. Resize/reset
 creates a complete private replacement. Headless policy and native build pass;
-installed cmp-clean with backup build/rollback.W0pIsw. The reuse path is NOT
-runtime-accepted and no fps/latency gain is claimed. See docs/world-frame-transport.md.
-Obtain fresh composition/cadence evidence before widening this tuning change;
-keep all freshness/F5 gates.
+installed cmp-clean with backup build/rollback.W0pIsw. A 25.28s user recording
+200544 shows guest surfaces and walking Steve through all three F5 modes, with
+one calibration epoch 1646 in the fresh session. A separate later 45s log window
+has 1,766 uploads, all textures=updated, no invalidation; ~40-42 draw submissions/s.
+This is basic live reuse/composition evidence, not native MHW-only pixel/occlusion
+acceptance or a controlled performance A/B. No fps/latency gain or 60 fps claim.
+See docs/world-frame-transport.md and captures/resident-pair-20261011-200544/.
+Next: isolate MHW frame cost under matching conditions before more tuning;
+keep all freshness/F5 gates. ~25ms observation spacing is not E2E latency.
 
 Validate same-frame Minecraft world colour/depth capture before changing native
 composition. WorldCapture currently fails closed permanently after a timeout or

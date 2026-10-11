@@ -1,5 +1,42 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Resident pair observed live; cadence remains about 40 fps
+
+Reviewed the user's `/home/yllaris/Videos/recording_2026-10-11_20.05.44.mp4`:
+25.28 seconds, 1920x1080 desktop, both games tiled. Extracted original-resolution
+frames show guest surfaces changing and Steve walking in MHW while the guest
+cycles first-person/rear/front/first-person. The hunter remains stationary.
+F7/F9 are OFF on the guest HUD. This supplies basic live composition regression
+evidence for the installed resident pair, not fine native MHW pixel/skin/depth
+acceptance: the host is only a portion of the desktop recording. No pale-skin bug
+was inferred from the recording. No host-camera orbit or controlled occluder gate.
+
+Fresh native logs establish player-feet calibration at epoch 1646, generation
+8042902613435, identity 4360; complete player asset/draw submission follows. The
+later F5 cycle is mode 0 through identity 8363, mode 1 identities 8382–8662, mode 2
+8682–8991, and mode 0 from 9012, all at the same epoch/generation. Resize earlier
+in this session allocated pairs at 949x509 -> 949x1028 -> 949x509 as expected.
+
+A separate later 45-second window ending at the initial log snapshot
+(host ticks 8239945–8284945, not precisely video-aligned) contains 1,766 paired
+uploads: 39.24/s, all textures=updated, zero creations, no calibration invalidation.
+Four full-resolution reports contain 424/403/407/403 draws per ~10 seconds,
+483,041 points each, host target 1920x1080 and receipt age 14–15ms. Median consumer
+observation interval is 24ms. These are upload/draw cadence and receipt freshness,
+NOT E2E latency. The earlier journal's "transport latency ~25ms" conclusion was
+unsupported: it used the spacing between host observations, not time in transit.
+The recorder has 935 video frames at ~37 frames/s; that is not host fps.
+
+No controlled before/after comparison was recorded, and recording itself adds
+load. The current figures remain near the prior ~40 fps checkpoint; no performance
+gain, 60 fps or complete playable milestone is claimed. Next isolate host frame
+cost with matched focus/resolution/scene and recording conditions before tuning.
+
+Local ignored evidence: `captures/resident-pair-20261011-200544/` contains selected
+PNG frames, a renderer-log snapshot, exact later-window log/summary, camera-mode
+ranges, video PTS and review/flag metadata. Source video is preserved in Videos.
+No game input, flags, calibration, binaries or saves were changed during review.
+
 ## 2026-10-11 — Bounded cadence tuning: resident native paired textures
 
 Continued the accepted native-resolution spike's remaining cadence line. Source

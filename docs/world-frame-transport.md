@@ -38,8 +38,23 @@ Tests also cover exact row/attachment bytes, source release, equal-byte-count
 resize, producer replacement, reset, all four creation-failure boundaries and
 malformed-pair refusal. These prove upload policy, not D3D/DXVK pixels or speed.
 The resident-pair change is built and installed cmp-clean with scoped backup
-`native/mhw-renderer/build/rollback.W0pIsw`. It still needs fresh runtime screenshots
-and cadence evidence.
+`native/mhw-renderer/build/rollback.W0pIsw`. Basic live regression evidence now
+exists: the user's 25.28s recording `recording_2026-10-11_20.05.44.mp4` shows guest
+surfaces and walking Steve through all three F5 modes. The fresh log keeps epoch
+1646/generation 8042902613435 through those switches. A separate later 45-second
+first-person log window contains 1,766 uploads (39.24/s), all textures=updated,
+zero creations and no invalidations. Four full-resolution draw reports contain
+403–424 submissions per approximately 10 seconds, with 14–15ms receipt age.
+Median consumer observation spacing is 24ms, not measured E2E latency.
+
+Original-resolution extracted screenshots/logs are retained locally under
+`captures/resident-pair-20261011-200544/` (ignored by git). The 1920x1080 recording
+shows both games tiled on the desktop; it is not a native 1920x1080 MHW-only
+capture. No new fine skin/depth/occlusion acceptance follows from it. The figures
+show reuse and drawing at roughly the prior rate; there is no controlled A/B,
+demonstrated fps gain or 60 fps claim. The recording's ~37 encoded frames/s is the
+recorder's rate, not an independent MHW fps measurement. Next isolate MHW frame
+cost under matching conditions before another tuning change.
 
 The file `/dev/shm/crafterhunter/world.frame` contains one little-endian header,
 bottom-up RGBA8 colour, then bottom-up raw D32_FLOAT window depth. Source rows
