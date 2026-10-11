@@ -7,6 +7,16 @@ the unchanged 500ms lease. World capture receipt freshness remains 1000ms.
 Snapshot and acknowledgement formats, source mesh, skin, shaders and depth tests
 are unchanged. Standalone model/camera rendering still uses the fast feed.
 
+Verified native implementation 74f2437 is installed, with the expanded regression
+corrected and passing at a722763. Both games exited under the user's explicit
+closure permission; fresh process/window checks preceded installation. Guest and
+managed artifacts are preserved; all three installed builds cmp-match their tested
+outputs. Scoped backup/manifest:
+`native/mhw-renderer/build/rollback.camera-body-time.bme7a_bt/`; pinned installer
+also saved `rollback.q8frzx/`. Control starts OFF, normal shading/body separation,
+full/player composition, zero floors and live channels preserved. Live walking,
+flying, F5/F6, foreground occlusion and camera responsiveness remain pending.
+
 User observations narrow the problem to walking/look under Minecraft-owned
 camera control. Unarmed camera rendering is good; stationary off/on normal and
 depth-source diagnostics keep Steve intact. During movement both real and white

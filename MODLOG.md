@@ -1,5 +1,31 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Captured camera/body timing fix installed
+
+Closed only freshly verified MHW 1497410 and Minecraft 1496818 under explicit
+user permission. Guarded normal close was accepted for focused Minecraft but
+the process remained after grace; MHW was not focused. SIGTERM sent only to those
+two games, both exited without SIGKILL. Camera/filter stop preceded closure,
+normal diagnostic shader flags restored, launchers/other apps untouched. Closure
+record is in captures/player-camera-occlusion/runtime-20261011-221924Z/.
+
+Native implementation 74f2437 build was unchanged while an expanded test check
+introduced a duplicate local variable name. Corrected it in a722763 and reran
+the complete new regression/mutant successfully before installing. No failing
+test or changed production artifact was installed. Fresh process/window checks
+before/after install; native replaced, guest ca25f09 and managed preserved;
+all three cmp-match tested builds. Scoped backup/manifest:
+native/mhw-renderer/build/rollback.camera-body-time.bme7a_bt/; pinned installer
+also rollback.q8frzx/. Ignored pointer captures/player-camera-occlusion/install-path.txt.
+Control starts OFF, normal shading, full/player/body separation ON, zero floors
+and live channels retained. No game launch or save/settings changes.
+
+Next manual reopen loaded offline scenes, put MC on ground in first person,
+F7/F9 OFF and Minecraft focused; one new-session calibration then walking/flying,
+all F5, cape/held-item/model stability, foreground occlusion, responsiveness and
+F6 evidence. This install does not itself accept visible jitter reduction or
+performance/latency. Read docs/camera-body-time.md.
+
 ## 2026-10-12 — Moving Steve/camera time mismatch selects a bounded fix
 
 User authorizes stabilizing the ACTIVE camera path, clarifies flicker only during

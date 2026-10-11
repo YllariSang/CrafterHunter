@@ -72,8 +72,14 @@ camera. New capture-ID logs distinguish render source from control sequence.
 Regressions reject newer-camera mutant; 14 actual captures replay; native build
 and relevant camera/body/depth/controller/transport tests pass. All shaders
 text-identical. See docs/camera-body-time.md. Next verified native-only installation
-after authorized game closure, then restart/one calibration/walking+flying/all-F5
-and F6 evidence, including responsiveness. No live improvement claim yet.
+after authorized game closure is COMPLETE: native 74f2437 installed cmp-clean,
+guest/managed preserved and cmp-clean. Backup:
+native/mhw-renderer/build/rollback.camera-body-time.bme7a_bt/ (pinned installer
+also rollback.q8frzx). Expanded regression passes after a722763 test-name fix.
+Control OFF, normal shading/body separation/full/player ON, floors zero, channels
+preserved. Next manual restart, MC on ground/first person F7/F9 OFF, one calibration,
+walking+flying/all-F5/F6 evidence including responsiveness. No live improvement
+claim yet. Do not use the synchronous detailed GPU trace while ACTIVE.
 
 User correction (2026-10-12): Steve's jumpy occlusion occurs only while
 Minecraft owns the MHW camera (CONTROL ACTIVE). With camera control unarmed,
