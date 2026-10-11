@@ -46,9 +46,8 @@ void testZeroStrideIsNotAColumnCount() {
     check(grid::splatVertices(949, 1028, 0) == 0, "zero stride submits nothing");
 }
 
-// The full-resolution path is stride 1 expressed directly. These two must agree
-// for every size, or the preview and the spike would submit different counts
-// for the same surface.
+// The historical point budget equals stride-1 cells. Retain this comparison
+// as the old coverage baseline while the current path uses six vertices/cell.
 void testFullResolutionEqualsStrideOne() {
     check(grid::pointVertices(949, 1028) == 975572, "949x1028 is 975,572 points");
     for (std::uint32_t w = 1; w <= 64; ++w) {
@@ -62,20 +61,15 @@ void testFullResolutionEqualsStrideOne() {
     check(true, "point count matches stride-1 cells at every size up to 64x64");
 }
 
-// At stride 1 the quad form would submit six vertices to cover one texel. The
-// point form is what makes full resolution affordable at all. It is still more
-// geometry than the stride-4 preview - it samples sixteen times as many texels -
-// and that trade is the spike's real cost, so pin both sides of it rather than
-// claiming the full path is free.
+// The live 949x509 source was enlarged onto 1920x1080. Full coverage
+// requires a footprint per texel; its six vertices replace the old point budget.
 void testFullPathGeometryAgainstThePreview() {
-    const std::uint32_t w = 1920, h = 1080;
-    check(grid::splatVertices(w, h, 1) == 6 * grid::pointVertices(w, h),
-          "a stride-1 splat would submit six vertices per texel");
-    check(grid::pointVertices(w, h) == 2073600, "1080p at full resolution is 2,073,600 points");
-    check(grid::pointVertices(w, h) > grid::splatVertices(w, h, 4),
-          "full resolution costs more geometry than the stride-4 preview");
-    check(grid::pointVertices(w, h) < grid::splatVertices(w, h, 1),
-          "and still costs a sixth of a stride-1 splat");
+    check(grid::splatVertices(949, 509, 1) == 2898246,
+          "measured source submits 2,898,246 footprint vertices");
+    check(grid::splatVertices(4096, 4096, 1) == 100663296,
+          "maximum supported source fits UINT draw budget");
+    check(grid::splatVertices(1920, 1080, 1) == 6 * grid::pointVertices(1920, 1080),
+          "full coverage costs six vertices per source texel");
 }
 
 // The full-resolution report states how stale the pixels it drew were, so the

@@ -1338,8 +1338,7 @@ float4 PS(float4 pixel : SV_Position) : SV_Target {
 // These are real captured surfaces, not a replacement Steve mesh. Holes and
 // disocclusion remain expected; no continuous mesh is invented across depth edges.
 // The preview samples one point per this many texels per axis. The
-// full-resolution path uses 1, expressed directly as a point primitive
-// rather than through this constant.
+// full-resolution path uses one texel per projected footprint.
 constexpr std::uint32_t kPairedPreviewStride = 4;
 
 constexpr char PairedShader[] = R"hlsl(
@@ -1393,19 +1392,12 @@ float4 PairedPS(Splat input):SV_Target {
     return float4(input.colour.rgb,1);
 }
 )hlsl";
-// Full-resolution paired composite: one point primitive per captured texel.
-//
-// This is the spike's "full Minecraft frame" path. The preview above samples
-// one point per 4x4 cell and splats a reprojected quad; at stride 1 the cell
-// footprint is the texel itself, so the quad form would submit six vertices to
-// cover one pixel. A point primitive rasterizes as exactly that pixel, so the
-// same projection costs one vertex per texel instead of six.
-//
-// The projection is unchanged from the preview and therefore unchanged in what
-// it can be wrong about: it is a forward splat, so holes at real depth
-// discontinuities and disocclusion are a property of the method, not a budget.
-// The private depth target and the host-depth test are shared with the preview,
-// so MHW's own depth is still never written.
+// Full-resolution paired composite: one projected footprint per captured texel.
+// A source texel can span several host pixels. A point primitive covers only one
+// of them, leaving a regular grid of gaps at enlarged resolutions. Reproject its
+// four source-pixel corners at that texel's own depth, as in the preview, without
+// connecting samples across depth edges. Uncaptured/disoccluded surfaces remain
+// absent. The private depth target and host-depth fragment test are unchanged.
 constexpr char PairedFullShader[] = R"hlsl(
 cbuffer Pair : register(b0) {
     row_major float4x4 guestInverseProjection;
@@ -1418,12 +1410,13 @@ cbuffer UI : register(b2) { float4 uiScale; };
 Texture2D<float4> guestColour : register(t0);
 Texture2D<float> guestDepth : register(t1);
 Texture2D<float> hostDepth : register(t2);
-struct Point { float4 pos:SV_Position; nointerpolation float4 colour:COLOR0; float valid:SV_ClipDistance0; };
-Point PairedFullVS(uint id:SV_VertexID) {
-    Point o; o.pos=float4(0,0,0,1); o.valid=-1; o.colour=0;
+struct Splat { float4 pos:SV_Position; nointerpolation float4 colour:COLOR0; float valid:SV_ClipDistance0; };
+Splat PairedFullVS(uint id:SV_VertexID) {
+    Splat o; o.pos=float4(0,0,0,1); o.valid=-1; o.colour=0;
     uint width=uint(sizes.x);
-    if(id>=uint(sizes.x*sizes.y)) return o;
-    uint2 xy=uint2(id%width,id/width);
+    uint sample=id/6;
+    if(sample>=uint(sizes.x*sizes.y)) return o;
+    uint2 xy=uint2(sample%width,sample/width);
     float depth=guestDepth.Load(int3(xy,0));
     if(!isfinite(depth) || depth<=mapping.y || depth>1) return o;
     float2 ndc=(float2(xy)+0.5)/sizes.xy*2-1;
@@ -1434,10 +1427,19 @@ Point PairedFullVS(uint id:SV_VertexID) {
     if(eye.z>=0) return o;
     float4 clip=mul(mul(eyeToHost,eye),hostVP);
     if(!all(isfinite(clip)) || clip.w<=1e-8 || clip.z<=0 || clip.z>clip.w) return o;
+    static const float2 corners[6]={float2(-1,-1),float2(1,-1),float2(-1,1),float2(-1,1),float2(1,-1),float2(1,1)};
+    // One SOURCE texel at this sample's depth; no neighbour depth interpolation.
+    float2 cell=clamp(float2(xy)+0.5+corners[id%6]*0.5,0,sizes.xy);
+    float4 cornerEye=mul(guestInverseProjection,float4(cell/sizes.xy*2-1,z,1));
+    if(!all(isfinite(cornerEye)) || abs(cornerEye.w)<1e-8) return o;
+    cornerEye/=cornerEye.w;
+    if(cornerEye.z>=0) return o;
+    clip=mul(mul(eyeToHost,cornerEye),hostVP);
+    if(!all(isfinite(clip)) || clip.w<=1e-8) return o;
     o.pos=clip; o.colour=guestColour.Load(int3(xy,0)); o.valid=1;
     return o;
 }
-float4 PairedFullPS(Point input):SV_Target {
+float4 PairedFullPS(Splat input):SV_Target {
     if(any(abs(uiScale.xy-float2(2,-2)/sizes.zw)>0.000001)) discard;
     float host=hostDepth.Load(int3(int2(input.pos.xy),0));
     if(!isfinite(host) || input.pos.z<=host+0.000001 || input.colour.a<0.5) discard;
@@ -2114,16 +2116,10 @@ bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     return true;
 }
 
-// The spike's path: every captured texel, projected and depth-tested. Same
-// gates, same constants and same private depth target as the preview above; one
-// point primitive per texel instead of a quad per 4x4 cell.
-//
-// Cadence is deliberately NOT raised here. The guest still publishes paired
-// snapshots on its own request pacing and the host still polls on its own
-// interval, so this path is full-resolution but still slow. The two are
-// independent problems, and the periodic log below reports the point count, the
-// upload age and the draw count so the next runtime session produces a
-// measurement rather than another assumption.
+// Every captured texel contributes its projected source-pixel footprint, sharing
+// gates, constants and private depth target with the preview. Cadence remains
+// controlled by the existing stream/upload flags. Log the actual vertex budget
+// and host-local upload age; neither is end-to-end latency or runtime acceptance.
 bool drawPairedFull(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     PairedConstants pair{};
     ComPtr<ID3D11ShaderResourceView> scene;
@@ -2153,7 +2149,7 @@ bool drawPairedFull(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui)
     context->OMSetRenderTargets(1,target.GetAddressOf(),pairedDSV.Get());
     context->OMSetDepthStencilState(pairedDepthState.Get(),0);
     context->OMSetBlendState(nullptr,nullptr,0xFFFFFFFF);
-    context->IASetInputLayout(nullptr); context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+    context->IASetInputLayout(nullptr); context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->VSSetShader(pairedFullVS.Get(),nullptr,0); context->PSSetShader(pairedFullPS.Get(),nullptr,0);
     context->HSSetShader(nullptr,nullptr,0); context->DSSetShader(nullptr,nullptr,0); context->GSSetShader(nullptr,nullptr,0);
     context->VSSetConstantBuffers(0,1,pairedConstants.GetAddressOf()); context->VSSetConstantBuffers(1,1,&camera);
@@ -2162,22 +2158,22 @@ bool drawPairedFull(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui)
     context->VSSetShaderResources(0,2,guest); context->PSSetShaderResources(2,1,scene.GetAddressOf());
     context->RSSetState(rasterizer.Get());
     D3D11_VIEWPORT viewport{0,0,static_cast<float>(width),static_cast<float>(height),0,1}; context->RSSetViewports(1,&viewport);
-    const UINT points=grid::pointVertices(static_cast<std::uint32_t>(worldMetadata.width),
-        static_cast<std::uint32_t>(worldMetadata.height));
+    const UINT vertices=grid::splatVertices(static_cast<std::uint32_t>(worldMetadata.width),
+        static_cast<std::uint32_t>(worldMetadata.height),1);
     const ULONGLONG now=GetTickCount64();
     // Host-local receipt age, not end-to-end latency: it says how old the pixels
     // being drawn are, not how long they took to arrive.
     const ULONGLONG age=worldFreshness.age(now);
-    ownDraw=true; context->Draw(points,0); ownDraw=false;
+    ownDraw=true; context->Draw(vertices,0); ownDraw=false;
     ID3D11ShaderResourceView* empty[3]{}; context->VSSetShaderResources(0,2,empty); context->PSSetShaderResources(0,3,empty);
     context->OMSetRenderTargets(0,nullptr,nullptr); context1->SwapDeviceContextState(saved.Get(),nullptr);
     ++pairedFullDraws;
     if(!pairedFullNextLog || now>=pairedFullNextLog) {
         pairedFullNextLog=now+10000;
-        log("paired FULL-RESOLUTION draw submitted: %ux%u guest -> %u points, host %ux%u, "
+        log("paired FULL-RESOLUTION draw submitted: %ux%u guest -> %u footprint vertices, host %ux%u, "
             "upload age %llums, %llu draws since last report; cadence is still "
             "request-paced, NOT runtime acceptance",
-            worldMetadata.width,worldMetadata.height,points,width,height,
+            worldMetadata.width,worldMetadata.height,vertices,width,height,
             static_cast<unsigned long long>(age),pairedFullDraws);
         pairedFullDraws=0;
     }

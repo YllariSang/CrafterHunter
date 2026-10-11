@@ -1,7 +1,7 @@
 // Draw arithmetic for the paired guest composite, kept off-target and pure.
 //
 // The preview splats one quad per `stride` x `stride` cell of the captured
-// surface; the full-resolution path splats one point per captured texel. Both
+// surface; the full-resolution path splats one quad per captured texel. Both
 // counts were previously inline arithmetic at the draw call, which is how the
 // letterbox scaling in `frame_composite.hpp` ended up inverted and untested for
 // as long as it was. Everything the two paths need to agree on lives here.
@@ -34,9 +34,8 @@ namespace crafterhunter::paired_grid {
     return cells(width, height, stride) * 6u;
 }
 
-// One point primitive per captured texel: the full-resolution path. This is
-// stride 1 expressed directly, because at stride 1 the cell footprint is the
-// texel itself and the quad form would submit six vertices to cover one pixel.
+// Historical point budget, retained as the coverage regression baseline. A point
+// covers only one HOST pixel, regardless of a captured texel's projected size.
 [[nodiscard]] constexpr std::uint32_t pointVertices(std::uint32_t width,
                                                     std::uint32_t height) noexcept {
     return width * height;

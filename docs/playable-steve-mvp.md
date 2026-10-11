@@ -95,33 +95,36 @@ neither had both:
   reprojection, host occlusion - but sampled one point per 4x4 cell, which the
   previous checkpoint recorded as an explicit bounded budget.
 
-`drawPairedFull` merges the two. Same gates, same alignment, same constants,
-same private D32 target, same host-depth fragment test: it differs only in
-submitting **one point primitive per captured texel** instead of a quad per 4x4
-cell. At stride 1 the cell footprint is the texel itself, so the quad form would
-spend six vertices to cover one pixel and a point primitive rasterizes as exactly
-that pixel.
+`drawPairedFull` keeps the same gates, alignment, constants, private D32 target
+and host-depth fragment test. The original full path submitted one point per
+captured texel. That path was accepted for native-resolution colour/player/F5
+appearance, but left regular coverage gaps when a texel projected larger than
+one host pixel.
 
-Cost, stated rather than assumed: 975,572 points at 949x1028 against the preview's
-366,996 vertices - 2.7x the geometry, but 16x the sampled texels, and a sixth
-of what a stride-1 quad splat would have cost. The draw arithmetic lives in
-`paired_grid.hpp` with regression tests, because the equivalent inline arithmetic
-in `frame_composite.hpp` was inverted and shipped unnoticed.
+The stationary 2026-10-11 baseline measured 949x509 guest -> 1920x1080 host:
+a texel spans 2.1218076 host pixels per axis. GPU camera X/Y/W matches the CPU
+controlled camera exactly in three traced pre-UI draws. Selected depth 0 has
+full-size continuous geometry in the inspected patch. The artifacts span frames;
+this is not same-frame occlusion or all-F5 acceptance. See the latest MODLOG.
 
-**Cadence is untouched and deliberately separate.** The guest still publishes
-paired snapshots at its own request pacing and the host still polls at its own
-interval, so this path is full resolution and still slow. The two are independent
-problems; fixing resolution tells us nothing about frame rate. The path logs
-point count, host-local upload age and draw count every ten seconds so the next
-runtime session yields a measurement instead of another estimate.
+The new full path submits a **source-pixel footprint per texel**, using six
+vertices and the texel's own depth for all four corners. It never connects
+neighbouring depth samples into a mesh. At 949x509 this is 2,898,246 vertices,
+six times the original 483,041-point budget. Equal-view magnification now has
+continuous coverage in the headless perspective regression; real disocclusion,
+uncaptured surfaces, different-view depth edges and native camera-fade dither
+remain limitations. More shader work may reduce host frame rate; runtime cost
+and visual coverage of this change remain unaccepted.
+
+Stream/upload cadence is unchanged and controlled by the existing interval flags.
+The periodic log reports footprint vertex count, host-local upload age and draw
+count; these do not measure end-to-end latency or prove 60 fps.
 
 Opt in with `paired-full.enabled` (`python3 tools/control-paired-preview.py
-start-full`), which takes precedence over the preview flag; the stride-4 preview
-remains as the fallback that is known to submit a draw.
-
-**Not verified.** Built and headless-tested; never rendered. The projection math
-is unchanged from the preview, so what is new here is resolution, topology and
-geometry volume - none of which a host-side test can judge.
+start-full`), which takes precedence over the preview flag. The stride-4 preview,
+frame, stone and player paths remain unchanged. Full-footprint acceptance needs
+fresh native-resolution screenshots/log identities, MHW foreground occlusion
+and all three F5 modes with a fixed anchor after installation.
 
 ## Next [MANUAL]: only this slice's acceptance
 

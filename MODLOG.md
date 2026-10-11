@@ -1,5 +1,47 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Bounded full-surface coverage plan
+
+Continue the existing two-process paired colour/depth passthrough on Linux/Proton.
+The stationary first-person baseline archives GPU pre-UI traces 3/4/5, capture
+18508755 and snapshot v3 identity 34043, generation 17345001885735, epoch 1575,
+under ignored captures/surface-coverage/baseline-20261011-225343/. GPU VP X/Y/W
+matches the read-only CPU VP exactly; GPU Z is the expected reversed convention,
+not the CPU forward Z. Selected depth 0 is 1920x1080, clear 0, full coverage,
+with a matching observed writer viewport. Its inspected native-resolution patch
+contains continuous geometry, not the composite's regular grid. These captures
+span frames: they do not establish same-frame occlusion or all-F5 acceptance.
+
+Reconstructing the archived paired depth through its own projection/view and
+fixed anchor yields 2.1218076 host pixels per source-pixel axis: the 949x509 full
+path still rasterizes one point per texel. Missing footprint coverage is measured;
+this does not exclude other defects or native dithered fade silhouettes.
+Temporary camera/filter control explicitly released after baseline collection.
+
+Bounded change: replace full-path points with six vertices per source texel,
+reprojecting each pixel's corners at that pixel's own depth. Reuse the established
+preview approach at stride 1; never triangulate between different depth samples.
+Preserve preview, frame, stone, player, capture, input, anchor and all depth/lifetime
+and freshness gates. Headless oracle: scaled/translated perspective coverage,
+invalid samples and distinct depth edges; original point form must fail coverage.
+Compile shaders and native renderer, then install the native-only change after
+both games close with scoped backup/cmp and push isolated code. Runtime oracle:
+fresh native-resolution before/after and log identities, host occlusion and all
+three F5 views without re-anchoring. Six vertices per texel costs more GPU work;
+no cadence or playable-MVP acceptance is claimed by a build.
+
+Implemented the bounded footprint draw (2,898,246 vertices at the measured size).
+Passed tools/test-paired-full-coverage.py (three fractional origins, perspective
+magnification, original-point >75% holes, invalid column between 2/80-unit depths,
+reversed-Z rejection reference), original-shader mutant rejection,
+tools/test-paired-grid.sh, tools/test-paired-preview.py, all 13 shader entries via
+tools/test-shader-source.sh, tools/test-world-reprojection.sh,
+tools/test-world-upload.sh, tools/test-guest-camera.sh and
+tools/test-exclusive-input.sh. Native Release build and diff --check pass.
+Preview/frame/player shader text, preparePaired and selectSceneDepth match the
+previous implementation exactly. Tests are headless; no changed build has been
+rendered yet. Installation awaits normal closure of both running games.
+
 ## 2026-10-11 — Walking fix survives live bob; surface gaps remain
 
 After reopening, installed native/managed/guest and the loaded native copy all
