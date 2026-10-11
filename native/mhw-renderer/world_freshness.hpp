@@ -27,6 +27,14 @@ public:
     bool live(std::uint64_t now) const {
         return ready && !exhausted && now>=advancedAt && now-advancedAt<TimeoutMillis;
     }
+    // How long ago the producer last advanced, in the host's own clock domain.
+    // Zero when nothing has advanced or the clock disagrees; this is receipt
+    // age, never end-to-end latency, and it exists so a runtime report can say
+    // how stale the pixels being drawn actually are.
+    std::uint64_t age(std::uint64_t now) const {
+        if (!ready || exhausted || now<advancedAt) return 0;
+        return now-advancedAt;
+    }
 private:
     std::array<std::uint64_t,4> retired{};
     unsigned count=0;

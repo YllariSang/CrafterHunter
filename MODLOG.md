@@ -1,6 +1,49 @@
 # CrafterHunter mod journal
 
-## 2026-10-11 — Close the turn gap: cMoveTurn is now suppressed
+## 2026-10-11 — Steve spike: full-resolution paired composite
+
+The spike wants a full Minecraft frame at native resolution and 60 fps with the
+player visible. Two of those three already existed, in different places, and
+neither had both: `drawFrame` composites the whole captured frame at native
+resolution but as a letterboxed sky overlay, while `drawPaired` places guest
+geometry correctly - real depth, host reprojection, host occlusion - but samples
+one point per 4x4 cell, recorded as an explicit bounded budget.
+
+`drawPairedFull` merges them. Same gates, alignment, constants, private D32
+target and host-depth fragment test; the only difference is one point primitive
+per captured texel instead of a quad per 4x4 cell. At stride 1 the cell footprint
+is the texel itself, so the quad form would spend six vertices to cover one pixel
+while a point rasterizes as exactly that pixel.
+
+Cost stated rather than assumed: 975,572 points at 949x1028 against the
+preview's 366,996 vertices - 2.7x the geometry for 16x the sampled texels, and a
+sixth of what a stride-1 quad splat would cost. The arithmetic lives in
+`paired_grid.hpp` with regression tests (including one that reproduces the
+recorded 366,996), because the equivalent inline arithmetic in
+`frame_composite.hpp` was inverted and shipped unnoticed.
+
+The shared prologue (gates, constants, private depth) is now `preparePaired`, so
+the preview and the full path cannot drift apart; the preview's inline
+`((w+3)/4)*((h+3)/4)*6` is gone.
+
+Cadence is untouched and deliberately separate: the guest still publishes at its
+own request pacing and the host still polls at its own interval, so this is full
+resolution and still slow. The path logs point count, host-local upload age and
+draw count every ten seconds so the next runtime session produces a measurement
+rather than another estimate. `world::Freshness` gained a tested `age()` for
+that, because it is receipt age and not end-to-end latency.
+
+Opt in with `paired-full.enabled`, which takes precedence over the preview flag;
+`tools/control-paired-preview.py start-full` sets it, and `stop` now clears it.
+
+Verified: `bash tools/test-paired-grid.sh` (draw arithmetic, plus the freshness
+age accessor), the existing exclusive-input, reprojection, depth-selection and
+frame-composite suites, and the MinHook cross-build. **Not rendered and not
+installed** - both games are running. The projection math is unchanged from the
+preview, so what is new is resolution, topology and geometry volume, none of
+which a host-side test can judge.
+
+## 2026-10-11 — Suppress cMoveTurn: closing the last movement hole in exclusive input
 
 The last measured hole in exclusive input: the hunter could not start a run and
 could not continue one, but `cMoveTurn` was forwarded, so it could still strafe

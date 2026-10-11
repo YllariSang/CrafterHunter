@@ -57,7 +57,25 @@ loaded offline scene. The request format is
 turn slot must be listed, because the engine's locomotion tables address slots a
 single-hit scan does not return.
 
-### Still-open composition line (earlier checkpoint, unchanged)
+### Still-open composition line
+
+The Steve-rendering spike is the active line. Two of its three requirements
+existed separately and neither had both: `drawFrame` composites the whole
+captured frame at native resolution as a letterboxed sky overlay, and
+`drawPaired` places guest geometry correctly but samples one point per 4x4 cell.
+`drawPairedFull` merges them - one point primitive per captured texel, same
+gates, constants, private depth target and host-depth test as the preview - and
+is opt-in via `paired-full.enabled` (`tools/control-paired-preview.py
+start-full`), which takes precedence over the preview flag. It has never been
+rendered.
+
+The remaining half of the spike is **cadence**: the guest publishes paired
+snapshots at its own request pacing and the host polls at its own interval, so
+the full path is full resolution and still slow. Those are independent problems;
+resolution says nothing about frame rate. The next implementation target is the
+transport, and the first thing to settle is whether a per-frame guest readback
+(`copyTextureToBuffer`, which is a GPU sync point) can run at Minecraft's frame
+rate at all, before anything is built on top of the assumption that it can.
 
 Validate same-frame Minecraft world colour/depth capture before changing native
 composition. WorldCapture currently fails closed permanently after a timeout or

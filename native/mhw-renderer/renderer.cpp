@@ -25,6 +25,7 @@
 #include "world_freshness.hpp"
 #include "world_reprojection.hpp"
 #include "world_alignment.hpp"
+#include "paired_grid.hpp"
 #include "player_model.hpp"
 #include "player_uv_debug.hpp"
 #include "exclusive_input.hpp"
@@ -32,6 +33,7 @@
 using Microsoft::WRL::ComPtr;
 namespace sel = crafterhunter::depth;
 namespace excl = crafterhunter::exclusive_input;
+namespace grid = crafterhunter::paired_grid;
 namespace frameio = crafterhunter::frame;
 namespace frames = crafterhunter::frames;
 namespace cmp = crafterhunter::composite;
@@ -197,6 +199,14 @@ ComPtr<ID3D11Texture2D> pairedDepth;
 ComPtr<ID3D11DepthStencilView> pairedDSV;
 ComPtr<ID3D11DepthStencilState> pairedDepthState;
 bool pairedFailed=false;
+// Full-resolution variant of the same composite. It shares the constant
+// buffer, the private depth target and the depth state with the preview; only
+// the shaders, the primitive topology and the vertex count differ.
+ComPtr<ID3D11VertexShader> pairedFullVS;
+ComPtr<ID3D11PixelShader> pairedFullPS;
+bool pairedFullFailed=false;
+ULONGLONG pairedFullNextLog=0;
+unsigned long long pairedFullDraws=0;
 void log(const char* format, ...);
 
 void clearWorldUpload(const char* reason="upload unavailable") {
@@ -326,6 +336,7 @@ bool uploadNewestFrame();
 int drawFrame(ID3D11Texture2D* back, ID3D11ShaderResourceView* sceneDepth);
 bool drawFrameComposite(ID3D11Texture2D* back);
 bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui);
+bool drawPairedFull(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui);
 bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui);
 int selectSceneDepth(ComPtr<ID3D11ShaderResourceView>& out);
 
@@ -950,8 +961,13 @@ void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
         // decides who wins where both would write; neither depends on the other.
         if (!composedFrame && stride==32 && cameraDesc.ByteWidth==1072 && uiDesc.ByteWidth==400) {
             const bool pairedRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-compose.enabled")!=INVALID_FILE_ATTRIBUTES;
+            // The spike's full-resolution path is opt-in and takes precedence
+            // when both are present, so the preview stays available underneath
+            // it as the fallback that is known to submit a draw.
+            const bool fullRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-full.enabled")!=INVALID_FILE_ATTRIBUTES;
+            if(fullRequested) composedFrame=drawPairedFull(back.Get(),camera.Get(),ui.Get());
             // Never silently fall back to the sky overlay when paired drawing refuses.
-            composedFrame=pairedRequested ? drawPaired(back.Get(),camera.Get(),ui.Get())
+            if(!composedFrame) composedFrame=pairedRequested ? drawPaired(back.Get(),camera.Get(),ui.Get())
                 : drawFrameComposite(back.Get());
         }
         if(!composedPlayer && stride==32 && cameraDesc.ByteWidth==1072 && uiDesc.ByteWidth==400)
@@ -1069,6 +1085,11 @@ float4 PS(float4 pixel : SV_Position) : SV_Target {
 // Bounded 4x4 source sampling, with a reprojected source-cell footprint.
 // These are real captured surfaces, not a replacement Steve mesh. Holes and
 // disocclusion remain expected; no continuous mesh is invented across depth edges.
+// The preview samples one point per this many texels per axis. The
+// full-resolution path uses 1, expressed directly as a point primitive
+// rather than through this constant.
+constexpr std::uint32_t kPairedPreviewStride = 4;
+
 constexpr char PairedShader[] = R"hlsl(
 cbuffer Pair : register(b0) {
     row_major float4x4 guestInverseProjection;
@@ -1114,6 +1135,57 @@ Splat PairedVS(uint id:SV_VertexID) {
     return o;
 }
 float4 PairedPS(Splat input):SV_Target {
+    if(any(abs(uiScale.xy-float2(2,-2)/sizes.zw)>0.000001)) discard;
+    float host=hostDepth.Load(int3(int2(input.pos.xy),0));
+    if(!isfinite(host) || input.pos.z<=host+0.000001 || input.colour.a<0.5) discard;
+    return float4(input.colour.rgb,1);
+}
+)hlsl";
+// Full-resolution paired composite: one point primitive per captured texel.
+//
+// This is the spike's "full Minecraft frame" path. The preview above samples
+// one point per 4x4 cell and splats a reprojected quad; at stride 1 the cell
+// footprint is the texel itself, so the quad form would submit six vertices to
+// cover one pixel. A point primitive rasterizes as exactly that pixel, so the
+// same projection costs one vertex per texel instead of six.
+//
+// The projection is unchanged from the preview and therefore unchanged in what
+// it can be wrong about: it is a forward splat, so holes at real depth
+// discontinuities and disocclusion are a property of the method, not a budget.
+// The private depth target and the host-depth test are shared with the preview,
+// so MHW's own depth is still never written.
+constexpr char PairedFullShader[] = R"hlsl(
+cbuffer Pair : register(b0) {
+    row_major float4x4 guestInverseProjection;
+    row_major float4x4 eyeToHost;
+    float4 sizes; // guest width/height, host width/height
+    float4 mapping; // clip mapping, clear, unused, unused
+};
+cbuffer Host : register(b1) { row_major float4x4 hostVP; };
+cbuffer UI : register(b2) { float4 uiScale; };
+Texture2D<float4> guestColour : register(t0);
+Texture2D<float> guestDepth : register(t1);
+Texture2D<float> hostDepth : register(t2);
+struct Point { float4 pos:SV_Position; nointerpolation float4 colour:COLOR0; float valid:SV_ClipDistance0; };
+Point PairedFullVS(uint id:SV_VertexID) {
+    Point o; o.pos=float4(0,0,0,1); o.valid=-1; o.colour=0;
+    uint width=uint(sizes.x);
+    if(id>=uint(sizes.x*sizes.y)) return o;
+    uint2 xy=uint2(id%width,id/width);
+    float depth=guestDepth.Load(int3(xy,0));
+    if(!isfinite(depth) || depth<=mapping.y || depth>1) return o;
+    float2 ndc=(float2(xy)+0.5)/sizes.xy*2-1;
+    float z=mapping.x==1 ? depth : depth*2-1;
+    float4 eye=mul(guestInverseProjection,float4(ndc,z,1));
+    if(!all(isfinite(eye)) || abs(eye.w)<1e-8) return o;
+    eye/=eye.w;
+    if(eye.z>=0) return o;
+    float4 clip=mul(mul(eyeToHost,eye),hostVP);
+    if(!all(isfinite(clip)) || clip.w<=1e-8 || clip.z<=0 || clip.z>clip.w) return o;
+    o.pos=clip; o.colour=guestColour.Load(int3(xy,0)); o.valid=1;
+    return o;
+}
+float4 PairedFullPS(Point input):SV_Target {
     if(any(abs(uiScale.xy-float2(2,-2)/sizes.zw)>0.000001)) discard;
     float host=hostDepth.Load(int3(int2(input.pos.xy),0));
     if(!isfinite(host) || input.pos.z<=host+0.000001 || input.colour.a<0.5) discard;
@@ -1695,7 +1767,13 @@ bool drawFrameComposite(ID3D11Texture2D* back) {
     return true;
 }
 
-bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
+// Shared by both paired composite paths: the freshness and alignment gates, the
+// host scene depth the fragment test reads, the per-frame constants, the
+// constant buffer, the depth state and the private D32 target that orders
+// overlapping guest splats without ever touching MHW's own depth.
+struct PairedConstants { float inverse[16],eye[16],sizes[4],mapping[4]; };
+
+bool preparePaired(PairedConstants& pair, ComPtr<ID3D11ShaderResourceView>& scene) {
     if(pairedFailed || !worldColourView || !worldDepthView || !worldMetadata.playerKnown
             || !alignmentPlayerKnown || worldMetadata.clipOrigin!=1
             || !worldFreshness.live(GetTickCount64()) || !alignmentSession.anchor.armed) return false;
@@ -1703,9 +1781,7 @@ bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     for(unsigned i=0;i<16;++i) view[i]=worldMetadata.viewRotation[i];
     if(!crafterhunter::alignment::eyeMatrix(alignmentSession.anchor,worldMetadata.generation,
             alignmentSession.epoch,view,worldMetadata.cameraPosition,eyeToHost)) return false;
-    ComPtr<ID3D11ShaderResourceView> scene;
     if(selectSceneDepth(scene)<0 || !ensureSharedState()) return false;
-    struct Pair { float inverse[16],eye[16],sizes[4],mapping[4]; } pair{};
     for(unsigned row=0;row<4;++row) for(unsigned col=0;col<4;++col) {
         pair.inverse[row*4+col]=static_cast<float>(worldInverseProjection[col*4+row]);
         // Host GPU VP uses raw centimetres; scale all host spatial rows once.
@@ -1715,6 +1791,29 @@ bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     pair.sizes[2]=width; pair.sizes[3]=height;
     pair.mapping[0]=worldMetadata.clipMapping; pair.mapping[1]=worldMetadata.clearDepth;
     pair.mapping[2]=4;
+    D3D11_BUFFER_DESC bd{}; bd.ByteWidth=sizeof(PairedConstants); bd.Usage=D3D11_USAGE_DEFAULT;
+    bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
+    D3D11_DEPTH_STENCIL_DESC dd{}; dd.DepthEnable=TRUE; dd.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ALL;
+    dd.DepthFunc=D3D11_COMPARISON_GREATER;
+    if(!pairedConstants
+            && FAILED(device->CreateBuffer(&bd,nullptr,&pairedConstants))) { pairedFailed=true; return false; }
+    if(!pairedDepthState
+            && FAILED(device->CreateDepthStencilState(&dd,&pairedDepthState))) { pairedFailed=true; return false; }
+    D3D11_TEXTURE2D_DESC old{}; if(pairedDepth) pairedDepth->GetDesc(&old);
+    if(old.Width!=width || old.Height!=height) {
+        pairedDSV.Reset(); pairedDepth.Reset();
+        D3D11_TEXTURE2D_DESC d{}; d.Width=width; d.Height=height; d.MipLevels=d.ArraySize=d.SampleDesc.Count=1;
+        d.Format=DXGI_FORMAT_D32_FLOAT; d.BindFlags=D3D11_BIND_DEPTH_STENCIL;
+        if(FAILED(device->CreateTexture2D(&d,nullptr,&pairedDepth))
+                || FAILED(device->CreateDepthStencilView(pairedDepth.Get(),nullptr,&pairedDSV))) return false;
+    }
+    return true;
+}
+
+bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
+    PairedConstants pair{};
+    ComPtr<ID3D11ShaderResourceView> scene;
+    if(!preparePaired(pair,scene)) return false;
     if(!pairedVS) {
         ComPtr<ID3DBlob> vs,ps,error;
         if(FAILED(D3DCompile(PairedShader,sizeof(PairedShader)-1,"CrafterHunter",nullptr,nullptr,
@@ -1724,21 +1823,12 @@ bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
             log("paired compile refused: %s",error ? static_cast<char*>(error->GetBufferPointer()) : "unknown");
             pairedFailed=true; return false;
         }
-        D3D11_BUFFER_DESC bd{}; bd.ByteWidth=sizeof(Pair); bd.Usage=D3D11_USAGE_DEFAULT; bd.BindFlags=D3D11_BIND_CONSTANT_BUFFER;
-        D3D11_DEPTH_STENCIL_DESC dd{}; dd.DepthEnable=TRUE; dd.DepthWriteMask=D3D11_DEPTH_WRITE_MASK_ALL; dd.DepthFunc=D3D11_COMPARISON_GREATER;
         if(FAILED(device->CreateVertexShader(vs->GetBufferPointer(),vs->GetBufferSize(),nullptr,&pairedVS))
-                || FAILED(device->CreatePixelShader(ps->GetBufferPointer(),ps->GetBufferSize(),nullptr,&pairedPS))
-                || FAILED(device->CreateBuffer(&bd,nullptr,&pairedConstants))
-                || FAILED(device->CreateDepthStencilState(&dd,&pairedDepthState))) { pairedFailed=true; return false; }
+                || FAILED(device->CreatePixelShader(ps->GetBufferPointer(),ps->GetBufferSize(),nullptr,&pairedPS))) {
+            pairedFailed=true; return false;
+        }
     }
-    D3D11_TEXTURE2D_DESC old{}; if(pairedDepth) pairedDepth->GetDesc(&old);
-    if(old.Width!=width || old.Height!=height) {
-        pairedDSV.Reset(); pairedDepth.Reset();
-        D3D11_TEXTURE2D_DESC d{}; d.Width=width; d.Height=height; d.MipLevels=d.ArraySize=d.SampleDesc.Count=1;
-        d.Format=DXGI_FORMAT_D32_FLOAT; d.BindFlags=D3D11_BIND_DEPTH_STENCIL;
-        if(FAILED(device->CreateTexture2D(&d,nullptr,&pairedDepth))
-                || FAILED(device->CreateDepthStencilView(pairedDepth.Get(),nullptr,&pairedDSV))) return false;
-    }
+    if(pairedFailed) return false;
     ComPtr<ID3D11RenderTargetView> target;
     if(FAILED(device->CreateRenderTargetView(back,nullptr,&target))) return false;
     ComPtr<ID3DDeviceContextState> saved; context1->SwapDeviceContextState(drawState.Get(),&saved);
@@ -1757,11 +1847,88 @@ bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     context->VSSetShaderResources(0,2,guest); context->PSSetShaderResources(2,1,scene.GetAddressOf());
     context->RSSetState(rasterizer.Get());
     D3D11_VIEWPORT viewport{0,0,static_cast<float>(width),static_cast<float>(height),0,1}; context->RSSetViewports(1,&viewport);
-    ownDraw=true; context->Draw(((worldMetadata.width+3)/4)*((worldMetadata.height+3)/4)*6,0); ownDraw=false;
+    const UINT vertices=grid::splatVertices(static_cast<std::uint32_t>(worldMetadata.width),
+        static_cast<std::uint32_t>(worldMetadata.height),kPairedPreviewStride);
+    ownDraw=true; context->Draw(vertices,0); ownDraw=false;
     ID3D11ShaderResourceView* empty[3]{}; context->VSSetShaderResources(0,2,empty); context->PSSetShaderResources(0,3,empty);
     context->OMSetRenderTargets(0,nullptr,nullptr); context1->SwapDeviceContextState(saved.Get(),nullptr);
     static bool reported=false;
-    if(!reported) { log("paired reprojection draw submitted: real colour/depth samples, host depth test, preview stride 4; NOT runtime acceptance"); reported=true; }
+    if(!reported) {
+        log("paired reprojection draw submitted: %u vertices, real colour/depth samples, "
+            "host depth test, preview stride %u; NOT runtime acceptance",
+            vertices,kPairedPreviewStride);
+        reported=true;
+    }
+    return true;
+}
+
+// The spike's path: every captured texel, projected and depth-tested. Same
+// gates, same constants and same private depth target as the preview above; one
+// point primitive per texel instead of a quad per 4x4 cell.
+//
+// Cadence is deliberately NOT raised here. The guest still publishes paired
+// snapshots on its own request pacing and the host still polls on its own
+// interval, so this path is full-resolution but still slow. The two are
+// independent problems, and the periodic log below reports the point count, the
+// upload age and the draw count so the next runtime session produces a
+// measurement rather than another assumption.
+bool drawPairedFull(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
+    PairedConstants pair{};
+    ComPtr<ID3D11ShaderResourceView> scene;
+    if(!preparePaired(pair,scene)) return false;
+    pair.mapping[2]=1;
+    if(!pairedFullVS) {
+        ComPtr<ID3DBlob> vs,ps,error;
+        if(FAILED(D3DCompile(PairedFullShader,sizeof(PairedFullShader)-1,"CrafterHunter",nullptr,nullptr,
+                "PairedFullVS","vs_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&vs,&error))
+                || FAILED(D3DCompile(PairedFullShader,sizeof(PairedFullShader)-1,"CrafterHunter",nullptr,nullptr,
+                "PairedFullPS","ps_5_0",D3DCOMPILE_ENABLE_STRICTNESS,0,&ps,&error))) {
+            log("paired full-resolution compile refused: %s",
+                error ? static_cast<char*>(error->GetBufferPointer()) : "unknown");
+            pairedFullFailed=true; return false;
+        }
+        if(FAILED(device->CreateVertexShader(vs->GetBufferPointer(),vs->GetBufferSize(),nullptr,&pairedFullVS))
+                || FAILED(device->CreatePixelShader(ps->GetBufferPointer(),ps->GetBufferSize(),nullptr,&pairedFullPS))) {
+            pairedFullFailed=true; return false;
+        }
+    }
+    if(pairedFullFailed) return false;
+    ComPtr<ID3D11RenderTargetView> target;
+    if(FAILED(device->CreateRenderTargetView(back,nullptr,&target))) return false;
+    ComPtr<ID3DDeviceContextState> saved; context1->SwapDeviceContextState(drawState.Get(),&saved);
+    context->UpdateSubresource(pairedConstants.Get(),0,nullptr,&pair,0,0);
+    context->ClearDepthStencilView(pairedDSV.Get(),D3D11_CLEAR_DEPTH,0,0);
+    context->OMSetRenderTargets(1,target.GetAddressOf(),pairedDSV.Get());
+    context->OMSetDepthStencilState(pairedDepthState.Get(),0);
+    context->OMSetBlendState(nullptr,nullptr,0xFFFFFFFF);
+    context->IASetInputLayout(nullptr); context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_POINTLIST);
+    context->VSSetShader(pairedFullVS.Get(),nullptr,0); context->PSSetShader(pairedFullPS.Get(),nullptr,0);
+    context->HSSetShader(nullptr,nullptr,0); context->DSSetShader(nullptr,nullptr,0); context->GSSetShader(nullptr,nullptr,0);
+    context->VSSetConstantBuffers(0,1,pairedConstants.GetAddressOf()); context->VSSetConstantBuffers(1,1,&camera);
+    context->PSSetConstantBuffers(0,1,pairedConstants.GetAddressOf()); context->PSSetConstantBuffers(2,1,&ui);
+    ID3D11ShaderResourceView* guest[]={worldColourView.Get(),worldDepthView.Get()};
+    context->VSSetShaderResources(0,2,guest); context->PSSetShaderResources(2,1,scene.GetAddressOf());
+    context->RSSetState(rasterizer.Get());
+    D3D11_VIEWPORT viewport{0,0,static_cast<float>(width),static_cast<float>(height),0,1}; context->RSSetViewports(1,&viewport);
+    const UINT points=grid::pointVertices(static_cast<std::uint32_t>(worldMetadata.width),
+        static_cast<std::uint32_t>(worldMetadata.height));
+    const ULONGLONG now=GetTickCount64();
+    // Host-local receipt age, not end-to-end latency: it says how old the pixels
+    // being drawn are, not how long they took to arrive.
+    const ULONGLONG age=worldFreshness.age(now);
+    ownDraw=true; context->Draw(points,0); ownDraw=false;
+    ID3D11ShaderResourceView* empty[3]{}; context->VSSetShaderResources(0,2,empty); context->PSSetShaderResources(0,3,empty);
+    context->OMSetRenderTargets(0,nullptr,nullptr); context1->SwapDeviceContextState(saved.Get(),nullptr);
+    ++pairedFullDraws;
+    if(!pairedFullNextLog || now>=pairedFullNextLog) {
+        pairedFullNextLog=now+10000;
+        log("paired FULL-RESOLUTION draw submitted: %ux%u guest -> %u points, host %ux%u, "
+            "upload age %llums, %llu draws since last report; cadence is still "
+            "request-paced, NOT runtime acceptance",
+            worldMetadata.width,worldMetadata.height,points,width,height,
+            static_cast<unsigned long long>(age),pairedFullDraws);
+        pairedFullDraws=0;
+    }
     return true;
 }
 
