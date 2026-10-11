@@ -92,18 +92,44 @@ void testOtherEntitiesAreNotAffected() {
           "another entity's cMove with the same vtable is forwarded");
 }
 
-// Regression: release/stop must survive, or a run started before enabling
-// would never end. This is the case the handoff called unresolved.
-void testCMoveEndIsNeverSuppressed() {
+// Regression: release/stop must survive a disable, and while enabled it must be
+// rewritten to end a run. The handoff recorded this as unresolved: suppressing
+// only cMove cannot stop a run, because the engine's running-state table
+// consults cMoveEnd and no cMove.
+void testCMoveEndIsRewrittenToEndTheRun() {
     ex::Gate gate;
     gate.set_local(resolved());
     gate.enable();
-    check(gate.evaluate(view(kCMoveEnd, kPlayer)) == ex::Action::forward,
-          "cMoveEnd forwards so an active run still stops");
+    check(gate.evaluate(view(kCMoveEnd, kPlayer)) == ex::Action::release,
+          "the local cMoveEnd is rewritten to eligible so a run ends");
 }
 
-// Turning is a known, deliberately accepted gap; it must not be claimed fixed.
-void testCMoveTurnIsNeverSuppressed() {
+// Regression: the end rewrite must be scoped exactly like the move rewrite.
+// cMoveEnd's vtable is shared by every entity's end transition, so matching on
+// the vtable instead of the object would end every entity's move in the level.
+void testOtherEntitiesCMoveEndIsForwarded() {
+    ex::Gate gate;
+    gate.set_local(resolved());
+    gate.enable();
+    constexpr std::uintptr_t kOtherEnd = 0x5E240900;
+    check(gate.evaluate(view(kOtherEnd, kPlayer)) == ex::Action::forward,
+          "another entity's cMoveEnd is forwarded");
+}
+
+// Regression: a cMoveEnd object observed with a foreign player link is not ours,
+// even though the address is the resolved one.
+void testCMoveEndWithForeignPlayerLinkForwards() {
+    ex::Gate gate;
+    gate.set_local(resolved());
+    gate.enable();
+    constexpr std::uintptr_t kOtherPlayer = 0x6E470700;
+    check(gate.evaluate(view(kCMoveEnd, kOtherPlayer)) == ex::Action::forward,
+          "cMoveEnd observed with a foreign player link is forwarded");
+}
+
+// Regression: turning is a known, deliberately accepted gap; it must not be
+// claimed fixed, and it must not be rewritten by the end rule either.
+void testCMoveTurnIsNeverRewritten() {
     ex::Gate gate;
     gate.set_local(resolved());
     gate.enable();
@@ -130,18 +156,17 @@ void testUnresolvedFailsOpen() {
           "unresolved instances fail open");
 }
 
-// Regression: if the resolution ever aliases c_move_end onto c_move, the
-// explicit end/turn guard is the only thing still forwarding cMoveEnd. This
-// pins that guard rather than relying on the object compare, which would
-// otherwise treat an aliased end as the move object.
-void testAliasedEndStillForwards() {
+// Regression: if the resolution ever aliases c_move_end onto c_move, the move
+// must still be suppressed. The move test has to run before the end test, or an
+// aliased resolution would release the move instead of blocking it.
+void testAliasedEndStillSuppressesTheMove() {
     ex::Gate gate;
     ex::LocalInstances aliased = resolved();
     aliased.c_move_end = aliased.c_move;
     gate.set_local(aliased);
     gate.enable();
-    check(gate.evaluate(view(kCMove, kPlayer)) == ex::Action::forward,
-          "an aliased c_move_end is never suppressed");
+    check(gate.evaluate(view(kCMove, kPlayer)) == ex::Action::suppress,
+          "an aliased c_move_end still suppresses the move");
 }
 
 // Regression: after a scene load the old object address may be recycled by
@@ -255,10 +280,12 @@ int main() {
     testSlotWithForeignPlayerLinkForwards();
     testSingleSlotFormStillWorks();
     testOtherEntitiesAreNotAffected();
-    testCMoveEndIsNeverSuppressed();
-    testCMoveTurnIsNeverSuppressed();
+    testCMoveEndIsRewrittenToEndTheRun();
+    testOtherEntitiesCMoveEndIsForwarded();
+    testCMoveEndWithForeignPlayerLinkForwards();
+    testCMoveTurnIsNeverRewritten();
     testUnresolvedFailsOpen();
-    testAliasedEndStillForwards();
+    testAliasedEndStillSuppressesTheMove();
     testInvalidateStopsFiltering();
     testEnableIsIdempotent();
     testDisableRestoresForwarding();

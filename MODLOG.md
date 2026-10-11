@@ -1,5 +1,51 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Why case 2 failed: the run's exit is governed by cMoveEnd
+
+MHW happened to be running in a loaded scene, so the decrypted image was read
+once through /proc/<pid>/mem (read-only, no attach, no writes, no launch) and
+the transition machinery was mapped out instead of being guessed at.
+
+The local hunter's transition set is `T = H+0xa00`, scanned per frame by
+`0x14026bd10` (thunk `0x14118e480`) with a per-state fallback at `0x14026bf70`;
+the dispatch `0x14026ba00` resolves the transition object from
+`[T+(group+12)*16][index]` and calls its `+0x30` predicate. Each current state
+selects its own record table, and the two that matter differ:
+
+- idle `(1,0)` -> `0x143f374b0` (39 records) contains `cMove` (index 0x93) and
+  no `cMoveEnd`;
+- running `(1,4)` -> `0x143f37fc0` (33 records) contains `cMoveEnd` (0x94,
+  required result 0, dest (1,3)) and `cMoveTurn` (0x9b) and no `cMove`.
+
+That is the whole case-2 failure: the trampoline was silent during a run because
+the engine was consulting an object the filter never touched. Suppressing
+`cMove` could not have stopped a run. `cMoveEnd`'s predicate (`0x1419344f0`)
+returns only 0 or -1, eligible meaning "stick magnitude below threshold and the
+object's own timer elapsed".
+
+Fix: while exclusive mode is on, the local `cMoveEnd` object also gets a private
+vtable copy whose `+0x30` runs the real predicate and rewrites only an
+ineligible result to 0, asking the engine for the end transition it would have
+selected had the stick been released. Scoped by object identity and
+`[obj+0x10]==P` like the move rewrite; `cMoveTurn` is still never rewritten; the
+rewrite is inert at rest because the idle table does not contain `cMoveEnd`.
+
+Build output is not byte-reproducible (the PE header carries a timestamp, so
+the same source hashes differently every build); identity is `cmp` against the
+installed file, as the installer already does. The reply file now reports
+`released=` beside `suppressed=`.
+
+Verified headless: `bash tools/test-exclusive-input.sh` (policy tests extended:
+end rewrite, foreign end object, foreign player link, aliased resolution still
+suppresses the move) and the MinHook cross-build. Verified static, read-only:
+the tables, objects and predicates above, from the loaded pinned image.
+**NOT verified at runtime and NOT installed** - MHW was running, the installer
+refuses to write under a live game, and case 2 still needs its acceptance run
+(hold W, arm without releasing, expect the hunter to stop and `released` to
+advance). Design evidence in docs/exclusive-input-design.md, updated handoff in
+docs/exclusive-input-handoff.md. Scratch dumps and disassembly helpers live
+outside the repository.
+
 ## 2026-10-11 — Exclusive-input filter installed and live-tested
 
 Built the exclusive-input suppression filter (native/mhw-renderer),

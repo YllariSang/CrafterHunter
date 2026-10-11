@@ -19,6 +19,11 @@ Identification method, verified 2026-10-11 on build 421810:
 Addresses change on scene load, so this must be re-run per scene; the renderer
 re-validates everything before it acts, and fails open if anything disagrees.
 
+Publishes `on <player> <human> <cmove,...> <cMoveTurn> <cMoveEnd>`. Every field
+is load-bearing: the cMove slots are the objects whose move predicate is forced
+ineligible, and the cMoveEnd object is the one whose end predicate is forced
+eligible so a run already in progress can be ended.
+
 Writes a request file consumed by the renderer's claim-before-read service.
 """
 from __future__ import annotations

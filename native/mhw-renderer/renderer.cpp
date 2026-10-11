@@ -392,17 +392,25 @@ constexpr uintptr_t kCMoveTurnVtable = 0x1433C96D0;
 constexpr uintptr_t kCMoveEndVtable  = 0x1433C9688;
 
 excl::Gate gate;
-void* privateBlock = nullptr;     // COL slot followed by the copied vtable
-void** patchedCopy = nullptr;     // the shared private vtable
+void* privateBlock = nullptr;     // COL slot followed by the copied vtables
+void** patchedCopy = nullptr;     // the shared private cMove vtable
+void** endCopy = nullptr;         // private cMoveEnd vtable
 std::vector<void*> slotObjects;      // every local cMove slot we patched
 std::vector<void**> slotOriginals;   // each slot's original vtable pointer
 std::vector<const void*> slots;      // stable storage for the policy's slot list
+void* endObject = nullptr;        // the local cMoveEnd object
+void** endOriginal = nullptr;     // its original vtable pointer
 std::mutex filterMutex;
 unsigned long long suppressCount = 0;
+unsigned long long releaseCount = 0;
 
-// The original predicate, recovered from the objects' own vtable.
+// The original predicates, recovered from each object's own vtable.
 int (STDMETHODCALLTYPE*originalPredicate)(void*) = nullptr;
+int (STDMETHODCALLTYPE*originalEndPredicate)(void*) = nullptr;
 
+// Both trampolines let the real predicate run first, so its own side effects
+// (the end predicate advances its +0x30 timer, for instance) still happen, and
+// only the result is rewritten.
 int STDMETHODCALLTYPE trampoline(void* object) {
     const int result = originalPredicate ? originalPredicate(object) : 0;
     excl::TransitionView view{object, nullptr, nullptr};
@@ -414,6 +422,26 @@ int STDMETHODCALLTYPE trampoline(void* object) {
     if (gate.evaluate(view) == excl::Action::suppress) {
         ++suppressCount;
         return -1;
+    }
+    return result;
+}
+
+// The end half. The engine's running-state transition table contains cMoveEnd
+// and no cMove, so this is the only object whose rewrite can end a run that is
+// already under way. Its predicate returns only 0 or -1, and at rest it already
+// returns 0, so rewriting -1 to 0 asks for the engine's own end transition and
+// changes nothing while idle.
+int STDMETHODCALLTYPE endTrampoline(void* object) {
+    const int result = originalEndPredicate ? originalEndPredicate(object) : 0;
+    excl::TransitionView view{object, nullptr, nullptr};
+    void* player = nullptr;
+    if (object && readPointer(object, 0x10, &player)) {
+        view = {object, *reinterpret_cast<void**>(object), player};
+    }
+    std::lock_guard lock(filterMutex);
+    if (result == -1 && gate.evaluate(view) == excl::Action::release) {
+        ++releaseCount;
+        return 0;
     }
     return result;
 }
@@ -433,12 +461,22 @@ void removeLocked() {
             *reinterpret_cast<void***>(slotObjects[i]) = slotOriginals[i];
         }
     }
+    if (endObject && endOriginal) {
+        void* current = nullptr;
+        if (readPointer(endObject, 0, &current) && current == endCopy) {
+            *reinterpret_cast<void***>(endObject) = endOriginal;
+        }
+    }
     slotObjects.clear();
     slotOriginals.clear();
     slots.clear();
+    endObject = nullptr;
+    endOriginal = nullptr;
     if (privateBlock) { VirtualFree(privateBlock, 0, MEM_RELEASE); privateBlock = nullptr; }
     patchedCopy = nullptr;
+    endCopy = nullptr;
     originalPredicate = nullptr;
+    originalEndPredicate = nullptr;
     gate.invalidate();
 }
 
@@ -484,27 +522,42 @@ bool apply(uintptr_t player, uintptr_t human, std::vector<uintptr_t>& moves,
         return false;
     }
 
-    // One page shared by every slot: the RTTI CompleteObjectLocator pointer
-    // that precedes a vtable is preserved immediately before the copy, so type
-    // queries keep working. All slots may share one copy because the trampoline
-    // decides per object, not per vtable.
+    // One page holding both rewritten classes: each private vtable starts eight
+    // bytes in, and the copy is taken from the vtable pointer itself, so the
+    // RTTI CompleteObjectLocator slot in front of each copy is left zeroed -
+    // unchanged from the build that passed the live at-rest test. All cMove
+    // slots share one copy because the trampoline decides per object, not per
+    // vtable; cMoveEnd needs its own copy because it is a different class with
+    // its own vtable.
     auto* block = static_cast<unsigned char*>(VirtualAlloc(nullptr, 0x1000,
         MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
     if (!block) { log("exclusive input: refused, allocation failed"); return false; }
+    constexpr size_t kEntries = 64;
+    constexpr size_t kStride = kEntries * sizeof(void*);
     auto** copy = reinterpret_cast<void**>(block + 8);
-    const size_t entries = 64;
+    auto** endTable = reinterpret_cast<void**>(block + 8 + 2 * kStride);
     SIZE_T copied = 0;
     void* first = reinterpret_cast<void*>(moves.front());
     if (!ReadProcessMemory(GetCurrentProcess(),
         reinterpret_cast<const char*>(*reinterpret_cast<void***>(first)),
-        copy, entries * sizeof(void*), &copied) || copied != entries * sizeof(void*)) {
+        copy, kStride, &copied) || copied != kStride) {
         VirtualFree(block, 0, MEM_RELEASE);
         log("exclusive input: refused, vtable copy failed");
+        return false;
+    }
+    copied = 0;
+    if (!ReadProcessMemory(GetCurrentProcess(),
+        reinterpret_cast<const char*>(*reinterpret_cast<void***>(end)),
+        endTable, kStride, &copied) || copied != kStride) {
+        VirtualFree(block, 0, MEM_RELEASE);
+        log("exclusive input: refused, cMoveEnd vtable copy failed");
         return false;
     }
     (void)first;  // original vtables are kept per slot in slotOriginals
     originalPredicate = reinterpret_cast<int (STDMETHODCALLTYPE*)(void*)>(copy[0x30 / sizeof(void*)]);
     copy[0x30 / sizeof(void*)] = reinterpret_cast<void*>(&trampoline);
+    originalEndPredicate = reinterpret_cast<int (STDMETHODCALLTYPE*)(void*)>(endTable[0x30 / sizeof(void*)]);
+    endTable[0x30 / sizeof(void*)] = reinterpret_cast<void*>(&endTrampoline);
 
     slotObjects.clear();
     slotOriginals.clear();
@@ -513,6 +566,8 @@ bool apply(uintptr_t player, uintptr_t human, std::vector<uintptr_t>& moves,
         slotObjects.push_back(object);
         slotOriginals.push_back(*reinterpret_cast<void***>(object));
     }
+    endObject = end;
+    endOriginal = *reinterpret_cast<void***>(end);
     slots.assign(moves.size(), reinterpret_cast<const void*>(0));
     for (size_t i = 0; i < moves.size(); ++i) slots[i] = reinterpret_cast<const void*>(moves[i]);
     gate.set_local(excl::LocalInstances{
@@ -522,10 +577,13 @@ bool apply(uintptr_t player, uintptr_t human, std::vector<uintptr_t>& moves,
 
     privateBlock = block;
     patchedCopy = copy;
+    endCopy = endTable;
     for (void* object : slotObjects) {
         *reinterpret_cast<void***>(object) = copy;
     }
-    log("exclusive input: filter armed on %zu local cMove slot(s)", slotObjects.size());
+    *reinterpret_cast<void***>(endObject) = endCopy;
+    log("exclusive input: filter armed on %zu local cMove slot(s) and cMoveEnd",
+        slotObjects.size());
     return true;
 }
 
@@ -592,7 +650,8 @@ void serviceRequests() {
     std::lock_guard lock(filterMutex);
     FILE* out = fopen(reply, "w");
     if (out) {
-        std::fprintf(out, "armed=%d suppressed=%llu\n", armed ? 1 : 0, suppressCount);
+        std::fprintf(out, "armed=%d suppressed=%llu released=%llu\n", armed ? 1 : 0,
+        suppressCount, releaseCount);
         fclose(out);
     }
 }

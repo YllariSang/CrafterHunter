@@ -268,7 +268,9 @@ authoritative freeze signal and is what the numbers below use.
 | 3. Enable at rest, W held | PASS | 0.94 units over 6s (render jitter only); trampoline +518 |
 | 4. Disable, W held | PASS | resumes immediately at 307 units/s |
 
-Cases 5-8 are untested.
+Cases 5-8 are untested. Case 2 was failed against the cMove-only filter; the
+end-transition rewrite described below is built and awaits its own live run, so
+case 2 remains **not accepted**.
 
 Mechanism, now proven live: the vtable `+0x30` predicate (`0x141934220`) gates
 the TRANSITION into a move state. It is consulted every frame while at rest
@@ -289,9 +291,99 @@ move to be ended on arm - either by invoking `cMoveEnd` when the filter arms,
 or by gating the move-state update itself. Both are larger than the transition
 predicate and have not been attempted.
 
+## Why case 2 failed, and what closes it (2026-10-11, static + live read-only)
+
+The failure is not a timing accident. It is structural, and the structure is
+readable from the loaded image. Everything below was read from the decrypted
+`.text`/`.data` of the running pinned build and from `/proc/<pid>/mem`; nothing
+was written to the game.
+
+### The transition machinery
+
+For a hunter `H` with player `P = [H+0xd90]`:
+
+| What | Where |
+|---|---|
+| transition set | `T = H + 0xa00` |
+| current-state record | `Q = P + 0x61c8`; `+0xac/+0xb0` current pair, `+0xbc/+0xc0` pending pair, `+0xa8` mode |
+| per-frame scan | thunk `0x14118e480` -> `0x14026bd10` |
+| candidate slots | `T + 0x100 + 16*i`, up to 4 |
+| per-group slot mask | `T + 0x140 + 4*group` (one bit per slot) |
+| per-state fallback | `0x14026bf70`: counts at `T + 0x88 + 16*group`, arrays at `T + (group+8)*16`, 32 bytes per state id, `{record array, count}` |
+| transition objects | `[T + (group+12)*16][index]` |
+| dispatch | `0x14026ba00`: resolves the object, checks `[obj+8]&1`, calls `vtable+0x30` (the predicate), then the callback table at `T+0x268` |
+| result matching | `0x14026b830`: the predicate's return value is matched against each record's field at `+0x0c`; `-1` means "no transition" |
+
+A record is six DWORDs: `{group, index, flags, required result, dest group, dest
+id}`. Records whose index is negative (`0xffffffec`, `0xfffffff6`) are never
+dispatched; they exist so a predicate's non-zero result selects a fallback
+destination. The per-state tables are therefore *the* answer to "what can happen
+next from here".
+
+### What the local hunter's tables contain
+
+The local hunter's group-1 object array resolves index `0x93` to `cMove`,
+`0x94` to `cMoveEnd` and `0x9b` to `cMoveTurn` - the same three objects the
+resolver publishes.
+
+| Current state | Table | Contains |
+|---|---|---|
+| idle `(1,0)` | `0x143f374b0`, 39 records | `0x93` (cMove, required result 0, dest `(1,2)`) - and **no** `0x94` |
+| running `(1,4)` | `0x143f37fc0`, 33 records | `0x94` (cMoveEnd, required result 0, dest `(1,3)`), `0x9b` (cMoveTurn, dest `(1,4)`) - and **no** `0x93` |
+
+That is exactly the observed behaviour. At rest the engine consults `cMove` about
+85 times a second, so the trampoline fires. During a run it consults `cMoveEnd`
+instead and never `cMove`, so the trampoline is silent. **Suppressing `cMove`
+cannot stop a run; the object that governs a run's exit was never being
+filtered.**
+
+### The end predicate
+
+`cMoveEnd`'s `+0x30` (`0x1419344f0`) returns only two values, `0` and `-1`:
+
+- eligible (`0`) when the stick magnitude is below the object's threshold -
+  `[obj+0x20]` is the command controller and `[obj+0x2c]` the threshold index,
+  compared through the shared accessor `0x14122ff50` - and the object's own
+  timer `[obj+0x30]` has elapsed against `P+0x68`;
+- `-1` otherwise.
+
+### The fix
+
+While exclusive mode is on, the filter now also gives the local `cMoveEnd`
+object a private vtable copy whose `+0x30` runs the real predicate and rewrites
+**only** an ineligible result to `0`.
+
+Why this is the right shape:
+
+- It asks the engine for the end transition the engine would have selected had
+  the stick been released. The engine applies it through its own path, so no
+  action is fabricated and no state is poked from outside.
+- It is inert while idle: `cMoveEnd` is not in the idle table at all, and where
+  it is consulted at rest it already returns `0`.
+- It is inert for every other entity: the rewrite is scoped by object identity
+  and `[obj+0x10] == P`, exactly like the move rewrite.
+- Only `-1` is rewritten. Every other result code (cutscene and scripted
+  branches return codes of their own, and records select on them) passes
+  through untouched, so the filter cannot promote a state the engine was
+  deliberately refusing.
+- `cMoveTurn` is still never rewritten, so turning remains the documented gap.
+
+**Not yet verified.** This is static evidence plus a headless policy test. The
+claim that a mid-run enable now stops the hunter requires the live acceptance
+run; until then case 2 is implemented, not accepted.
+
 ## Status
 
-Installed and live-tested 2026-10-11. Cases 1, 3, 4 pass; case 2 (mid-run
-stop) does not - the filter prevents starting movement, not continuing it.
-Resolver non-determinism fixed (all local cMove slots covered) in ad54597.
-Filter is disarmed; nothing is patched at rest. Open: case 2, and cases 5-8.
+Installed and live-tested 2026-10-11 (SHA-256
+`981858aec9780b0114098e0c69df39f68e1a7392c63961e5f52f2e22d4598cde`): cases 1,
+3, 4 pass; case 2 (mid-run stop) did not. Resolver non-determinism fixed (all
+local cMove slots covered) in ad54597.
+
+Built, not yet installed or runtime-accepted: the end-transition rewrite that
+targets case 2. Its mechanism is established from the loaded image, not
+inferred; see the section above. Build outputs are not byte-reproducible (the
+PE header carries a timestamp, so the same source hashes differently each
+build): identity is established by `cmp` against the installed file, which is
+what `tools/install-mhw-renderer.sh` does, not by quoting a build hash. The
+filter is disarmed at rest and nothing is patched until a request arrives.
+Open: the case-2 acceptance run, and cases 5-8.
