@@ -77,8 +77,8 @@ int main(int argc,char** argv) {
             gc::Plan plan;check(gc::makePairedPlan(frame,live,anchor,9,plan),"F5 capture refused");
             check(plan.mode==mode,"F5 visibility uses a different render time");
             check(anchor.guestOrigin==unchangedAnchor.guestOrigin && anchor.hostEpoch==9,"F5 re-anchored");
-            M view{},eye{};for(unsigned i=0;i<16;++i)view[i]=plan.view[i];
-            check(reprojection::inverse(view,eye),"F5 view singular");
+            M mappedView{},eye{};for(unsigned i=0;i<16;++i)mappedView[i]=plan.view[i];
+            check(reprojection::inverse(mappedView,eye),"F5 view singular");
             for(unsigned i=0;i<3;++i)
                 check(std::abs(eye[12+i]-(anchor.hostOrigin[i]+frame.cameraPosition[i]-anchor.guestOrigin[i])*100)<1e-3,
                     "F5/collision camera did not use the fixed anchor");
