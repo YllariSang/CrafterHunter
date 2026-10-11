@@ -1,5 +1,27 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Environment occlusion fix accepted; Steve flicker remains
+
+User reports environment occlusion "stable and better", F5 works and F6 releases.
+Steve alone has remaining jumpy occlusion; user permits deferring it if not
+substantial. Record it as an open body-rendering issue, not accepted stable Steve
+occlusion or proof that every temporal rendering issue is solved.
+
+Fresh reactivated token 893139907560709530, generation 43698606417375, epoch 1763:
+1872 samples over 211.41s, 1860 matching ACTIVE and 12 matching released, zero
+sample errors and no alignment invalidations. Movement and original native
+1920x1080 screenshots exist in all three F5 modes; rear observed 7.73s, front
+11.18s. All captured-body feet match their atomic capture. Evidence and user
+report: ignored captures/composition-timing/runtime-20261011-215804Z/report.json.
+
+F6 removes the guest request flag and returns matching released acknowledgement
+at sequence 9153. Completed explicit camera/filter stop; fresh input reply armed=0.
+Capture channels and anchor preserved, games left open, control OFF. Initial
+diagnostic-induced release remains archived separately and is not counted as F6.
+No exact fps, E2E latency, dynamic same-frame GPU camera/depth or gameplay scope
+acceptance. Environment viewport correction is accepted; Steve's flicker remains
+a distinct follow-up. No source/build/artifact changes in this acceptance turn.
+
 ## 2026-10-12 — Viewport correction stationary capture and control reactivation
 
 Ready session: verified all installed builds and loaded native shadow by cmp;

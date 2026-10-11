@@ -4,7 +4,8 @@
 to the selected scene depth's measured writer viewport before integer Load.
 The player already used this conversion; all three paths share its existing
 current-frame validity checks. Verified ef56144 native renderer is installed;
-live acceptance after reopening is pending. All three installed artifacts cmp
+the user accepts improved environment occlusion after all-F5 movement and F6
+release. Steve's own occlusion flicker remains open. All three installed artifacts cmp
 match their tested builds; guest/managed were preserved. Scoped backup:
 `native/mhw-renderer/build/rollback.paired-depth-viewport.pg7yujaz/`, with the
 pinned installer additionally saving `rollback.WSF4r3/`. Both games exited before
@@ -72,3 +73,21 @@ No lease/freshness guard was weakened. An explicit fresh control request recover
 with the same generation and epoch, token 893139907560709530. Lighter native
 capture 44234092 completed while control remained ACTIVE. The user walking/F5/F6
 check and bounded screenshot/identity collector are pending; no re-anchor occurred.
+
+## Environment acceptance
+
+User reports: "Environment occlusion is stable and better, f5 works and f6
+releases. The only difference is that Steve has the jumpy occlusion now" and
+permits deferring that remaining issue if not substantial. This accepts the world
+viewport correction, preserving the distinction from unstable body occlusion.
+
+The reactivated run collected 1872 samples over 211.41s: 1860 matching ACTIVE,
+12 matching released, zero errors and zero alignment invalidations. Generation
+43698606417375 and epoch 1763 remained fixed. Original 1920x1080 captures and
+moving feet exist in all F5 modes; rear spans 7.73s, front 11.18s. Every sampled
+captured-body foot position matches the atomic world capture. F6 removes the
+guest request flag and produces a matching released acknowledgement at sequence
+9153. Explicit camera/filter cleanup confirms armed=0; channels/anchor preserved.
+Games remain open with control OFF. No exact fps, screen latency or same-frame
+dynamic GPU camera/depth pairing is accepted from these observations. Steve's
+remaining flicker is recorded for a separate rendering follow-up.

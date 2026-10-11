@@ -50,8 +50,10 @@ Fresh GPU/depth captures establish a world-layer address mismatch: MHW writes
 1440×810 depth inside a 1920×1080 allocation. The
 [paired depth viewport correction](docs/paired-depth-viewport.md) extends the
 player's measured viewport conversion to world composition. Checks/build pass
-and the verified renderer is installed; visible all-view movement acceptance
-remains pending restart.
+and the verified renderer is installed. The user reports environment occlusion
+stable and better after all-F5 movement, with F5 and F6 working. Fresh original
+screenshots, fixed-anchor traces and matching release support that checkpoint.
+Steve's own occlusion still flickers and remains an open rendering follow-up.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link
 work, and the native DX11 renderer displays Minecraft geometry with fixed world

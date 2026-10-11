@@ -59,6 +59,20 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Latest acceptance (2026-10-12): user reports environment occlusion "stable and
+better", F5 works and F6 releases; Steve alone still has jumpy occlusion. User
+permits deferring it if not substantial; retain it as an open body-rendering issue,
+not accepted stable Steve occlusion. Evidence report:
+captures/composition-timing/runtime-20261011-215804Z/report.json. Reactivated token
+893139907560709530, generation 43698606417375/epoch 1763 fixed: 1872 samples over
+211.41s, 1860 matching ACTIVE, 12 matching released, zero errors/invalidations.
+Original 1920x1080 captures and moving feet exist in all three F5 views; rear
+observed 7.73s, front 11.18s. All captured-body feet match atomic capture feet.
+Guest request flag absent after F6; explicit cleanup confirms armed=0. No E2E
+latency, Present fps, dynamic same-frame GPU camera/depth or gameplay acceptance.
+Environment viewport fix is accepted; next work must preserve this checkpoint
+and keep Steve's flicker distinct from world occlusion. Games left open, control OFF.
+
 Viewport fix runtime (2026-10-12): matching installed/loaded ef56144, new
 generation 43698606417375 and one epoch 1763. Full-size stationary pre-UI traces
 show host foreground occlusion through right/bottom edges; GPU/CPU VP X/Y/W
