@@ -33,6 +33,13 @@ The shared world anchor converts camera displacement and view, including native
 F5 rear/front offsets, collision shortening and view effects. MHW retains its
 near/far and depth convention. Replace projection XY terms using Minecraft's
 final projection and the actual host aspect; never copy Minecraft depth terms.
+Walking bob and hurt motion are present in that final projection, not just in
+the camera-relative view. Native factors the final matrix as perspective times
+a rigid affine effect, including off-centre perspective, verifies the complete
+round trip, and moves the effect into the mapped view. Effect translations are
+converted from blocks to centimetres. The host projection then uses the recovered
+perspective XY while retaining its native Z/W and near/far. Nonfinite, singular
+or unsupported non-rigid/projective shapes still refuse control.
 In Minecraft first person suppress the separate full-body preview, as vanilla
 does; first-person hands are outside this slice's existing capture boundary.
 
@@ -74,6 +81,21 @@ Existing camera/player links, actual normal/slim baked models, world capture hoo
 paired transport/reprojection/upload, composition cache, shader compilation,
 exclusive-input policy, SPL logic, player/paired controllers and Rust workspace
 tests pass. None establishes visible host camera following or live release.
+
+Runtime update: the user confirms camera following and all F5 angles work.
+Fresh screenshots/sequence logs cover all three modes at fixed epoch 2422 and
+generation 15247686952110. Walking released control: the first sampled rejected
+bob projection is sequence 8437 (p[11] = -0.99998944998); the host latched release
+after sequence 8436 with matched=0, camera/filter/paired still present, and no
+alignment invalidation. Local evidence is in ignored
+captures/guest-camera/runtime-20261011-220826/reactivation/.
+The old final-projection check required p[11] == -1 within 1e-5 and p[15] == 0;
+valid walking effects violate it. The new native-only fix passes the measured
+packet and exact clip-XY/W equivalence with unchanged native projection depth
+rows. Restoring the old guard fails that regression. Walking continuity after
+the fix remains pending safe installation and fresh live testing; a headless
+replay accepts all 1699 archived packets. User-observed
+camera/F5 following does not accept culling or native depth compatibility.
 
 Primary loader source: [Viewport](https://github.com/Fexty12573/SharpPluginLoader/blob/master/SharpPluginLoader.Core/View/Viewport.cs)
 and [hook lifecycle](https://github.com/Fexty12573/SharpPluginLoader/blob/master/docs/Development/FunctionHooking.md).

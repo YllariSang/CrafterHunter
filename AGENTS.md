@@ -61,7 +61,19 @@ single-hit scan does not return.
 
 Current authorized goal (2026-10-11): Minecraft-owned host camera, alongside the
 existing hunter movement suppression. Read docs/guest-camera-control.md and
-docs/CONTRACT.md. New actual-camera atomic channel, token acknowledgement/HUD,
+docs/CONTRACT.md. User confirms camera following and all F5 angles work; walking
+released control. Fresh trace: fixed epoch 2422/generation 15247686952110,
+sequence 8437 is the first walking-bob projection rejected by the old rigid
+p[11] == -1 check; release follows at 8436 with matched=0 and no invalidation.
+Native now factors final projection into perspective plus rigid camera effects,
+applies the effects to the mapped view (translations in centimetres), and retains
+native projection Z/W. Measured-packet regression and old-guard mutant pass;
+native build passes. This walking fix is not installed/live accepted yet.
+Next: safe native-only install, then new-session calibration and walking/F5/
+release evidence. No re-anchor on F5. Earlier stationary/all-F5 evidence does
+not accept walking continuity or culling/depth compatibility.
+
+New actual-camera atomic channel, token acknowledgement/HUD,
 F7/F9 feedback prevention, F6 release, bounded lease and guarded main-camera
 matrix getter hooks are implemented/headless-verified; all three builds pass.
 Installed matching guest/managed/native artifacts after both games exited,

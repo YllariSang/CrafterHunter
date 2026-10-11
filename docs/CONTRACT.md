@@ -9,6 +9,10 @@ flags u32 (=1 means both incoming links OFF), actual camera XYZ f64, camera-rela
 view 16 f32 column-major, final uploaded projection 16 f32 column-major. Generation
 is WorldCapture's process lifetime. Sequence advances once per sampled level view.
 Invalid/nonfinite/unsupported camera or paused guest publishes nothing. No assets.
+Native accepts a finite perspective multiplied by a rigid affine camera effect,
+verifies the complete matrix reconstruction, moves effects into the centimetre
+host view, and keeps host projection Z/W. The uploaded final matrix can change
+its W row during walking; it is not required to be a bare perspective matrix.
 
 Controller atomically publishes a single on <token> command after preparing the
 existing exclusive-input request. Fabric's guest-control.enabled contains the same

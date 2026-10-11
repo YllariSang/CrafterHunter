@@ -1,5 +1,39 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Walking projection caused camera control to release
+
+User confirms the MHW camera follows Minecraft and all F5 angles work, but
+walking releases control. Fresh reactivation token 6989320817062829108 stayed
+at generation 15247686952110 and epoch 2422 through all three F5 modes. The
+read-only trace captures walking feet changes and the first rejected final
+projection at sequence 8437, p[11] = -0.9999894499778748. The old decoder required
+p[11] == -1 within 1e-5; walking bob exceeds it. At the next release log the
+host's last accepted sequence is 8436, matched=0 with camera/filter/paired=1,
+hooks disabled and no anchor invalidation. Guest request flag remains present,
+so this second release is not an F6 request. Evidence, actual matrix samples,
+screenshots and user observation are archived under ignored
+captures/guest-camera/runtime-20261011-220826/reactivation/. The collector was
+stopped with SIGINT after saving 1699 samples; only our collector was signalled.
+Explicit camera/filter stop subsequently cleaned up the released request.
+
+Bounded native fix: factor the actual final projection into perspective and
+rigid affine bob/hurt effects, including off-centre perspective. Validate finite
+invertible perspective, rigid effect and complete reconstruction. Apply the
+effect to the mapped view, converting effect translation to centimetres, and
+use recovered perspective XY with unchanged MHW projection Z/W and near/far.
+No channel/version, Fabric, managed, capture, input-policy, anchor, freshness,
+timeout or shader change. Unsupported projections still fail closed.
+
+Passed measured-walking-packet decode regression, bob/hurt/Z-translation and
+off-centre clip-XY/W equivalence, unchanged native depth rows and existing
+camera lease/F5/controller tests. A headless replay accepts all 1699 archived
+stationary/F5/walking packets. Restoring the old rigid guard in a temporary
+mutant fails the measured-packet assertion. Native Release build and existing
+world reprojection/alignment, world upload, composition flag cache, shader
+compilation and exclusive-input tests pass. Native-only installation pending
+safe closure of both games. Walking continuity after this fix remains unaccepted;
+camera/F5 user observation does not establish culling/depth compatibility or MVP.
+
 ## 2026-10-11 — Matching Minecraft-owned camera build installed
 
 After the user quit both games normally, fresh host window and exact process
