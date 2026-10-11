@@ -1,5 +1,47 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Same-capture attachments accepted; slight occlusion delay remains
+
+User supplies first/rear/front desktop screenshots and reports "so far so good",
+with occlusion slightly late. Archived original user images and report alongside
+fresh native captures in ignored
+captures/player-attachment-sync/runtime-20261012-044738/. Reviewed original
+1920x1080 native rear/front captures as well as the earlier first-person capture.
+Fresh generation 39413949334159, one calibration epoch 1128 and control token
+5212297445829145217 stay fixed. The bounded 900s collector completed 8176 samples,
+all matching ACTIVE acknowledgements, zero sample errors and no native alignment
+invalidations. Embedded body feet/generation match their atomic world snapshot in
+all samples; native uploads carry a bound pose. World-mode samples contain 774,
+70 and 227 distinct feet positions in first/rear/front respectively. View spans
+are multiple intervals with stationary time, not sustained walking durations.
+Four independently read camera/world samples differ during view transitions;
+body and world data are instead read from the same opened inode. Independent
+latest poses are 1–2 sequences newer than the bound captured pose.
+
+User accepts basic movement/attachment alignment, with remaining slight occlusion
+delay. A screenshot cannot measure a millisecond delay. No current-run F6 release
+was observed; the prior matching F6 acceptance stands. Control remains ACTIVE.
+No requests, flags, calibration, game settings or shaders were changed, and no
+game was launched, stopped or installed in this follow-up.
+
+Started the next bounded timing goal with a read-only 30s observation of existing
+world headers and renderer upload logs. Source script, raw observations and
+report are preserved in handoff-observation/ within the same evidence folder.
+708 distinct publications, 706 upload log events and 706 matched identities,
+zero read errors. Producer issue spacing median 39.68ms is within the producer's
+own clock. Publication-first-seen to upload-log-first-seen median 21.11ms has
+21.48ms median combined event/poll uncertainty; neither is screen latency.
+Initial retained publication is excluded from timing matches. All observer
+timestamps use one external monotonic clock; Java nanos and Windows ticks are
+not subtracted across clocks. Capture/view/settings stayed unchanged, so this
+is neither controlled A/B nor a moving visual-latency measurement.
+
+Next measure capture/readback, publication and host upload separately before
+choosing a bounded delay reduction. This observation does not identify the
+cause of the occlusion lag, claim GPU completion/Present fps, or complete the
+60fps spike. Preserve capture lifetime, strict host depth, fixed F5 anchor and
+control ownership; no gameplay expansion is authorized by this rendering result.
+
 ## 2026-10-12 — Body/attachment synchronization builds installed
 
 User confirmed both games closed; fresh exact-process and host-window checks

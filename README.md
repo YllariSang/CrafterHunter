@@ -30,12 +30,15 @@ fail-closed version handling. See [docs/prior-art.md](docs/prior-art.md).
 
 2026-10-12 latest slice: keep one exported player body, exclude its duplicate from
 paired world capture, retain held-item/armor layers and normal Minecraft display.
-Matching verified guest/native builds are installed; fresh live acceptance is pending.
+Matching verified guest/native builds are installed; the user accepts basic
+single-body and attachment alignment after movement in all three F5 views.
 See [single-body rendering](docs/player-single-body.md) for scope and checks.
 User reports all F5 cameras and F6 release working, with cape/held-item movement
 lag. The follow-up binds the exported body to the same capture's issue-time pose;
-builds and headless timing tests pass, matching artifacts are installed, and the
-live timing check is pending.
+builds and headless timing tests pass, and fresh original screenshots/trace support
+the live alignment result. Slight occlusion delay remains. The next bounded step
+profiles capture/readback, publication and host upload before choosing a fix;
+screen latency and the 60 fps gate remain unmeasured.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link
 work, and the native DX11 renderer displays Minecraft geometry with fixed world

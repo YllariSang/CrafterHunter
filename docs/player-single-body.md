@@ -1,7 +1,8 @@
 # One local player body
 
 2026-10-12: implemented, headless verified and matching builds installed;
-live acceptance pending. Scoped backup:
+basic single-body/attachment alignment accepted by the user after the follow-up
+below. Scoped backup:
 `native/mhw-renderer/build/rollback.single-body.3_t40x8e/`. Control starts OFF.
 
 Follow-up: user reports all cameras work and F6 stops control, but cape and held
@@ -11,7 +12,30 @@ manual test. All-F5 screenshots and attachment/occlusion acceptance remain open.
 The issue-time pose fix below is built/headless verified and installed cmp-clean
 after both games closed. Scoped backup:
 `native/mhw-renderer/build/rollback.pose-sync.sj77c_eu/`. Control starts OFF;
-live timing and smoothness remain pending restart and one calibration.
+The later live result supersedes that pending alignment gate.
+
+Fresh follow-up evidence is in ignored
+`captures/player-attachment-sync/runtime-20261012-044738/report.json`.
+Generation 39413949334159, epoch 1128 and token 5212297445829145217 remain fixed.
+The 900-second collector records 8176 matching ACTIVE samples, no sample errors
+and no native alignment invalidation. Every embedded body's feet and generation
+match the world snapshot read from the same inode. Captured feet change in all
+three F5 views, and original 1920x1080 native screenshots show one body with
+retained attachments. Independently read latest poses are 1–2 sequences newer;
+they are not substituted for the captured pose. The user reports "so far so good"
+with slight occlusion delay. This accepts basic attachment alignment, not exact
+screen latency, a controlled speed improvement or the extra pass's cost. View
+intervals include stationary time and must not be reported as walking durations.
+No F6 release was observed in this run; the last acknowledgement remains ACTIVE.
+Previous user/F6 release evidence is unchanged. No cleanup or re-anchor occurred.
+
+Next is bounded stage profiling before selecting a delay reduction. A read-only
+30-second observer matched 706 publication identities to native upload log lines;
+median first-seen spacing is 21.11ms with 21.48ms combined polling uncertainty.
+These are external observer/log intervals, not actual GPU or display latency.
+The producer's own issue spacing is measured only within its Java clock; neither
+Java nanos nor Windows ticks are subtracted from the observer clock. Existing
+controls/settings and all depth, freshness and F5 guards remain unchanged.
 
 The paired world previously included Minecraft's third-person player body while
 the native renderer drew the exported body again. Keep the real baked model and
@@ -108,7 +132,8 @@ pose and cannot draw a replacement body on the new host. Install both builds.
 
 This keeps the exported mesh, skin and depth policy, but ties composited body
 updates to world-capture cadence and its transport delay. It does not accelerate
-capture, export attachment geometry, or claim visible timing acceptance.
+capture or export attachment geometry. Basic visible alignment is now accepted
+as recorded above; exact latency remains unmeasured.
 Regression presents a captured pose at sequence 17 and an independently advancing
 live pose at 18, five blocks ahead. Paired drawing must never read the newer pose;
 standalone must still use it. Restoring newest-pose selection fails this oracle.
@@ -131,5 +156,6 @@ Check first person, rear and front F5 without re-anchoring: one body in MHW,
 held block visible, Minecraft's own display complete, nearer Minecraft blocks
 and MHW foreground covering Steve correctly, walking staying attached and F6
 releasing. Save original screenshots plus fresh v4 exclusion/capture, pose,
-generation/epoch and loaded-code evidence. Builds/headless replay cannot accept
+generation/epoch and loaded-code evidence (v5 carries the bound pose).
+Builds/headless replay cannot accept
 visible rendering or added runtime cost.

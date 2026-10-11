@@ -59,6 +59,23 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Live attachment follow-up (2026-10-12): user reports "so far so good" after
+first/rear/front screenshots, with slight occlusion delay remaining. Fresh ignored
+evidence: captures/player-attachment-sync/runtime-20261012-044738/report.json.
+Generation 39413949334159, fixed epoch 1128, token 5212297445829145217:
+8176 samples over 900s, all matching ACTIVE acknowledgements, zero sample errors
+or native alignment invalidations. Each embedded body's feet/generation matches
+its atomic world capture; movement and original native screenshots exist in all
+F5 views. Independent live poses are 1–2 sequences newer. Basic single-body and
+attachment alignment are accepted by the user; this is not measured millisecond
+latency or a performance improvement. Current-run F6 was not observed; previous
+F6 acceptance stands. Control remains ACTIVE, not cleaned up or recalibrated.
+Next bounded goal: profile capture/readback, publication and host upload before
+selecting a delay reduction. Read-only 30s handoff observation matched 706 capture
+identities to upload logs; its 21.11ms median first-seen spacing has about 21.48ms
+median combined polling uncertainty and excludes GPU completion/display. It is
+not E2E latency or proof of the lag's cause. No guards/settings were changed.
+
 Latest follow-up (2026-10-12): user reports all cameras work and F6 stops control,
 but captured cape/held item lag behind the newest separately rendered body.
 Fresh release matches generation 30989782490149/epoch 1736; cleanup armed=0.
