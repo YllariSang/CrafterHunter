@@ -3,7 +3,7 @@
 
 Modes:
   preview  the stride-4 reprojection splat that has been built longest
-  full     the spike path: one point primitive per captured texel
+  full     one projected source-pixel footprint per captured texel
 
 Both need the same gates - world upload, a fresh pair, calibration, first-person
 Minecraft - and both leave MHW input alone. "full" is still request-paced, so it
@@ -69,7 +69,7 @@ def main():
     print(f"Cadence: guest publishes every {args.guest_ms} ms, host polls every {args.host_ms} ms."
           + ("  (zero means no floor on either side)" if 0 in (args.guest_ms, args.host_ms) else ""))
     if full:
-        print("FULL-RESOLUTION paired composition enabled (one point per captured texel).")
+        print("FULL-RESOLUTION paired composition enabled (one projected footprint per captured texel).")
         print("Still request-paced: the guest publishes on its own interval, so this is not 60 fps.")
     else:
         print("Stride-4 paired preview enabled.")

@@ -1,5 +1,28 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — First-person footprint coverage observed; F5 check pending
+
+User reopened both offline scenes and focused Minecraft. Loaded native copy
+cmp-matches e5c7da2's build. Preserved 949x509 guest/1920x1080 host, F7/F9 OFF,
+full/player composition and zero stream/upload/pose floors. Calibrated once at
+generation 21296949949849, epoch 25299; fresh input resolution activated token
+1560138725085006626. Bounded 180-second read-only collector records 1662 advancing
+ACTIVE camera samples, one fixed feet position/mode 0/epoch, no invalidation.
+New draw reports 2,898,246 footprint vertices. Native capture 21600025 is
+1920x1080: block faces are continuous, hunter/foreground structures cover guest
+surfaces, native UI remains above them. This is partial stationary first-person
+coverage evidence, not all-F5, walking, release, colour fidelity or performance
+acceptance. Fine ground patterns remain; the same native depth readback has a
+dithered silhouette in the inspected patch. Entire remaining cause unproven;
+do not bypass host depth or call all holes solved. Control remains ACTIVE for
+the requested user walking/F5/F6 check. No re-anchor after calibration.
+
+Ignored screenshots, exact collector, raw paired frame/hash, native full-size
+colour/depth readbacks, fresh logs/samples and report:
+captures/surface-coverage/runtime-20261011-234513/. Corrected the paired controller's
+stale point-rendering description/output to projected footprints; existing
+tools/test-paired-preview.py passes. No binary/protocol/input-policy change.
+
 ## 2026-10-11 — Full-surface footprint renderer installed
 
 User closed both games normally. Fresh host window and exact process checks
