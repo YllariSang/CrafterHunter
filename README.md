@@ -44,7 +44,7 @@ delay, guest publication work and native read/upload work. Matching verified
 artifacts are installed; live measurements remain pending restart/calibration.
 Fresh stage reports identify about 9ms/capture of discarded diagnostic work.
 The guest stream now skips it while explicit archives keep statistics/hashes;
-the verified optimization awaits installation and a live comparison. User reports
+the verified optimization is installed and awaits a live comparison. User reports
 jumpy occlusion/hunter overlap in all views; that issue remains unresolved.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link

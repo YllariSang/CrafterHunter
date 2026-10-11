@@ -1,5 +1,22 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Stream metadata optimization installed
+
+Fresh process/window checks after authorized exact-PID termination confirm both
+games closed. Installed ca25f09's verified Fabric jar atomically; native timing
+and managed artifacts preserved unchanged. All three installed artifacts cmp
+match tested builds. Scoped backup/manifest:
+native/mhw-renderer/build/rollback.stream-metadata.50olc_4s/; ignored pointer
+captures/composition-timing/install-stream-metadata-path.txt. Control starts OFF,
+body separation/full/player composition ON, zero floors and live channels
+preserved. No game was launched or save/settings edited. User permits only
+closing the games, so reopening remains manual.
+
+Next loaded offline scenes, Minecraft focused first person with F7/F9 OFF;
+one calibration, fresh advancing stage measurements, and actual GPU camera/depth
+captures for the reported all-view jumpy occlusion/hunter overlap. This install
+does not itself accept a latency improvement or an occlusion fix.
+
 ## 2026-10-12 — Fresh stage reports select a bounded guest optimization
 
 Installed/loaded native shadow and all three installed artifacts cmp-match the

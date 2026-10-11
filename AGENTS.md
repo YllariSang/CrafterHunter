@@ -66,7 +66,10 @@ capture while native upload-submit averages 0.50ms; CPU spans, not screen latenc
 Guest now omits discarded metadata scans/hashes only during live streaming;
 explicit diagnostic archives keep identity/hash binding. Build, actual body/model,
 transport, timing, capture-hook and new original-work mutant checks pass. Native
-timing build remains unchanged. Installation/runtime improvement pending. User
+timing build remains unchanged. Guest-only ca25f09 installed after fresh game
+closure checks; native/managed preserved, all three cmp-clean. Scoped backup:
+native/mhw-renderer/build/rollback.stream-metadata.50olc_4s/. Control OFF;
+composition/zero cadence/live channels preserved. Live improvement pending. User
 reports jumpy occlusion and hunter overlap in ALL views while ACTIVE, then an
 accidental F6 release. This is unresolved; do not claim occlusion acceptance or
 that removing metadata fixes it. Next collect fresh actual GPU camera/depth

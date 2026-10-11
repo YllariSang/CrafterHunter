@@ -115,8 +115,11 @@ that streaming prepared but discarded. Explicit non-streaming archives still
 record all statistics, provenance and requested attachment hashes. Paired v5
 pixels, camera and body payload remain unchanged; no readback policy or depth
 guard is altered. `python3 tools/test-capture-metadata.py` executes this production
-preparation block and rejects the original unconditional-work mutant. Live speed
-or latency improvement remains pending matching guest installation/restart.
+preparation block and rejects the original unconditional-work mutant. Verified
+ca25f09 guest jar is installed after fresh closure checks, with native/managed
+preserved and all three cmp-clean. Scoped backup:
+`native/mhw-renderer/build/rollback.stream-metadata.50olc_4s/`. Control starts OFF.
+Live speed or latency improvement remains pending restart and fresh measurements.
 
 User reports jumpy occlusion and hunter overlap in all views while ACTIVE. The
 optimization does not identify or claim to fix that issue. Next collect fresh
