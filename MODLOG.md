@@ -1,5 +1,50 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Matched composition comparison and bounded flag polling
+
+Ran ON/OFF/OFF/ON with four seconds settling and twenty seconds measured per
+phase. Minecraft remained focused, both windows visible, first person, F7/F9 OFF,
+949x509 guest capture, zero guest/host floors, fixed feet and generation
+8042902613435. Capture/upload stayed enabled; only full paired/player draw flags
+were temporarily renamed and restored. No input injection or continuous recording.
+Each phase has an original-resolution desktop screenshot and fresh log evidence
+under ignored `captures/composition-ab-20261011-202345/`, with the exact script,
+preconditions and results. Calibration/freshness remained valid throughout.
+
+| Drawing | CH_Frame callbacks/s | Guest publishes/s | Host uploads/s |
+| --- | ---: | ---: | ---: |
+| ON 1 | 50.93 | 29.89 | 29.89 |
+| OFF 2 | 25.44 | 29.99 | 25.44 |
+| OFF 3 | 26.29 | 29.99 | 26.29 |
+| ON 4 | 52.42 | 29.93 | 29.88 |
+
+The counter is the existing native CH_Frame counter read from our matching loaded
+DLL, resolved afresh through symbols and process mappings, read-only. It measures
+SPL render callbacks, not independent Present fps. Aggregate shared-GPU utilization
+was 95–100% ON versus 29–44% OFF; guest cadence was roughly 30/s in all phases.
+Thus this comparison does not establish the paired GPU draw as the sole limiter,
+an unthrottled guest rate, E2E latency or 60 fps. Temperature/clock changes and
+shared GPU load remain limits on cross-session comparisons.
+
+Source inspection found per-eligible-UI-callback filesystem queries for the full,
+preview and player flags. Disabled/refused draws do not set the success latch, so
+these queries repeat throughout the frame. The bounded change samples those three
+flags once at CH_Frame and uses that state for draw dispatch and logs. Toggles
+apply next frame; failed GPU/depth draw attempts still retry. No shader, capture,
+depth, freshness, anchor, F5, gameplay or GPU lifetime policy change. This removes
+repeated flag I/O; its connection to the observed OFF slowdown remains unverified.
+
+Passed native Release build; `tools/test-composition-requests.sh` (1,000 refused
+callbacks issue three queries, next-frame toggles, independent combinations,
+reset/wrap). A temporary per-callback-polling mutant fails the query-count test.
+Also passed world-upload, world-frame-transport, world-reprojection,
+depth-selection, paired-grid, frame-composite, stream-cadence, exclusive-input
+headless scripts and `python3 tools/test-player-preview.py`. No protocol/Fabric
+change. Installed native DLL only after the user quit both games and fresh host
+process checks found neither; installer backup `native/mhw-renderer/build/rollback.vQD9KX`,
+build/install cmp passed. Next repeat the same comparison with the installed
+flag-cache build. Live improvement and the 60 fps gate remain open.
+
 ## 2026-10-11 — Resident pair observed live; cadence remains about 40 fps
 
 Reviewed the user's `/home/yllaris/Videos/recording_2026-10-11_20.05.44.mp4`:

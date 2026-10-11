@@ -12,6 +12,26 @@ pair in flight and permanent failure after uncertain GPU completion. Only comple
 BOTH captures with matched issue-time camera metadata publish a paired snapshot.
 The existing colour-only channel and native stone renderer are untouched.
 
+## Once-per-frame composition requests (2026-10-11)
+
+A matched ON/OFF/OFF/ON comparison kept capture/upload active and only toggled
+full paired/player drawing. CH_Frame callback rates were 50.93/25.44/26.29/52.42
+per second, with the guest publishing about 30/s throughout. GPU utilization fell
+from 95–100% ON to 29–44% OFF. These are render callback counts, not independent
+Present fps or E2E latency. Fresh screenshots/logs and the exact script are local
+under `captures/composition-ab-20261011-202345/`; see MODLOG for conditions/limits.
+
+The native renderer now samples full/preview/player enable files once per
+CH_Frame. Draw dispatch and logs share that state, applying toggles on the next
+frame. Previously disabled/refused drawing repeatedly queried these files at
+eligible UI draw calls because no successful-draw latch had been set. Draw
+refusals still retry; depth, projection, freshness and fixed-F5 anchor gates are
+unchanged. `bash tools/test-composition-requests.sh` exposes repeated queries with
+1,000 refused callbacks and checks next-frame toggles, independent modes and
+reset. Build and relevant regressions pass; installed cmp-clean with scoped backup
+`native/mhw-renderer/build/rollback.vQD9KX`. Live impact on cadence is unverified;
+repeat the comparison before claiming improvement. The 60 fps gate remains open.
+
 ## Resident native upload pair (2026-10-11)
 
 The next bounded cadence change replaces per-capture immutable texture/SRV

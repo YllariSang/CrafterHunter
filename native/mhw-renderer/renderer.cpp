@@ -28,6 +28,7 @@
 #include "paired_grid.hpp"
 #include "stream_cadence.hpp"
 #include "world_upload.hpp"
+#include "composition_requests.hpp"
 #include "player_model.hpp"
 #include "player_uv_debug.hpp"
 #include "exclusive_input.hpp"
@@ -51,6 +52,7 @@ unsigned long long frame = 0;
 bool initialized = false;
 bool drawEnabled = false;
 bool composedPlayer=false;
+crafterhunter::composition::FrameRequests compositionRequests;
 bool pipelineFailed = false;
 ComPtr<ID3D11DeviceContext1> context1;
 ComPtr<ID3DDeviceContextState> drawState;
@@ -261,8 +263,8 @@ void serviceAlignment() {
     // This line used to end in "; drawing disabled" unconditionally, which became a
     // lie at exactly the moment it matters: an armed anchor driving a submitted
     // draw still claimed no drawing was happening.
-    const bool fullRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-full.enabled")!=INVALID_FILE_ATTRIBUTES;
-    const bool previewRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-compose.enabled")!=INVALID_FILE_ATTRIBUTES;
+    const bool fullRequested=compositionRequests.value().full;
+    const bool previewRequested=compositionRequests.value().preview;
     log("alignment epoch=%llu generation=%llu identity=%llu mode=%u mapped-camera-metres=(%.6f,%.6f,%.6f); composition=%s",
         static_cast<std::uint64_t>(alignmentSession.epoch),
         static_cast<unsigned long long>(worldMetadata.generation),
@@ -367,8 +369,8 @@ void serviceWorldUpload() {
     // State, not a slogan. This line used to end in "; composition disabled",
     // which was true when the upload path was diagnostic-only and became a lie
     // the moment the paired draw existed.
-    const bool previewRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-compose.enabled")!=INVALID_FILE_ATTRIBUTES;
-    const bool fullRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-full.enabled")!=INVALID_FILE_ATTRIBUTES;
+    const bool previewRequested=compositionRequests.value().preview;
+    const bool fullRequested=compositionRequests.value().full;
     log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition=%s anchor=%s textures=%s",
         static_cast<unsigned long long>(worldMetadata.generation),static_cast<unsigned long long>(worldMetadata.identity),
         worldMetadata.width,worldMetadata.height,
@@ -1009,11 +1011,11 @@ void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
         // geometry stays visible rather than being buried. The order only
         // decides who wins where both would write; neither depends on the other.
         if (!composedFrame && stride==32 && cameraDesc.ByteWidth==1072 && uiDesc.ByteWidth==400) {
-            const bool pairedRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-compose.enabled")!=INVALID_FILE_ATTRIBUTES;
+            const bool pairedRequested=compositionRequests.value().preview;
             // The spike's full-resolution path is opt-in and takes precedence
             // when both are present, so the preview stays available underneath
             // it as the fallback that is known to submit a draw.
-            const bool fullRequested=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/paired-full.enabled")!=INVALID_FILE_ATTRIBUTES;
+            const bool fullRequested=compositionRequests.value().full;
             if(fullRequested) composedFrame=drawPairedFull(back.Get(),camera.Get(),ui.Get());
             // Never silently fall back to the sky overlay when paired drawing refuses.
             if(!composedFrame) composedFrame=pairedRequested ? drawPaired(back.Get(),camera.Get(),ui.Get())
@@ -2001,7 +2003,7 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     static ComPtr<ID3D11DepthStencilState> depthState;
     static ComPtr<ID3D11Texture2D> privateDepth;
     static ComPtr<ID3D11DepthStencilView> privateDSV;
-    if(GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/player-compose.enabled")==INVALID_FILE_ATTRIBUTES) {
+    if(!compositionRequests.value().player) {
         poseFreshness={}; return false;
     }
     const auto now=GetTickCount64();
@@ -2369,6 +2371,11 @@ extern "C" __declspec(dllexport) void CH_AlignmentPlayer(float x,float y,float z
 extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* viewProjection) {
     if (!initialized && !initialize(singleton)) return 0;
     ++frame;
+    compositionRequests.sample(frame,[](const char* name) {
+        char path[256]{};
+        std::snprintf(path,sizeof path,"%s/%s",Dir,name);
+        return GetFileAttributesA(path)!=INVALID_FILE_ATTRIBUTES;
+    });
     serviceWorldUpload();
     serviceAlignment();
     exclusive::serviceRequests();
@@ -2431,6 +2438,7 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     frameSyncRemaining = 0; previousCameraValid = false;
     drawEnabled = false; pipelineFailed = false;
     composed = false; composedFrame = false; composedFrameCount = 0;
+    compositionRequests.reset();
     sharedReady = false; framePipelineFailed = false; depthSelectionFrame = 0;
     sceneDepthView.Reset(); minecraftView.Reset(); minecraftTexture.Reset();
     frameVertexShader.Reset(); framePixelShader.Reset(); frameConstants.Reset();

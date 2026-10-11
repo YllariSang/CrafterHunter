@@ -112,6 +112,19 @@ See docs/world-frame-transport.md and captures/resident-pair-20261011-200544/.
 Next: isolate MHW frame cost under matching conditions before more tuning;
 keep all freshness/F5 gates. ~25ms observation spacing is not E2E latency.
 
+Update 2026-10-11: matched ON/OFF/OFF/ON (4s settling + 20s each, focused MC,
+fixed first-person feet/generation, zero floors, capture/upload always active)
+measured 50.93/25.44/26.29/52.42 CH_Frame callbacks/s, guest about 30 publishes/s.
+These are render callback rates, not independent Present fps. Shared GPU usage
+fell to 29–44% OFF from 95–100% ON. Evidence and exact script are in ignored
+captures/composition-ab-20261011-202345/. No sole GPU bottleneck or 60 fps claim.
+Bounded native change now samples full/preview/player flags once per CH_Frame,
+avoiding repeated filesystem queries when disabled/refused draws never set the
+success latch. Actual draw refusals still retry; all capture/depth/F5 gates stay.
+Headless regression/mutant and build pass; installed cmp-clean with scoped backup
+build/rollback.vQD9KX. Next repeat comparison after restart/calibration; live
+cadence improvement is unverified. Do not infer the slowdown's cause from code.
+
 Validate same-frame Minecraft world colour/depth capture before changing native
 composition. WorldCapture currently fails closed permanently after a timeout or
 setup/copy exception, retaining at most its existing buffer pair until process exit.
