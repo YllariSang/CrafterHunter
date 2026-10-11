@@ -10,14 +10,28 @@ with tempfile.TemporaryDirectory() as directory:
     base=Path(directory); mc=base/"mc"; mhw=base/"mhw"
     plugin=mhw/"nativePC/plugins/CSharp/CrafterHunter"; render=plugin/"render"
     render.mkdir(parents=True); (plugin/"CrafterHunter.Render.dll").touch()
-    def run(action):
+    def run(action, *extra):
         subprocess.run([sys.executable,str(root/"tools/control-player-preview.py"),action,
-            "--minecraft",str(mc),"--mhw",str(mhw)],check=True,capture_output=True)
+            "--minecraft",str(mc),"--mhw",str(mhw),*extra],check=True,capture_output=True)
     run("start")
     assert (mc/"crafterhunter/player-export.enabled").is_file()
     assert (render/"player-compose.enabled").is_file()
     assert not (render/"paired-compose.enabled").exists()
     assert (render/"world-upload.enabled").exists()
+    assert (mc/"crafterhunter/player-export.enabled").read_text()=="0\n"
+    assert (render/"world-upload.enabled").read_text()=="250\n"
+    assert (mc/"crafterhunter/world-stream.enabled").read_text()=="250\n"
+    (render/"world-upload.enabled").write_text("0\n")
+    (mc/"crafterhunter/world-stream.enabled").write_text("16\n")
+    run("start", "--pose-ms", "16")
+    assert (mc/"crafterhunter/player-export.enabled").read_text()=="16\n"
+    assert (render/"world-upload.enabled").read_text()=="0\n"
+    assert (mc/"crafterhunter/world-stream.enabled").read_text()=="16\n"
+    for invalid in ("-1", "1001"):
+        result=subprocess.run([sys.executable,str(root/"tools/control-player-preview.py"),"start",
+            "--minecraft",str(mc),"--mhw",str(mhw),"--pose-ms",invalid],capture_output=True)
+        assert result.returncode!=0
+        assert (mc/"crafterhunter/player-export.enabled").read_text()=="16\n"
     run("align"); assert (render/"align.request").read_text()=="align\n"
     run("stop"); run("stop")
     assert not (render/"player-compose.enabled").exists()
@@ -76,4 +90,6 @@ for required in ["renderer.extractRenderState", "renderer.submit(state", "model.
         "part.translateAndRotate", "cube.polygons", "v.worldX()", "loadPose(oldPoses.get(i))", "StandardCopyOption.ATOMIC_MOVE"]:
     assert required in export,required
 assert "guestDepth" not in export and "readSkin(gl" in export
+assert "cadence.due(now)" in export and "cadence.schedule(now, content)" in export
+assert "250_000_000L" not in export # The former player-only 4Hz cap must not return.
 print("PASS player start/align/stop, compositor flag preservation, baked extraction/pose restore, matched/fresh/depth-tested draw contracts (not GPU proof)")

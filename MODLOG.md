@@ -1,5 +1,56 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Player-only cadence defect: separate 250ms pose cap
+
+The user reports smooth world composition, placing/moving/breaking, while the
+separately rendered character updates slowly. Their visual 60fps estimate is not
+an independent Present measurement. The prior host callback comparisons did not
+measure player animation cadence and should not have been used to treat all
+layers as one performance problem.
+
+Project-source inspection found PlayerModelExport.capture hardcoded
+next = now + 250,000,000ns, independent of the negotiated world stream floor.
+A fresh six-second host-namespace read of player.pose observed sequence 5153–5176,
+generation 10018048051975; after the initial partial interval, advances typically
+arrived every 263–283ms (~3.8/s). Native already polls/applies advancing poses at
+eligible per-frame player draws, so repeating cached poses at host cadence cannot
+animate them faster. Evidence: ignored captures/player-pose-cadence/baseline.json.
+An initial sandbox-namespace sample saw no files and is not runtime evidence;
+the real host namespace sample supersedes it.
+
+Bounded route: keep the existing Java exporter and binary channels, reuse the
+StreamCadence interval parser with a headless-tested synchronous Pacer. Numeric
+player-export.enabled selects 0..1000ms, zero samples the real interpolated player
+state on each LevelRenderer render invocation. Missing/unreadable/prose/invalid
+content retains the conservative 250ms behavior. Skin/geometry remain resident
+assets, atomic pose replacement and native freshness/asset/generation/depth/F5
+guards remain. WorldCapture's permanent GPU fail-closed policy is untouched.
+No shader, host renderer, bridge, gameplay or animation reimplementation.
+
+control-player-preview.py start now defaults to --pose-ms 0, validates the bound
+before writing, and preserves existing world capture/upload cadence instead of
+overwriting those flags with prose that falls back to 250ms. A missing shared
+flag is initialized conservatively to 250ms for calibration. The controller does
+not re-anchor on F5. Installation only changed the guest jar and pose flag.
+
+Passed: Fabric ./gradlew build; actual normal/slim baked player and Java/native
+roundtrip via tools/test-player-model.sh; test-player-preview.py;
+test-fabric-frame.sh (including cadence regression: simulated 60Hz yields 60
+updates at zero versus four at 250ms); world-frame-transport and
+world-reprojection tests; git diff --check. Restoring the original 250ms scheduling
+in a temporary mutant fails the render-clock regression. Gradle required cache
+write access outside the workspace; retry with scoped escalation passed.
+No wire format or native change, so no Rust/native rebuild required.
+
+After the user quit both games and fresh host process checks found neither,
+installed only crafterhunter-fabric-0.3.0.jar, verified build/install cmp, and
+atomically wrote player-export.enabled = 0. Prior guest jars/flag and manifest
+are preserved in minecraft/fabric/build/rollback.player-cadence.7py_t945.
+Managed/native artifacts, world cadence, graphics settings, channels and saves
+were not changed. Next fresh player sequence/host-consumption evidence and visible
+walking/head motion through all three F5 modes after one new-session calibration.
+New live pose cadence/smoothness and 60fps remain unaccepted until that check.
+
 ## 2026-10-11 — Constant guest cadence comparison without the AFK cap
 
 The user approved and selected Reduce FPS when = Minimized. Verified the saved

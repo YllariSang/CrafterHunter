@@ -3,6 +3,7 @@ package dev.crafterhunter.client;
 import com.mojang.blaze3d.opengl.GlTexture;
 import com.mojang.blaze3d.vertex.PoseStack;
 import dev.crafterhunter.client.mixin.ModelPartAccessor;
+import java.io.IOException;
 import java.lang.reflect.Proxy;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
@@ -28,7 +29,8 @@ import org.lwjgl.system.MemoryUtil;
 public final class PlayerModelExport {
     private static final Path CHANNEL = Path.of("/dev/shm/crafterhunter");
     private static final Path ENABLED = FabricLoader.getInstance().getGameDir().resolve("crafterhunter/player-export.enabled");
-    private static long next, sequence, assetIdentity;
+    private static final StreamCadence.Pacer cadence = new StreamCadence.Pacer();
+    private static long sequence, assetIdentity;
     private static byte[] lastGeometry, skin;
     private static GlTexture skinTexture;
     private static int skinWidth, skinHeight;
@@ -38,12 +40,18 @@ public final class PlayerModelExport {
 
     public static void capture(float partialTick, CameraRenderState camera) {
         long now = System.nanoTime();
-        if (failed || now < next) return;
-        next = now + 250_000_000L; // Same bounded 4 Hz preview budget; not a 60 Hz claim.
+        if (failed || !cadence.due(now)) return;
+        cadence.schedule(now, null); // Keep disabled/unreadable checks on the conservative budget.
         if (!Files.exists(ENABLED)) return;
         var mc = Minecraft.getInstance();
         if (mc.player == null || mc.level == null || mc.getCameraEntity() != mc.player) return;
         try {
+            String content;
+            try { content = Files.readString(ENABLED); }
+            catch (IOException unreadable) { content = null; }
+            // Pose cadence is independent of world readback: 0 samples the real
+            // interpolated player state on every LevelRenderer render invocation.
+            cadence.schedule(now, content);
             var renderer = mc.getEntityRenderDispatcher().getPlayerRenderer(mc.player);
             AvatarRenderState state = renderer.createRenderState();
             renderer.extractRenderState(mc.player, state, partialTick);

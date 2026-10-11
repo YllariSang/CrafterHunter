@@ -35,6 +35,17 @@ public final class StreamCadence {
         return value;
     }
 
+    /** Render-thread gate for small synchronous publications such as player poses. */
+    public static final class Pacer {
+        private long nextNanos;
+
+        public boolean due(long nowNanos) { return nowNanos >= nextNanos; }
+
+        public void schedule(long nowNanos, String content) {
+            nextNanos = nowNanos + intervalMillis(content) * 1_000_000L;
+        }
+    }
+
     /**
      * Achieved intervals between publications, in the producer's own clock.
      *

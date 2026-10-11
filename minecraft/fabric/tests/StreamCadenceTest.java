@@ -35,6 +35,34 @@ public final class StreamCadenceTest {
         eq(250L, StreamCadence.intervalMillis("5000"), "beyond the bounded maximum falls back");
         eq(1000L, StreamCadence.intervalMillis("1000"), "the maximum itself is accepted");
 
+        // Reproduce the separate player's original 250ms cap at a 60Hz render
+        // clock. The production gate must publish every frame when set to zero.
+        for (String content : new String[]{"0", "16", "250", "1000", "baked player preview"}) {
+            StreamCadence.Pacer pacer = new StreamCadence.Pacer();
+            int publications = 0;
+            for (int frame = 0; frame < 60; frame++) {
+                long now = 1_000_000_000L + frame * 16_666_667L;
+                if (pacer.due(now)) {
+                    publications++;
+                    pacer.schedule(now, content);
+                }
+            }
+            long expected = switch (content) {
+                case "0", "16" -> 60L;
+                case "1000" -> 1L;
+                default -> 4L;
+            };
+            eq(expected, publications, "render-clock publications for " + content);
+        }
+        StreamCadence.Pacer boundary = new StreamCadence.Pacer();
+        boundary.schedule(1_000_000_000L, "250");
+        check(!boundary.due(1_249_999_999L), "old floor still gates before the boundary");
+        check(boundary.due(1_250_000_000L), "publication is due at the boundary");
+        boundary.schedule(1_250_000_000L, "0");
+        check(boundary.due(1_266_666_667L), "changing to zero samples the next render frame");
+        boundary.schedule(1_266_666_667L, null);
+        check(!boundary.due(1_283_333_334L), "unreadable/disabled request keeps conservative checks");
+
         // The first sample only establishes a baseline; nothing is reported as a
         // zero-length interval.
         StreamCadence.Report report = new StreamCadence.Report();

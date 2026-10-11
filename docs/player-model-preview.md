@@ -1,6 +1,12 @@
 # Complete player geometry preview (26.2)
 
-Status: implemented and headless-verified, **not live accepted**. This is a
+Current checkpoint (2026-10-11): native-resolution geometry and real player skin
+are visually accepted in all three F5 modes; see MODLOG for screenshot evidence.
+The user reports that character animation alone is choppy despite smooth world
+composition. A separate hardcoded 250ms pose gate was found and observed live at
+~3.8 updates/s. It is now configurable, built/tested and installed with the guest
+pose floor set to zero. New live pose cadence and animation smoothness still need
+walking/head-motion/F5 evidence; overall 60fps is not claimed. This is a
 player-body/skin-layer slice, not a complete playable MVP. Existing frame and
 stone compositors are preserved; no world mesh, collision, combat or input
 ownership is added.
@@ -45,7 +51,10 @@ cape, extra ears, shoulder animals and arbitrary modded layers are excluded.
 Use the existing local atomic-file data-plane pattern, not UDP video or a bridge
 rewrite. `/dev/shm/crafterhunter/player.asset` is replaced only when baked geometry,
 part count or the skin texture object changes. `player.pose` is atomic-replaced
-at a bounded 4 Hz with no mesh/skin bytes. Both use WorldCapture's generation.
+with no mesh/skin bytes. Its own player-export.enabled content is an interval in
+milliseconds (0..1000); zero samples every LevelRenderer render invocation, using
+vanilla partial-tick animation. Unreadable/legacy prose/invalid content retains a
+250ms floor. This cadence is independent of paired-world capture. Both use WorldCapture's generation.
 Two files may briefly refer to different assets during replacement; native draw
 refuses that mismatch rather than combining them.
 
@@ -64,7 +73,15 @@ startup warmup. Receipt age is NOT end-to-end latency.
 
 Typical vanilla static payload is 432 vertices (10,368 bytes) + 64x64 skin
 (16,384 bytes) + header, transferred once. Dynamic payload is 64 + 68*parts
-bytes per update. FPS, export time and live cadence are not yet measured.
+bytes per update. The old live cadence was ~3.8 advances/s under the 250ms gate;
+new achieved pose cadence/export cost and visible smoothness remain unmeasured.
+
+`python3 tools/control-player-preview.py start --pose-ms 0` enables per-render
+sampling (also the default). Existing world stream/upload floors are preserved;
+missing shared flags are initialized to 250ms for calibration. `--pose-ms 250`
+retains the earlier preview budget. This does not promise 60fps: AFK limits,
+Minecraft render cadence and host consumption can still affect motion. Native
+continues matching generation/asset and requiring advancing fresh poses.
 
 ## Placement and rendering
 

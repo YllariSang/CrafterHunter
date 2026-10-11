@@ -59,6 +59,23 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Latest scope correction (2026-10-11): user observes smooth world composition but
+slow separately rendered player. Do not conflate CH_Frame callbacks, world upload
+cadence and player animation cadence. PlayerModelExport had a separate hardcoded
+250ms gate; fresh pose sequence 5153–5176 advances about every 263–283ms (~3.8/s).
+This is a confirmed player-update bottleneck, not proof of overall Present fps.
+Guest now reads player-export.enabled as 0..1000ms using StreamCadence.Pacer;
+0 samples each render frame, legacy/unreadable content defaults to 250ms. Player
+controller defaults --pose-ms 0 and preserves existing world floors. Headless
+60Hz/4Hz regression, old-floor mutant, actual normal/slim models and Fabric build
+pass. Guest jar installed cmp-clean, pose flag 0, scoped jar/flag backup
+minecraft/fabric/build/rollback.player-cadence.7py_t945. Native/managed/bridge,
+capture lifetime, skin/geometry, depth/F5/freshness gates unchanged. Next runtime
+gate: fresh guest pose/host-consumption sequences plus walking/head motion in all
+F5 modes, one calibration for the new session, no F5 re-anchor. Live smoothness
+and 60fps not yet accepted. Do not return to broad composition optimization
+before checking this player-specific fix.
+
 The Steve-rendering spike is the active line. Two of its three requirements
 existed separately and neither had both: `drawFrame` composites the whole
 captured frame at native resolution as a letterboxed sky overlay, and
