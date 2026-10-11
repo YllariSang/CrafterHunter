@@ -1,5 +1,24 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — User confirms solid surfaces; explicit cleanup verified
+
+User reports "Surfaces look solid; control stayed attached; F6 released" and
+supplies a new first-person ACTIVE screenshot with continuous block/ground
+surfaces. Preserved as user-surfaces-solid.png in the existing ignored runtime
+archive. This supports basic live footprint coverage; it does not establish
+complete ground rendering or performance. Remaining fine ground patterns and
+native dithered depth stay open, with no depth bypass or further binary change.
+
+Distinguish the report from recorded evidence: both bounded collectors saw only
+mode 0. After the reply, camera acknowledgement was still ACTIVE at sequence
+11317 and guest request flag present; no recorded rear/front or release lines
+preceded cleanup. Therefore all-F5 walking and F6 are user-reported, not
+independently accepted by this run. Stopped only the agent's scoped collector
+with SIGINT after saving its samples/logs. Explicit stop then verified released
+sequence 11414, guest flag absent and exclusive-input reply armed=0. Capture
+channels/anchor/cadence preserved; no calibration repeated. Updated report.json
+records the report, screenshot, pre-cleanup state and verified cleanup separately.
+
 ## 2026-10-11 — First-person footprint coverage observed; F5 check pending
 
 User reopened both offline scenes and focused Minecraft. Loaded native copy
