@@ -28,6 +28,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 public abstract class PlayerMixin {
     @Inject(method = "tick", at = @At("TAIL"))
     private void crafterhunter$alignToHostPlayer(CallbackInfo callback) {
+        dev.crafterhunter.client.GuestCameraControl.poll();
         Minecraft minecraft = Minecraft.getInstance();
         LocalPlayer self = (LocalPlayer) (Object) this;
         PlayerLink.Target target = PlayerLink.instance().update(

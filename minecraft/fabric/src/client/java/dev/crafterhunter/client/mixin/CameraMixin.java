@@ -14,6 +14,10 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(Camera.class)
 public abstract class CameraMixin {
+    @Inject(method = "alignWithEntity(F)V", at = @At("HEAD"))
+    private void crafterhunter$guestOwnership(float partialTicks, CallbackInfo callback) {
+        dev.crafterhunter.client.GuestCameraControl.poll();
+    }
     @Shadow
     protected abstract void setPosition(double x, double y, double z);
 

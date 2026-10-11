@@ -1,5 +1,47 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Minecraft-owned camera implementation started
+
+User authorized the next bounded goal: actual Minecraft render camera drives
+the MHW view, all native F5 modes, fixed anchor and existing hunter suppression.
+Route: retain existing paired world/player rendering and bridge; publish a small
+atomic actual-camera channel; override only the acknowledged main camera's native
+matrix getters before scene rendering. Preserve native near/far/depth convention.
+No camera-field persistence, shader replacement, collision or combat expansion.
+Pinned SPL 1.0.0 IL and small read-only loaded-code slices establish getter
+signatures; matrix timing/culling compatibility still require live evidence.
+Local inspection output is in /tmp/ch-spl-camera-il.txt and /tmp/ch-camera-native/,
+outside published source. See docs/guest-camera-control.md and docs/CONTRACT.md.
+
+Implemented the 192-byte independent camera.pose channel, bounded token/sequence
+acknowledgement with HUD, F7/F9 mutual exclusion/restoration and F6 release.
+Host gates on two advancing samples, the existing calibrated anchor and fresh
+paired upload, bound main player/camera and armed filter. Timeout is 500ms on the
+host receipt clock, pending setup is bounded to 2.5s; released tokens never revive.
+Override only the main camera's returned view/projection XY terms. First-person
+full-body preview is hidden while control is active. On release camera hooks are
+disabled, private trampolines stay resident, and the owned input gate forwards.
+Controller explicitly removes prior input patches before fresh resolution; no
+per-session addresses are saved. Active logs report state and application counts.
+The original view getter's cached-basis updates are preserved; field/cache-only
+consumers are not redirected by this slice. Application counters can include
+telemetry/helper getter calls, so neither counters nor builds prove scene use.
+
+Passed tools/test-guest-camera.sh (Java/native roundtrip, fixed-anchor all-F5,
+shortened camera, rolled/translated view, centimetres, retained native Z,
+startup/duplicate/rollback/epoch/process/freshness release and fake-install
+controller preservation); Fabric ./gradlew build; native Release and SPL builds.
+Temporary omitted-centimetres mutant fails the mapping regression. Passed existing
+test-fabric-camera/player/frame, world-capture-hook against local 26.2,
+test-player-model (real normal/slim 72-face models and Java/native poses),
+world-frame-transport, world-reprojection, world-upload, composition-requests,
+shader-source, exclusive-input, SPL-plugin, paired/player-preview and cargo test
+--workspace (26 tests), plus git diff --check and controller py_compile.
+Initial Java compile caught an unavailable debugFeedback method (replaced by
+logging); strict C++ test compile caught fixture narrowing (corrected). Final
+builds/checks pass. No deployed change yet: both games must close safely for the
+standing scoped install rule. No live camera-following/release/60fps claim.
+
 ## 2026-10-11 — Player cadence fix accepted live
 
 After reopening both games, Minecraft was focused in first person with F7/F9

@@ -17,6 +17,8 @@ public abstract class KeyboardMixin {
         Minecraft minecraft = Minecraft.getInstance();
         if (action != 1 || window != minecraft.getWindow().handle()
             || minecraft.player == null || minecraft.gui.screen() != null) return;
+        if (key.key() == 295) dev.crafterhunter.client.GuestCameraControl.release(); // GLFW_KEY_F6
+        if (dev.crafterhunter.client.GuestCameraControl.requested()) return;
         if (key.key() == 296) CameraLink.instance().toggle(); // GLFW_KEY_F7
         if (key.key() == 297) CameraLink.instance().reset();  // GLFW_KEY_F8
         if (key.key() == 298) PlayerLink.instance().toggle(); // GLFW_KEY_F9

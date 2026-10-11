@@ -11,10 +11,12 @@ internal static class NativeRenderer
 {
     private delegate int FrameDelegate(nint singleton, in Matrix4x4 viewProjection);
     private delegate void StopDelegate();
+    private delegate void CameraHostDelegate(nint camera, nint player);
     private delegate void AlignmentHostDelegate(float x, float y, float z);
     private delegate void BlockDelegate(in Matrix4x4 inverse, in Vector4 centre, byte[] pixels, int enabled);
     private static FrameDelegate? _frame;
     private static StopDelegate? _stop;
+    private static CameraHostDelegate? _cameraHost;
     private static AlignmentHostDelegate? _alignmentHost;
     private static AlignmentHostDelegate? _alignmentPlayer;
     private static BlockDelegate? _block;
@@ -51,6 +53,7 @@ internal static class NativeRenderer
         var library = NativeLibrary.Load(copy);
         _frame = Marshal.GetDelegateForFunctionPointer<FrameDelegate>(NativeLibrary.GetExport(library, "CH_Frame"));
         _stop = Marshal.GetDelegateForFunctionPointer<StopDelegate>(NativeLibrary.GetExport(library, "CH_Stop"));
+        _cameraHost = Marshal.GetDelegateForFunctionPointer<CameraHostDelegate>(NativeLibrary.GetExport(library, "CH_CameraHost"));
         _alignmentHost = NativeLibrary.TryGetExport(library, "CH_AlignmentHost", out var alignmentExport)
             ? Marshal.GetDelegateForFunctionPointer<AlignmentHostDelegate>(alignmentExport) : null;
         _alignmentPlayer = NativeLibrary.TryGetExport(library, "CH_AlignmentPlayer", out var playerExport)
@@ -146,5 +149,22 @@ internal static class NativeRenderer
         _stop?.Invoke();
         Enabled = false;
         Placement.Reset();
+    }
+
+    internal static void CameraHost()
+    {
+        if (!Enabled) return;
+        try
+        {
+            var player = Player.MainPlayer;
+            var camera = SingletonManager.GetSingleton("sMhCamera") is null
+                ? null : CameraSystem.MainViewport.Camera;
+            _cameraHost?.Invoke(camera?.Instance ?? 0, player?.Instance ?? 0);
+        }
+        catch (Exception exception)
+        {
+            _cameraHost?.Invoke(0, 0);
+            Plugin.WriteDiagnostic($"Guest camera binding refused: {exception.Message}");
+        }
     }
 }

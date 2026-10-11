@@ -46,11 +46,15 @@ public abstract class HudMixin {
             8, 20, 0xFFFFFFFF);
         graphics.text(minecraft.font, minecraft.isPaused()
             ? "Paused: resume world; F3+P disables focus pause"
-            : "Move and rotate in MHW to test both links", 8, 32, 0xFFFFFFFF);
+            : dev.crafterhunter.client.GuestCameraControl.requested()
+                ? "Walk/look in Minecraft; F5 changes the render camera"
+                : "Move and rotate in MHW to test both links", 8, 32, 0xFFFFFFFF);
         graphics.text(minecraft.font, "PLAYER: " + playerState + " | age " + player.ageMillis()
             + "ms | proxy " + proxyPosition,
             8, 44, player.live() && playerEnabled ? 0xFF80FF80 : 0xFFFFCC80);
         graphics.fill(4, 54, 460, 66, 0xB0000000);
         graphics.text(minecraft.font, FrameCapture.instance().hudLine(), 8, 58, 0xFF80C0FF);
+        graphics.fill(4, 66, 460, 78, 0xB0000000);
+        graphics.text(minecraft.font, dev.crafterhunter.client.GuestCameraControl.hudLine(), 8, 70, 0xFF80C0FF);
     }
 }

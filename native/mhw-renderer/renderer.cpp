@@ -32,6 +32,7 @@
 #include "player_model.hpp"
 #include "player_uv_debug.hpp"
 #include "exclusive_input.hpp"
+#include "guest_camera.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace sel = crafterhunter::depth;
@@ -792,6 +793,206 @@ void serviceRequests() {
 }
 
 }  // namespace exclusive
+
+namespace guestCamera {
+namespace gc=crafterhunter::guest_camera;
+std::mutex mutex;
+gc::Lease lease;
+gc::Plan plan;
+void* mainCamera=nullptr;
+void* mainPlayer=nullptr;
+bool hooksReady=false,hooksEnabled=false,hookFailure=false,ownsFilter=false,reportedReleased=false;
+ULONGLONG nextReply=0,nextLog=0;
+unsigned long long applied=0,appliedSequence=0;
+using MatrixGetter=float* (STDMETHODCALLTYPE*)(void*,float*);
+MatrixGetter originalView=nullptr,originalProjection=nullptr;
+constexpr uintptr_t ViewAddress=0x141fa0cc0,ProjectionAddress=0x1404d9810;
+
+void disableOwnedFilter() {
+    // Keep private vtables resident; their trampolines now forward. The existing
+    // explicit off command removes them before a fresh resolver scan.
+    std::lock_guard cameraLock(mutex);
+    // A later explicit request must not be disarmed by the prior release callback.
+    if(lease.state!=gc::Lease::State::Released) return;
+    std::lock_guard lock(exclusive::filterMutex);
+    exclusive::gate.disable();
+}
+bool currentPlan(void* camera,gc::Plan& copy) {
+    std::lock_guard lock(mutex);
+    const auto now=GetTickCount64();
+    if(!hooksEnabled || camera!=mainCamera || !lease.live(now) || now>=plan.expires || !plan.sequence) return false;
+    copy=plan;return true;
+}
+bool hideFirstPersonBody() {
+    std::lock_guard lock(mutex);
+    const auto now=GetTickCount64();
+    return lease.live(now) && now<plan.expires && plan.mode==0;
+}
+float* STDMETHODCALLTYPE viewHook(void* camera,float* output) {
+    float* result=originalView(camera,output);
+    gc::Plan copy;
+    if(result && currentPlan(camera,copy)) {
+        std::memcpy(result,copy.view.data(),64);
+        std::lock_guard lock(mutex);++applied;appliedSequence=copy.sequence;
+    }
+    return result;
+}
+float* STDMETHODCALLTYPE projectionHook(void* camera,float* output) {
+    float* result=originalProjection(camera,output);
+    gc::Plan copy;float aspect=0;SIZE_T bytes=0;
+    if(result && currentPlan(camera,copy)
+            && ReadProcessMemory(GetCurrentProcess(),static_cast<char*>(camera)+0x140,&aspect,4,&bytes)
+            && bytes==4) gc::projection(copy,aspect,result);
+    return result;
+}
+void bind(void* camera,void* player) {
+    bool release=false;
+    {
+        std::lock_guard lock(mutex);
+        void* vt=nullptr;
+        bool valid=camera && player && readPointer(camera,0,&vt)
+            && reinterpret_cast<uintptr_t>(vt)==0x143497340;
+        if(lease.state==gc::Lease::State::Active && (!valid || camera!=mainCamera || player!=mainPlayer)) {
+            lease.release();plan={};release=ownsFilter;
+        }
+        mainCamera=valid ? camera : nullptr;mainPlayer=valid ? player : nullptr;
+        // Waiting can only be set by a successfully initialized CH_Frame.
+        if(valid && lease.state==gc::Lease::State::Waiting && !hooksReady && !hookFailure) {
+            void* view=nullptr;void* projection=nullptr;
+            unsigned char prefix[8]{};SIZE_T bytes=0;
+            static constexpr unsigned char expected[]={0x48,0x8b,0xc4,0x48,0x89,0x58,0x08,0x57};
+            const bool verified=readPointer(vt,34*8,&view) && readPointer(vt,35*8,&projection)
+                && reinterpret_cast<uintptr_t>(view)==ViewAddress
+                && reinterpret_cast<uintptr_t>(projection)==ProjectionAddress
+                && ReadProcessMemory(GetCurrentProcess(),view,prefix,8,&bytes) && bytes==8
+                && std::memcmp(prefix,expected,8)==0;
+            if(verified && MH_CreateHook(view,reinterpret_cast<void*>(viewHook),reinterpret_cast<void**>(&originalView))==MH_OK
+                    && MH_CreateHook(projection,reinterpret_cast<void*>(projectionHook),reinterpret_cast<void**>(&originalProjection))==MH_OK
+                    && MH_EnableHook(view)==MH_OK && MH_EnableHook(projection)==MH_OK) {
+                hooksReady=true;hooksEnabled=true;log("guest camera: guarded main-camera matrix hooks ready");
+            } else {
+                hookFailure=true;
+                MH_DisableHook(reinterpret_cast<void*>(ViewAddress));
+                MH_DisableHook(reinterpret_cast<void*>(ProjectionAddress));
+                log("guest camera: hook/layout verification refused until restart");
+            }
+        }
+        if(lease.state==gc::Lease::State::Active && !lease.live(GetTickCount64())) {
+            lease.release();plan={};release=ownsFilter;
+        }
+        if(valid && hooksReady && !hooksEnabled && !hookFailure && lease.state==gc::Lease::State::Waiting) {
+            hooksEnabled=MH_EnableHook(reinterpret_cast<void*>(ViewAddress))==MH_OK
+                && MH_EnableHook(reinterpret_cast<void*>(ProjectionAddress))==MH_OK;
+            if(!hooksEnabled) {
+                hookFailure=true;
+                MH_DisableHook(reinterpret_cast<void*>(ViewAddress));
+                MH_DisableHook(reinterpret_cast<void*>(ProjectionAddress));
+                log("guest camera: hook re-enable refused until restart");
+            }
+        }
+        if(lease.state==gc::Lease::State::Released && hooksEnabled) {
+            hooksEnabled=false;
+            MH_DisableHook(reinterpret_cast<void*>(ViewAddress));
+            MH_DisableHook(reinterpret_cast<void*>(ProjectionAddress));
+        }
+        if(release) ownsFilter=false;
+    }
+    if(release) {
+        disableOwnedFilter();
+    }
+}
+void atomicReply(const char* state) {
+    char temp[MAX_PATH]{};
+    constexpr char reply[]="Z:\\dev\\shm\\crafterhunter\\camera.reply";
+    if(!GetTempFileNameA("Z:\\dev\\shm\\crafterhunter","chc",0,temp)) return;
+    FILE* file=std::fopen(temp,"w");if(!file) {DeleteFileA(temp);return;}
+    const bool written=std::fprintf(file,"%s %llu %llu %llu %llu\n",state,
+        static_cast<unsigned long long>(lease.request),static_cast<unsigned long long>(lease.generation),
+        static_cast<unsigned long long>(lease.epoch),static_cast<unsigned long long>(lease.sequence))>0;
+    const bool closed=std::fclose(file)==0;
+    if(!written || !closed || !MoveFileExA(temp,reply,MOVEFILE_REPLACE_EXISTING)) DeleteFileA(temp);
+}
+void service() {
+    constexpr char request[]="nativePC/plugins/CSharp/CrafterHunter/render/guest-camera.request";
+    constexpr char claimed[]="nativePC/plugins/CSharp/CrafterHunter/render/guest-camera.claimed";
+    const auto now=GetTickCount64();
+    bool inputReady=false;void* filteredPlayer=nullptr;
+    {
+        std::lock_guard lock(exclusive::filterMutex);
+        inputReady=exclusive::gate.enabled() && exclusive::gate.local().resolved();
+        filteredPlayer=const_cast<void*>(exclusive::gate.local().player);
+    }
+    bool release=false;
+    {
+        std::lock_guard lock(mutex);
+        if(MoveFileExA(request,claimed,0)) {
+            char line[128]{};FILE* file=std::fopen(claimed,"r");
+            if(file) {std::fgets(line,sizeof line,file);std::fclose(file);}
+            DeleteFileA(claimed);
+            unsigned long long token=0;char extra=0;
+            if(std::strcmp(line,"off\n")==0 || std::strcmp(line,"off")==0) {
+                lease.release();plan={};release=ownsFilter;
+            } else if(std::sscanf(line,"on %llu %c",&token,&extra)==1 && token && token<=INT64_MAX && token!=lease.request) {
+                lease.start(token,now);plan={};ownsFilter=true;reportedReleased=false;nextReply=0;nextLog=0;
+                log("guest camera: request=%llu waiting for fresh camera, calibration and owned filter",token);
+            } else log("guest camera: malformed/duplicate command refused");
+        }
+        if(lease.state==gc::Lease::State::Off
+                || (lease.state==gc::Lease::State::Released && reportedReleased && !ownsFilter)) return;
+        gc::Sample sample;
+        const bool received=gc::read("Z:\\dev\\shm\\crafterhunter\\camera.pose",sample)
+            || gc::read("/dev/shm/crafterhunter/camera.pose",sample);
+        const bool healthy=received && hooksReady && hooksEnabled && mainCamera && mainPlayer && inputReady
+            && filteredPlayer==mainPlayer && worldFreshness.live(now)
+            && sample.generation==worldMetadata.generation
+            && crafterhunter::alignment::valid(alignmentSession.anchor,sample.generation,alignmentSession.epoch);
+        if(lease.observe(sample,alignmentSession.epoch,healthy,now)) {
+            gc::Plan candidate;
+            if(gc::makePlan(sample,alignmentSession.anchor,alignmentSession.epoch,candidate)) {
+                candidate.expires=lease.advancedAt+500;plan=candidate;
+            } else {lease.release();plan={};}
+        }
+        if(lease.state==gc::Lease::State::Released) {
+            plan={};release=ownsFilter;ownsFilter=false;
+            if(hooksEnabled) {
+                hooksEnabled=false;
+                MH_DisableHook(reinterpret_cast<void*>(ViewAddress));
+                MH_DisableHook(reinterpret_cast<void*>(ProjectionAddress));
+            }
+            if(!reportedReleased) {nextReply=0;nextLog=0;reportedReleased=true;}
+        }
+        if(lease.state!=gc::Lease::State::Off && now>=nextReply) {
+            nextReply=now+100;
+            atomicReply(lease.live(now) ? "active" : lease.state==gc::Lease::State::Released ? "released" : "waiting");
+        }
+        if(lease.state!=gc::Lease::State::Off && now>=nextLog) {
+            nextLog=now+500;
+            log("guest camera: request=%llu generation=%llu sequence=%llu epoch=%llu state=%s mode=%u applied=%llu applied-sequence=%llu camera=%d hooks=%d filter=%d paired=%d matched=%d",
+                static_cast<unsigned long long>(lease.request),static_cast<unsigned long long>(lease.generation),
+                static_cast<unsigned long long>(lease.sequence),static_cast<unsigned long long>(lease.epoch),
+                lease.live(now) ? "active" : lease.state==gc::Lease::State::Released ? "released" : "waiting",
+                plan.mode,applied,appliedSequence,mainCamera && mainPlayer ? 1 : 0,hooksEnabled ? 1 : 0,
+                inputReady && filteredPlayer==mainPlayer ? 1 : 0,worldFreshness.live(now) ? 1 : 0,
+                received && sample.generation==worldMetadata.generation ? 1 : 0);
+        }
+    }
+    if(release) disableOwnedFilter();
+}
+void stop() {
+    bool release;
+    {
+        std::lock_guard lock(mutex);lease.release();plan={};release=ownsFilter;ownsFilter=false;
+        atomicReply("released");
+        if(hooksReady) {
+            MH_DisableHook(reinterpret_cast<void*>(ViewAddress));
+            MH_DisableHook(reinterpret_cast<void*>(ProjectionAddress));
+        }
+        hooksEnabled=false;mainCamera=nullptr;mainPlayer=nullptr;
+    }
+    if(release) disableOwnedFilter();
+    // Camera hook trampolines and DLL stay resident until process exit.
+}
+}
 
 void STDMETHODCALLTYPE observeClear(ID3D11DeviceContext* ctx, ID3D11DepthStencilView* view,
     UINT flags, FLOAT clear, UINT8 stencil) {
@@ -1984,6 +2185,7 @@ bool drawPairedFull(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui)
 }
 
 bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
+    if(guestCamera::hideFirstPersonBody()) return false;
     using namespace crafterhunter;
     static player::Asset asset;
     static player::Pose pose;
@@ -2340,6 +2542,10 @@ extern "C" __declspec(dllexport) void CH_Block(const float* inverse, const float
     }
 }
 
+extern "C" __declspec(dllexport) void CH_CameraHost(void* camera,void* player) {
+    guestCamera::bind(camera,player);
+}
+
 extern "C" __declspec(dllexport) void CH_AlignmentHost(float x,float y,float z) {
     alignmentHost={x,y,z};
     const bool wasArmed=alignmentSession.anchor.armed;
@@ -2379,6 +2585,7 @@ extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* view
     serviceWorldUpload();
     serviceAlignment();
     exclusive::serviceRequests();
+    guestCamera::service();
     ComPtr<ID3D11Texture2D> back;
     if (FAILED(swapchain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(back.GetAddressOf())))) return 0;
     D3D11_TEXTURE2D_DESC d{}; back->GetDesc(&d);
@@ -2424,6 +2631,7 @@ extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* view
 }
 
 extern "C" __declspec(dllexport) void CH_Stop() {
+    guestCamera::stop();
     // DLL stays loaded until process exit so no callback can target freed code.
     if (initialized) {
         MH_DisableHook(clearTarget); MH_RemoveHook(clearTarget);

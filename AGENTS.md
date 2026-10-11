@@ -59,6 +59,18 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Current authorized goal (2026-10-11): Minecraft-owned host camera, alongside the
+existing hunter movement suppression. Read docs/guest-camera-control.md and
+docs/CONTRACT.md. New actual-camera atomic channel, token acknowledgement/HUD,
+F7/F9 feedback prevention, F6 release, bounded lease and guarded main-camera
+matrix getter hooks are implemented/headless-verified; all three builds pass.
+Not yet installed or live accepted. Next: close both games normally, scoped
+matching three-artifact installation, then one calibration and walking/look/all
+F5/release screenshots plus fresh sequence/epoch/applied-matrix evidence.
+Getter counters alone do not prove scene use; native culling/cached-camera
+consumers remain a live question. Do not expand into collision/combat or input
+cases 5-8. Preserve existing capture lifetime and fixed F5 anchor.
+
 Latest scope correction (2026-10-11): user observes smooth world composition but
 slow separately rendered player. Do not conflate CH_Frame callbacks, world upload
 cadence and player animation cadence. PlayerModelExport had a separate hardcoded

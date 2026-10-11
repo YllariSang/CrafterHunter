@@ -173,6 +173,7 @@ public sealed class Plugin : IPlugin
     public unsafe void OnUpdate(float deltaTime)
     {
         _ = deltaTime;
+        NativeRenderer.CameraHost();
         var now = Stopwatch.GetTimestamp();
 
         // Terrain answers come from the host, so they do not wait on the
