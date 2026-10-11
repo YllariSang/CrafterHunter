@@ -1,5 +1,36 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Stage timing implementation plan
+
+User authorizes the next delay work. Keep the existing Fabric/SPL/native
+passthrough and add bounded aggregate timings, without changing the snapshot
+format or render/control policy. Guest records issue-to-last-copy-callback,
+callback-to-publication-service, buffer mapping/copy, metadata/hash preparation,
+atomic channel publication and issue-to-publication-return in its own nanoTime
+clock. A callback is a completion signal, not a GPU timestamp or valid pixels.
+Host records snapshot read/validation (including duplicate reads separately),
+CPU texture upload submission and total upload service in steady_clock. Reuse
+the existing guest summary and emit native interval aggregates at most once/sec.
+No per-capture archive, wait, new GPU resource or cross-clock subtraction.
+
+Headless injected-clock cases must distinguish callback delay from service delay,
+retain the first callback timestamp on duplicates, omit incomplete/failed
+publications, and keep duplicate read cost separate from successful upload cost.
+Build and install matching guest/native only after both games safely close;
+then one restart/calibration and a short live timing capture selects the next
+bounded optimization. This profiling build does not itself fix occlusion lag.
+
+Implemented the planned bounded aggregates. Passed test-stage-timing.sh including
+duplicate-callback and folded-service-delay mutants; test-fabric-frame.sh;
+test-world-frame-transport.sh (v2-v5 and newest-pose mutant); Fabric build,
+actual testBodyCapture/testBakedPlayer; native Release; capture-hook, world-upload,
+guest-camera, paired-preview and player-body checks. Production HLSL literals
+remain text-identical; collector --help/py_compile and diff --check pass. No
+transport layout change or live timing/latency acceptance. Both games are still
+running in fresh process/window checks, so installation awaits normal closure.
+Scoped installation is prepared for the matching Fabric/native builds; managed
+stays unchanged. Details and read-only collector: docs/composition-timing.md.
+
 ## 2026-10-12 — Same-capture attachments accepted; slight occlusion delay remains
 
 User supplies first/rear/front desktop screenshots and reports "so far so good",

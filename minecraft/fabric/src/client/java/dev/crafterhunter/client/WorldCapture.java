@@ -152,6 +152,7 @@ public final class WorldCapture {
     private boolean streaming;
     private long streamIntervalMillis = StreamCadence.DEFAULT_INTERVAL_MILLIS;
     private final StreamCadence.Report streamCadence = new StreamCadence.Report();
+    private final CaptureTiming captureTiming = new CaptureTiming();
     private long nextStreamNanos;
     private final Path streamFlag = requestFile.resolveSibling("world-stream.enabled");
     private int remaining;
@@ -639,6 +640,7 @@ public final class WorldCapture {
     }
 
     private void publish(long nowNanos) {
+        final long serviceNanos = System.nanoTime();
         // The cadence is measured here, at the point a snapshot actually reaches
         // the shared channel, not when a copy was requested.
         if (streaming) streamCadence.record(nowNanos);
@@ -662,6 +664,7 @@ public final class WorldCapture {
         }
 
         try {
+            final long copyStartNanos = System.nanoTime();
             byte[] colour = new byte[width * height * 4];
             byte[] depth = new byte[width * height * 4];
             if (wantColour) {
@@ -672,6 +675,7 @@ public final class WorldCapture {
                 readInto(depthBuffer, depth);
                 lastDepthBytes = depthLength;
             }
+            final long copyEndNanos = System.nanoTime();
 
             Files.createDirectories(outputDirectory);
             // Depth is raw, not PNG: it is data, and re-encoding it would make the
@@ -684,14 +688,17 @@ public final class WorldCapture {
                 writePng(colour, width, height);
             }
 
+            final long metadataStartNanos = System.nanoTime();
             String metadata = describe(width, height, identity, nowNanos, colour, depth, wantDepth);
             // Bind these files to this identity, not a later/leftover capture.
             if (wantColour) metadata += "colourSha256=" + sha256(colour) + "\n";
             if (wantDepth) metadata += "depthSha256=" + sha256(depth) + "\n";
+            final long metadataEndNanos = System.nanoTime();
             if (wantColour && wantDepth && inFlightMatrixKnown && inFlightViewKnown
                     && inFlightClipMapping!=0 && inFlightClipOrigin!=0) {
                 // Request-paced only. This is not yet a live compositor source.
                 try {
+                    final long publishStartNanos = System.nanoTime();
                     WorldFrameChannel.publish(Path.of("/dev/shm/crafterhunter/world.frame"),
                         width, height, generation, identity, inFlightQueuedNanos,
                         inFlightNear[0], inFlightFar[0], inFlightMatrix,
@@ -700,6 +707,10 @@ public final class WorldCapture {
                         inFlightCameraMode, inFlightDepthRangeMin, inFlightDepthRangeMax,
                         inFlightPlayerKnown ? inFlightPlayerPosition : null, inFlightBodyExcluded,
                         inFlightBodyPose, colour, depth);
+                    final long publishEndNanos = System.nanoTime();
+                    captureTiming.record(identity, inFlightQueuedNanos, copyState.completedNanos(),
+                        serviceNanos, copyStartNanos, copyEndNanos, metadataStartNanos,
+                        metadataEndNanos, publishStartNanos, publishEndNanos);
                     metadata += "worldFrameChannel=/dev/shm/crafterhunter/world.frame\n";
                 } catch (IOException | IllegalArgumentException refused) {
                     // Preserve diagnostic captures even if shared memory is full,
@@ -1010,6 +1021,7 @@ public final class WorldCapture {
             text.append("inFlightMillis=").append(inFlight
                 ? (System.nanoTime() - inFlightQueuedNanos) / 1_000_000L : -1).append('\n');
             text.append("streamIntervalMillis=").append(streamIntervalMillis).append('\n');
+            text.append(captureTiming.summary(generation));
             text.append(streamCadence.summary()).append('\n');
             Files.writeString(summaryFile, text.toString(), StandardCharsets.UTF_8);
         } catch (IOException ignored) {

@@ -59,6 +59,16 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Next bounded timing slice (2026-10-12): guest copy callback timestamps and bounded
+CaptureTiming aggregates now distinguish callback/service delay, buffer copying,
+metadata/hashes, channel publication and issue-to-publication-return. Native
+steady-clock aggregates distinguish read, duplicate-read, upload-submit and total
+upload service, at most one report set/sec. See docs/composition-timing.md.
+No wire-format, scheduling, shaders, control, F5, depth or capture lifetime change.
+This profiles the remaining lag; no latency reduction is claimed. Matching
+guest/native deployment and live advancing stage reports remain pending. The
+read-only collector is tools/collect-composition-timing.py; do not run it headless.
+
 Live attachment follow-up (2026-10-12): user reports "so far so good" after
 first/rear/front screenshots, with slight occlusion delay remaining. Fresh ignored
 evidence: captures/player-attachment-sync/runtime-20261012-044738/report.json.

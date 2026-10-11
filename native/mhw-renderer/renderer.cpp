@@ -34,6 +34,7 @@
 #include "player_uv_debug.hpp"
 #include "exclusive_input.hpp"
 #include "guest_camera.hpp"
+#include "stage_timing.hpp"
 
 using Microsoft::WRL::ComPtr;
 namespace sel = crafterhunter::depth;
@@ -55,6 +56,7 @@ bool initialized = false;
 bool drawEnabled = false;
 bool composedPlayer=false;
 crafterhunter::composition::FrameRequests compositionRequests;
+crafterhunter::timing::Report uploadTiming;
 bool pipelineFailed = false;
 ComPtr<ID3D11DeviceContext1> context1;
 ComPtr<ID3DDeviceContextState> drawState;
@@ -292,10 +294,12 @@ std::string readFlag(const char* relative) {
 void serviceWorldUpload() {
     const bool enabled=GetFileAttributesA("nativePC/plugins/CSharp/CrafterHunter/render/world-upload.enabled")!=INVALID_FILE_ATTRIBUTES;
     if (!enabled) {
-        if (worldUploadEnabled) { clearWorldUpload(); worldFreshness={}; nextWorldPoll=0; }
+        if (worldUploadEnabled) { clearWorldUpload(); worldFreshness={}; nextWorldPoll=0; uploadTiming={}; }
         worldUploadEnabled=false; return;
     }
     worldUploadEnabled=true;
+    crafterhunter::timing::Scope serviceTiming(uploadTiming.stages[crafterhunter::timing::Service],
+        crafterhunter::timing::nanos);
     const auto now=GetTickCount64();
     if (!worldFreshness.live(now)) clearWorldUpload("paired freshness expired or awaiting producer advance");
     // The flag's content negotiates the poll interval in milliseconds; zero looks
@@ -309,8 +313,12 @@ void serviceWorldUpload() {
     if (now<nextWorldPoll) return;
     nextWorldPoll=interval? now+interval : now;
     crafterhunter::world::Snapshot snapshot;
-    if (!crafterhunter::world::read("Z:\\dev\\shm\\crafterhunter\\world.frame", snapshot)
-            && !crafterhunter::world::read("/dev/shm/crafterhunter/world.frame", snapshot)) {
+    const auto readStart=crafterhunter::timing::nanos();
+    const bool readOk=crafterhunter::world::read("Z:\\dev\\shm\\crafterhunter\\world.frame", snapshot)
+        || crafterhunter::world::read("/dev/shm/crafterhunter/world.frame", snapshot);
+    const auto readEnd=crafterhunter::timing::nanos();
+    uploadTiming.stages[crafterhunter::timing::Read].record(readStart,readEnd);
+    if (!readOk) {
         clearWorldUpload(); return;
     }
     const auto result=worldFreshness.observe(snapshot.generation,snapshot.identity,now);
@@ -321,7 +329,10 @@ void serviceWorldUpload() {
             static_cast<unsigned long long>(snapshot.generation),static_cast<unsigned long long>(snapshot.identity));
         return;
     }
-    if (result!=R::Advanced) return;
+    if (result!=R::Advanced) {
+        uploadTiming.stages[crafterhunter::timing::DuplicateRead].record(readStart,readEnd);
+        return;
+    }
     // Compare intervals only within their own clock domains. Java nanoTime
     // and Windows GetTickCount64 are not a shared absolute time base.
     static std::uint64_t cadenceGeneration=0,cadenceIdentity=0,cadenceIssue=0,cadenceReceipt=0;
@@ -339,6 +350,7 @@ void serviceWorldUpload() {
         clearWorldUpload(); log("paired world projection refused: singular or nonfinite"); return;
     }
     using A=crafterhunter::world::Attachment;
+    const auto uploadStart=crafterhunter::timing::nanos();
     const auto upload=worldTextures.upload(snapshot,
         [](WorldSurface& surface,A attachment,const crafterhunter::world::Snapshot& source) {
             // Allocate privately only on startup, resize or producer replacement.
@@ -361,6 +373,7 @@ void serviceWorldUpload() {
             const void* bytes=attachment==A::Colour ? source.colour.data() : source.depth.data();
             context->UpdateSubresource(surface.texture.Get(),0,nullptr,bytes,source.stride,0);
         });
+    uploadTiming.stages[crafterhunter::timing::Upload].record(uploadStart,crafterhunter::timing::nanos());
     if(upload==crafterhunter::world::UploadResult::Refused
             || FAILED(device->GetDeviceRemovedReason())) { clearWorldUpload(); return; }
     std::vector<std::uint8_t>().swap(snapshot.colour); // metadata only; release CPU attachments
@@ -2628,6 +2641,16 @@ extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* view
         return GetFileAttributesA(path)!=INVALID_FILE_ATTRIBUTES;
     });
     serviceWorldUpload();
+    if(worldUploadEnabled && uploadTiming.due(GetTickCount64())) {
+        static constexpr const char* names[]={"read","duplicate-read","upload-submit","service"};
+        for(unsigned i=0;i<crafterhunter::timing::Count;++i) {
+            const auto& s=uploadTiming.stages[i];
+            log("paired timing clock=host-steady interval stage=%s n=%llu min-ms=%.3f mean-ms=%.3f max-ms=%.3f latest-generation=%llu latest-identity=%llu",
+                names[i],static_cast<unsigned long long>(s.count),s.min/1e6,s.meanMillis(),s.max/1e6,
+                static_cast<unsigned long long>(worldMetadata.generation),static_cast<unsigned long long>(worldMetadata.identity));
+        }
+        uploadTiming.clearInterval();
+    }
     serviceAlignment();
     exclusive::serviceRequests();
     guestCamera::service();
@@ -2692,6 +2715,7 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     drawEnabled = false; pipelineFailed = false;
     composed = false; composedFrame = false; composedFrameCount = 0;
     compositionRequests.reset();
+    uploadTiming={};
     pairedDepthStamp={};
     sharedReady = false; framePipelineFailed = false; depthSelectionFrame = 0;
     sceneDepthView.Reset(); minecraftView.Reset(); minecraftTexture.Reset();

@@ -39,6 +39,9 @@ builds and headless timing tests pass, and fresh original screenshots/trace supp
 the live alignment result. Slight occlusion delay remains. The next bounded step
 profiles capture/readback, publication and host upload before choosing a fix;
 screen latency and the 60 fps gate remain unmeasured.
+The [stage timing build](docs/composition-timing.md) separates callback/service
+delay, guest publication work and native read/upload work. It is implemented;
+matching installation and live measurements remain pending.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link
 work, and the native DX11 renderer displays Minecraft geometry with fixed world
