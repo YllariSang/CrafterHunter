@@ -59,6 +59,19 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Measured optimization follow-up (2026-10-12): fresh stage build session generation
+41941336025126, fixed epoch 1522, token 9002085177750611168 reports ACTIVE through
+30s with all F5 modes observed. Metadata preparation averages about 9.03ms per
+capture while native upload-submit averages 0.50ms; CPU spans, not screen latency.
+Guest now omits discarded metadata scans/hashes only during live streaming;
+explicit diagnostic archives keep identity/hash binding. Build, actual body/model,
+transport, timing, capture-hook and new original-work mutant checks pass. Native
+timing build remains unchanged. Installation/runtime improvement pending. User
+reports jumpy occlusion and hunter overlap in ALL views while ACTIVE, then an
+accidental F6 release. This is unresolved; do not claim occlusion acceptance or
+that removing metadata fixes it. Next collect fresh actual GPU camera/depth
+evidence after installation/restart; retain strict depth and fixed F5 anchor.
+
 Next bounded timing slice (2026-10-12): guest copy callback timestamps and bounded
 CaptureTiming aggregates now distinguish callback/service delay, buffer copying,
 metadata/hashes, channel publication and issue-to-publication-return. Native
@@ -361,6 +374,9 @@ input ownership or collision expansion. Do not re-anchor on F5.
   with both games safely closed and scoped backups first. Do not leave a completed
   build undeployed without reporting a concrete blocker. Do not launch games unless
   the current task authorizes it.
+- User authorizes closing only Minecraft/MHW when needed, even forcefully
+  (2026-10-12). Prefer normal closure; verify exact game PID identity before
+  SIGTERM/SIGKILL. This does not authorize game launches or closing other apps.
 - Runtime acceptance requires screenshots plus fresh sequence/capture/log evidence.
 - Packet receipt age measures freshness, not end-to-end latency.
 - Do not expand into combat/inventory while capture is unverified.

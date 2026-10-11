@@ -96,3 +96,28 @@ backward/duplicate samples, duplicate native read cost, early-return service cos
 and report pacing/reset. Mutants overwrite the first callback or fold service
 delay into copy delay and must fail. Existing capture/transport/body/F5 tests and
 both production builds remain required.
+
+## First live result and selected optimization
+
+Ignored evidence: `captures/composition-timing/runtime-20261011-213008Z/baseline/`.
+Generation 41941336025126 and calibration epoch 1522 stay fixed. The 30s collector
+observes 297 guest summaries and 120 native report rows, ACTIVE throughout, with
+all F5 modes selected by the user. One partial guest summary read recovers.
+Across 750 guest advances, approximate interval means are 21.30ms to callback,
+0.76ms callback-to-service, 1.29ms buffer copy, 9.03ms metadata, 5.75ms publication
+and 38.21ms issue-to-publication-return. Derived guest means have rounding error.
+Weighted native means: read 5.08ms, duplicate-read 5.48ms, upload-submit 0.50ms,
+total service 7.04ms. This is mixed-view CPU profiling, not controlled A/B, screen
+latency, GPU completion or proof of a sole limiter.
+
+The selected guest change omits full diagnostic depth/colour scans and hashes
+that streaming prepared but discarded. Explicit non-streaming archives still
+record all statistics, provenance and requested attachment hashes. Paired v5
+pixels, camera and body payload remain unchanged; no readback policy or depth
+guard is altered. `python3 tools/test-capture-metadata.py` executes this production
+preparation block and rejects the original unconditional-work mutant. Live speed
+or latency improvement remains pending matching guest installation/restart.
+
+User reports jumpy occlusion and hunter overlap in all views while ACTIVE. The
+optimization does not identify or claim to fix that issue. Next collect fresh
+actual GPU camera/depth evidence alongside the post-install timing trace.

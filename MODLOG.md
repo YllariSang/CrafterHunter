@@ -1,5 +1,58 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Fresh stage reports select a bounded guest optimization
+
+Installed/loaded native shadow and all three installed artifacts cmp-match the
+tested stage builds. Ready session: MHW 1338234, Minecraft 1338267, generation
+41941336025126, one accepted calibration epoch 1522, token 9002085177750611168.
+Fresh ACTIVE acknowledgement advances. Evidence in ignored
+captures/composition-timing/runtime-20261011-213008Z/. Thirty-second collection
+records 297 guest summaries and 120 native interval rows, ACTIVE throughout and
+all three F5 modes observed (user changed views despite requested still scene).
+One incomplete summary read was recorded and recovered; this is not an atomic
+channel failure. No settings were changed; this is not controlled performance A/B.
+
+Across 750 guest capture advances, approximate interval CPU means derived from
+rounded lifetime reports: issue-to-callback 21.30ms, callback-to-service 0.76ms,
+buffer copy 1.29ms, metadata/hash preparation 9.03ms, channel publication 5.75ms,
+issue-to-publication-return 38.21ms. Native weighted interval means: read 5.08ms
+(937 samples), duplicate-read 5.48ms (217), upload-submit 0.50ms (720), total
+service 7.04ms (937). Separate clock domains; no E2E/screen latency, sole
+bottleneck or millisecond occlusion claim. Stage instrumentation is observed live.
+
+Code confirms metadata preparation does a full depth scan, colour scan and two
+hashes even when streaming discards the metadata instead of archiving it.
+Next bounded change: build diagnostic metadata/statistics/hashes only when the
+existing non-streaming archive path will write it. Preserve complete capture
+arrays and the identical atomic v5 publication, body-pose binding, diagnostics
+hashes/provenance, fixed anchor/F5 and permanent GPU failure policy. This removes
+measured unused work; visible delay improvement remains to be measured after
+verified guest installation with both games closed.
+
+Implemented the non-streaming guard around metadata preparation only. The
+same complete arrays and body pose still reach WorldFrameChannel; archive
+statistics/hash generation is unchanged. The regression executes the actual
+production preparation block with full-size buffers, checks streaming does no
+diagnostic work, checks requested archive hashes/identity and unchanged pixels,
+and rejects the old unconditional-work mutant. Passed test-capture-metadata.py,
+test-stage-timing.sh, transport round-trip/refusal/mutant tests, actual Fabric
+build/testBodyCapture/testBakedPlayer, capture-hook and player-body checks.
+No native changes or measured live gain yet.
+
+User reports jumpy occlusion and hunter overlap in ALL three F5 views while
+ACTIVE, then accidental F6 release. Flag absent, preview HUD observed; no fresh
+matching release acknowledgement was available, so this is not new explicit
+F6 acknowledgement acceptance. Existing camera/depth evidence must be collected
+before claiming an occlusion fix. Metadata removal does not establish its cause.
+
+User explicitly permits closing only the games, even forcefully. Normal targeted
+window-close dispatch was rejected by the current compositor's Lua dispatcher.
+SIGTERM sent only to freshly verified MHW 1338234 and Minecraft 1338267; both
+exited without SIGKILL. No launcher/other app was closed or game relaunched.
+Closure events are in this evidence folder's closure.json. Camera/filter stop
+requests were published first; live channels retained. Scoped guest installation
+follows with native/managed preserved and cmp checks.
+
 ## 2026-10-12 — Stage timing builds installed
 
 User says go; fresh exact-process and host-window checks confirm both games have

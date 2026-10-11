@@ -689,10 +689,16 @@ public final class WorldCapture {
             }
 
             final long metadataStartNanos = System.nanoTime();
-            String metadata = describe(width, height, identity, nowNanos, colour, depth, wantDepth);
-            // Bind these files to this identity, not a later/leftover capture.
-            if (wantColour) metadata += "colourSha256=" + sha256(colour) + "\n";
-            if (wantDepth) metadata += "depthSha256=" + sha256(depth) + "\n";
+            String metadata = "";
+            // Streaming publishes the complete atomic pair below, but never
+            // writes diagnostic archives. Avoid scanning/hashing pixels for
+            // metadata that would be discarded. Explicit archives keep it all.
+            if (!streaming) {
+                metadata = describe(width, height, identity, nowNanos, colour, depth, wantDepth);
+                // Bind these files to this identity, not a later/leftover capture.
+                if (wantColour) metadata += "colourSha256=" + sha256(colour) + "\n";
+                if (wantDepth) metadata += "depthSha256=" + sha256(depth) + "\n";
+            }
             final long metadataEndNanos = System.nanoTime();
             if (wantColour && wantDepth && inFlightMatrixKnown && inFlightViewKnown
                     && inFlightClipMapping!=0 && inFlightClipOrigin!=0) {
