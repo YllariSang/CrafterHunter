@@ -71,8 +71,14 @@ mapped the measured viewport. All three now share the player's existing guarded
 conversion; strict host rejection/private guest depth/body binding/F5 unchanged.
 Original-address mutant, production helper/shader regression, Release build and
 relevant depth/body/camera/coverage/shader checks pass. See
-docs/paired-depth-viewport.md. Installation and fresh all-view movement acceptance
-follow; do not claim all jumpiness or temporal pairing solved by this spatial fix.
+docs/paired-depth-viewport.md. Native-only ef56144 installed after authorized
+closure and fresh process/window checks; all three artifacts cmp-clean,
+guest/managed preserved. Backup:
+native/mhw-renderer/build/rollback.paired-depth-viewport.pg7yujaz/ (pinned installer
+also rollback.WSF4r3). Control OFF, composition/body separation and zero cadence
+preserved; no launches or live channel deletion. Next fresh loaded scenes, one
+calibration and all-F5 motion/hunter occlusion/F6 evidence. Do not claim all
+jumpiness or temporal pairing solved by this spatial fix.
 
 Measured optimization follow-up (2026-10-12): fresh stage build session generation
 41941336025126, fixed epoch 1522, token 9002085177750611168 reports ACTIVE through

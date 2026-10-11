@@ -1,5 +1,26 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Paired depth viewport correction installed
+
+User permits closing only the games, even forcefully. Requested camera/filter
+release first. Guarded normal close targeted focused Minecraft 1413919; compositor
+accepted but the process remained after the grace period. MHW 1414500 was not
+focused and no other window was closed. Sent SIGTERM only to those two freshly
+verified game PIDs; both exited without SIGKILL. Closure evidence is in the
+current composition-timing runtime folder. No launchers/other apps were closed.
+
+Fresh process/window checks before and after installation confirm both absent.
+Installed verified ef56144 native renderer, preserving tested guest ca25f09 and
+managed code; all three cmp-match build outputs. Scoped old artifacts/flags and
+manifest: native/mhw-renderer/build/rollback.paired-depth-viewport.pg7yujaz/;
+pinned installer additionally saved rollback.WSF4r3/. Ignored pointer:
+captures/composition-timing/install-depth-viewport-path.txt. Control starts OFF,
+full/player/body separation ON, zero floors and live channels preserved. No game
+launch, graphics/settings/save edits or anchor reuse. Next manual reopen loaded
+offline scenes, Minecraft focused first person F7/F9 OFF, one calibration and
+all-F5 movement/hunter occlusion/F6 acceptance. Spatial correction is installed;
+visible improvement and any remaining temporal jumpiness remain unaccepted.
+
 ## 2026-10-12 — Measured paired world depth address correction
 
 Fresh matching optimized guest/native/managed installation and loaded native

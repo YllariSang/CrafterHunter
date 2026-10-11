@@ -49,8 +49,9 @@ jumpy occlusion/hunter overlap in all views; that issue remains unresolved.
 Fresh GPU/depth captures establish a world-layer address mismatch: MHW writes
 1440×810 depth inside a 1920×1080 allocation. The
 [paired depth viewport correction](docs/paired-depth-viewport.md) extends the
-player's measured viewport conversion to world composition. Checks/build pass;
-visible all-view movement acceptance remains pending installation and restart.
+player's measured viewport conversion to world composition. Checks/build pass
+and the verified renderer is installed; visible all-view movement acceptance
+remains pending restart.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link
 work, and the native DX11 renderer displays Minecraft geometry with fixed world

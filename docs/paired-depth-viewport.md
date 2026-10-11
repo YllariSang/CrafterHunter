@@ -3,7 +3,13 @@
 2026-10-12: the full and preview world compositors now convert host pixel centres
 to the selected scene depth's measured writer viewport before integer Load.
 The player already used this conversion; all three paths share its existing
-current-frame validity checks. Live acceptance after installation is pending.
+current-frame validity checks. Verified ef56144 native renderer is installed;
+live acceptance after reopening is pending. All three installed artifacts cmp
+match their tested builds; guest/managed were preserved. Scoped backup:
+`native/mhw-renderer/build/rollback.paired-depth-viewport.pg7yujaz/`, with the
+pinned installer additionally saving `rollback.WSF4r3/`. Both games exited before
+installation under the user's explicit closure permission. Control starts OFF;
+composition, body separation, cadence flags and live channels are preserved.
 
 Fresh evidence is in ignored
 `captures/composition-timing/runtime-20261011-214505Z/`. Generation 42796309633712,
