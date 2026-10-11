@@ -34,7 +34,8 @@ Matching verified guest/native builds are installed; fresh live acceptance is pe
 See [single-body rendering](docs/player-single-body.md) for scope and checks.
 User reports all F5 cameras and F6 release working, with cape/held-item movement
 lag. The follow-up binds the exported body to the same capture's issue-time pose;
-builds and headless timing tests pass, installation and live timing check pending.
+builds and headless timing tests pass, matching artifacts are installed, and the
+live timing check is pending.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link
 work, and the native DX11 renderer displays Minecraft geometry with fixed world

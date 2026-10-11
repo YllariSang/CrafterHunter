@@ -8,7 +8,10 @@ Follow-up: user reports all cameras work and F6 stops control, but cape and held
 item lag behind the body during movement. Fresh matching release was observed;
 the bounded collector only captured stationary first person before that later
 manual test. All-F5 screenshots and attachment/occlusion acceptance remain open.
-The issue-time pose fix below is built/headless verified, awaiting scoped install.
+The issue-time pose fix below is built/headless verified and installed cmp-clean
+after both games closed. Scoped backup:
+`native/mhw-renderer/build/rollback.pose-sync.sj77c_eu/`. Control starts OFF;
+live timing and smoothness remain pending restart and one calibration.
 
 The paired world previously included Minecraft's third-person player body while
 the native renderer drew the exported body again. Keep the real baked model and

@@ -1,5 +1,22 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Body/attachment synchronization builds installed
+
+User confirmed both games closed; fresh exact-process and host-window checks
+confirmed both absent. Installed bf62d29's verified Fabric/native artifacts;
+managed code was preserved. Installed native, Fabric and managed artifacts all
+cmp-match their corresponding tested build outputs. Previous artifacts, scoped
+flags and install manifest are in
+native/mhw-renderer/build/rollback.pose-sync.sj77c_eu/; the pinned native installer
+also preserved rollback.S54Ct5/.
+
+Camera/input requests start OFF, guest-control flag absent. Body separation and
+full/player composition remain enabled; world/upload/pose intervals remain zero.
+Live channels were preserved. No game was launched and no save was changed.
+Next is loaded offline scenes, one fresh first-person calibration, then walking
+with cape/held log in all F5 views, foreground occlusion and F6 release. Live
+timing and body smoothness at world-capture cadence remain unaccepted.
+
 ## 2026-10-12 — User reports attachment timing mismatch
 
 User reports all cameras work and F6 stops control, but cape and held item lag

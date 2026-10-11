@@ -70,7 +70,10 @@ Paired body selection uses only that pose; standalone keeps the fast pose channe
 Per-render pose availability resets before cadence checks; missing current pose
 keeps body in ordinary capture. Legacy separated v4 reads but cannot provide a
 replacement body on the new host. Builds/headless selection/refusal/atomic and
-newest-pose mutant pass; matching guest/native install awaits both games closed.
+newest-pose mutant pass. Installed bf62d29 after both games closed; matching
+guest/native replaced, managed preserved, all three cmp-verified. Scoped backup:
+native/mhw-renderer/build/rollback.pose-sync.sj77c_eu/. Control OFF, separation and
+full/player enabled, zero cadence intervals and live channels preserved.
 Body updates now follow world-capture cadence; no latency/performance/live timing
 claim. Keep existing capture lifetime/freshness/depth/F5 guards.
 
