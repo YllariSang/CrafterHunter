@@ -1,5 +1,34 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — UVs exonerated; the pale surfaces are downstream of the guest bytes
+
+The UV debug skin separates "UVs are wrong" from "the skin samples wrong" in one
+screenshot, and the answer is that UVs are **correct**: every face renders its own
+colour with a vertical gradient down the body, in all three F5 modes, through the
+same `input.uv` the real path uses. Geometry, pose and placement are therefore
+right too, and the pale player figure is downstream of the vertex stage.
+
+Then the second question, settled without the host at all: **is the guest colour
+attachment itself healthy?** It can be checked directly, because the raw bytes are
+in the shared frame. They are:
+
+    frame 949x509, mean luminance 117.1/255, 88.5% of pixels saturated,
+    0.0% near-white, first samples (87,114,54) / (78,101,48) - grass green
+
+So the guest capture is not washing anything out, and the composite's input is
+correct and saturated. Anything pale on screen is introduced after those bytes,
+which puts the defect on the host side of the upload or in the draw - not in the
+capture, and not in UVs. The upload path itself reads correctly on inspection
+(R8G8B8A8_UNORM, SysMemPitch from the snapshot, immutable resource, private
+creation, nothing published on partial failure), which is inspection rather than
+evidence.
+
+Still open, and deliberately not resolved by assertion: whether the real-skin
+figure and the composited guest block are actually wrong, or whether they merely
+read that way in a 960-wide screenshot of a 1920x1080 window. That needs one
+screenshot of the MHW window alone, at native resolution. Debug shading has been
+returned to `real`; no debug flag is left set.
+
 ## 2026-10-11 — Spike accepted visually: guest composite and player both render
 
 Three screenshots with both games live, full-resolution path armed, anchor
