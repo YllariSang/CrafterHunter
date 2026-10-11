@@ -15,6 +15,7 @@ with tempfile.TemporaryDirectory() as directory:
             "--minecraft",str(mc),"--mhw",str(mhw),*extra],check=True,capture_output=True)
     run("start")
     assert (mc/"crafterhunter/player-export.enabled").is_file()
+    assert (mc/"crafterhunter/player-body-separate.enabled").is_file()
     assert (render/"player-compose.enabled").is_file()
     assert not (render/"paired-compose.enabled").exists()
     assert (render/"world-upload.enabled").exists()
@@ -36,6 +37,7 @@ with tempfile.TemporaryDirectory() as directory:
     run("stop"); run("stop")
     assert not (render/"player-compose.enabled").exists()
     assert not (mc/"crafterhunter/player-export.enabled").exists()
+    assert not (mc/"crafterhunter/player-body-separate.enabled").exists()
     assert (render/"world-upload.enabled").exists() # Shared upload is never torn down by player stop.
     for mode in ('uv','net','depth-position','depth-source','real'):
         subprocess.run([sys.executable,str(root/'tools/control-player-uv.py'),mode,'--render',str(render)],check=True)

@@ -21,7 +21,9 @@ def main():
     plugin = args.mhw/"nativePC/plugins/CSharp/CrafterHunter"
     render = plugin/"render"
     export = args.minecraft/"crafterhunter/player-export.enabled"
+    separate = args.minecraft/"crafterhunter/player-body-separate.enabled"
     if args.action == "stop":
+        separate.unlink(missing_ok=True)
         export.unlink(missing_ok=True)
         (render/"player-compose.enabled").unlink(missing_ok=True)
         print("Player preview stopped; paired flags, assets and frame channels left intact.")
@@ -33,6 +35,7 @@ def main():
             raise SystemExit("Install matching Fabric/native artifacts first.")
         paired.atomic_write(export, f"{args.pose_ms}\n")
         paired.atomic_write(render/"player-compose.enabled", "baked player preview\n")
+        paired.atomic_write(separate, "body geometry owns the local player\n")
         # Calibration needs paired captures, but starting the player must not
         # overwrite an already configured world producer/consumer cadence.
         for path in [render/"world-upload.enabled", args.minecraft/"crafterhunter/world-stream.enabled"]:

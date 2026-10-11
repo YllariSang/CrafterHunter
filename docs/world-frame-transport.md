@@ -1,4 +1,4 @@
-# Paired world snapshot v3 (v2 read compatibility)
+# Paired world snapshot v4 (v2/v3 read compatibility)
 
 Current checkpoint (2026-10-11): full-resolution paired composition and the real
 player skin are visually accepted in all three F5 modes. Focused Minecraft
@@ -112,7 +112,7 @@ mapping. Never compare these floats directly to MHW depth.
 
 | Offset | Field |
 | --- | --- |
-| 0, 4, 8, 12 | u32 magic `0x50574843`, version 3, header size 320, flags 1 (bottom-up) |
+| 0, 4, 8, 12 | u32 magic `0x50574843`, version 4, header size 320, flags bit 0 bottom-up, bit 1 local body excluded |
 | 16, 20, 24, 28 | u32 width, height, row stride, reserved zero |
 | 32, 40, 48 | u64 generation, capture identity, issue-time Java monotonic nanos |
 | 56, 64 | u64 colour and depth byte counts |
@@ -132,11 +132,15 @@ mapping. Never compare these floats directly to MHW depth.
 
 Version 1 is rejected. Version 2 still reads for archived camera/depth evidence,
 but lacks player provenance and cannot calibrate or draw the player-anchored
-preview. Missing player references publish v2, never a fabricated v3 origin.
-Rebuild/restart Fabric, managed plugin and native renderer together for v3.
+preview. Version 3 archives retain player provenance but cannot claim body
+exclusion. Missing player references publish v2, never a fabricated player origin.
+Version 4 requires matching rebuilt Fabric/native artifacts; the managed plugin
+is preserved. Flags must be 1 or 3 on v4 and exactly 1 on v2/v3. The issue-time
+exclusion bit is atomic with its color/depth identity, never inferred from a flag
+file at host draw time. See [single-body rendering](player-single-body.md).
 Player feet are copied at LevelRenderer HEAD using the level delta's partial tick,
 then frozen with the view/camera/projection for that capture identity, not sampled
-when GPU callbacks finish. Nonfinite feet or unknown provenance refuse v3.
+when GPU callbacks finish. Nonfinite feet or unknown provenance refuse player frames.
 Exact camera
 position plus view rotation specifies `eye = rotation * (guestWorld - cameraPos)`.
 The projection is the final GameRenderer upload argument, after bob/hurt/nausea

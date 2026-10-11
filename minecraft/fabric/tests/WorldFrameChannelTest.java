@@ -37,8 +37,14 @@ public final class WorldFrameChannelTest {
                 1,1,mode,0,1,feet,colour,depth);
             Files.copy(file,file.resolveSibling("player-"+mode+".frame"));
             byte[] paired=Files.readAllBytes(file);
-            if(ByteBuffer.wrap(paired).order(ByteOrder.LITTLE_ENDIAN).getInt(4)!=3)
+            if(ByteBuffer.wrap(paired).order(ByteOrder.LITTLE_ENDIAN).getInt(4)!=4)
                 throw new AssertionError("player reference must be versioned");
+            WorldFrameChannel.publish(file,8,4,99,1,1234,0.05f,1024,matrix,pose,view,position,
+                1,1,mode,0,1,feet,true,colour,depth);
+            Files.copy(file,file.resolveSibling("separate-"+mode+".frame"));
+            if(ByteBuffer.wrap(Files.readAllBytes(file)).order(ByteOrder.LITTLE_ENDIAN).getInt(12)!=3)
+                throw new AssertionError("missing body-exclusion provenance");
+            Files.write(file,paired);
             feet[1]=Double.NaN;
             try {
                 WorldFrameChannel.publish(file,8,4,99,1,1234,0.05f,1024,matrix,pose,view,position,
@@ -47,6 +53,11 @@ public final class WorldFrameChannelTest {
             } catch(IllegalArgumentException expected) { }
             if(!Arrays.equals(paired,Files.readAllBytes(file))) throw new AssertionError("bad player replaced pair");
         }
+        try {
+            WorldFrameChannel.publish(file,8,4,99,1,1234,0.05f,1024,matrix,pose,view,position,
+                1,1,1,0,1,null,true,colour,depth);
+            throw new AssertionError("excluded body without player provenance accepted");
+        } catch(IllegalArgumentException expected) { }
         for(int refusal=0;refusal<3;++refusal) {
             try {
                 WorldFrameChannel.publish(file,8,4,99,1,1234,0.05f,1024,matrix,pose,view,position,

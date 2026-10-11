@@ -1,5 +1,11 @@
 # Complete player geometry preview (26.2)
 
+2026-10-12 update: [single-body capture/rendering](player-single-body.md) removes
+the paired capture's duplicate local body while preserving attachment layers
+and normal Minecraft display. Its native model shares the current guest private
+depth when paired composition is active; standalone preview retains self-depth.
+Implementation/headless checks do not establish live acceptance of this change.
+
 Current checkpoint (2026-10-11): native-resolution geometry and real player skin
 are visually accepted in all three F5 modes; see MODLOG for screenshot evidence.
 The user reports that character animation alone is choppy despite smooth world

@@ -12,7 +12,7 @@ import java.nio.file.StandardOpenOption;
 /** Request-paced paired snapshot, separate from the live colour channel. */
 public final class WorldFrameChannel {
     public static final int MAGIC = 0x50574843; // CHWP in little endian
-    public static final int VERSION = 3;
+    public static final int VERSION = 4;
     public static final int HEADER_BYTES = 320;
     public static final int MAX_DIMENSION = 4096;
     private WorldFrameChannel() { }
@@ -30,6 +30,16 @@ public final class WorldFrameChannel {
             float[] pose, float[] view, double[] position, int clipMapping, int clipOrigin,
             int cameraMode, float rangeMin, float rangeMax, double[] playerPosition,
             byte[] colour, byte[] depth) throws IOException {
+        publish(path,width,height,generation,identity,issueNanos,near,far,matrix,pose,view,position,
+            clipMapping,clipOrigin,cameraMode,rangeMin,rangeMax,playerPosition,false,colour,depth);
+    }
+
+    public static void publish(Path path, int width, int height, long generation,
+            long identity, long issueNanos, float near, float far, float[] matrix,
+            float[] pose, float[] view, double[] position, int clipMapping, int clipOrigin,
+            int cameraMode, float rangeMin, float rangeMax, double[] playerPosition,
+            boolean bodyExcluded, byte[] colour, byte[] depth) throws IOException {
+        if (bodyExcluded && playerPosition == null) throw new IllegalArgumentException("body exclusion needs player provenance");
         if(playerPosition!=null) {
             if(playerPosition.length!=3) throw new IllegalArgumentException("player position");
             for(double value:playerPosition)
@@ -52,9 +62,10 @@ public final class WorldFrameChannel {
             throw new IllegalArgumentException("attachments must match dimensions");
         }
         ByteBuffer header = ByteBuffer.allocate(HEADER_BYTES).order(ByteOrder.LITTLE_ENDIAN);
-        // Flags=1 means bottom-up attachments. Depth is raw GL window depth;
+        // Flags bit 0 means bottom-up, v4 bit 1 means local body excluded.
+        // Depth is raw GL window depth;
         // GL clip-control state is explicit; projection alone cannot define it.
-        header.putInt(MAGIC).putInt(playerPosition==null ? 2 : VERSION).putInt(HEADER_BYTES).putInt(1);
+        header.putInt(MAGIC).putInt(playerPosition==null ? 2 : VERSION).putInt(HEADER_BYTES).putInt(bodyExcluded ? 3 : 1);
         header.putInt(width).putInt(height).putInt(width * 4).putInt(0);
         header.putLong(generation).putLong(identity).putLong(issueNanos);
         header.putLong(attachmentBytes).putLong(attachmentBytes);

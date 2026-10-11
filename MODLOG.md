@@ -1,5 +1,53 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Single player-body rendering plan
+
+User requests keeping the exported player body and removing its duplicate from
+paired world capture. Continue the existing two-process Linux/Proton passthrough;
+no game assets, simulation, collision or combat changes. Local 26.2 bytecode
+separates LivingEntityRenderer's main-model submit from its attachment layers.
+A capture-only body exclusion must preserve held items/armor/capes, all other
+entities and the normal Minecraft display, and must not erase body pixels into
+holes after capture.
+
+Bounded implementation: tag only the local AvatarRenderState/PlayerModel main
+submit; omit its prepared draw during a requested third-person capture pass,
+then replay the same prepared frame graph with the body restored for display.
+No second simulation/extraction or render-thread waits. Verify actual frame-graph
+resource schedule reset and retained feature buffers against installed classes
+before using replay. Capture's existing one-flight/permanent-failure policy stays.
+First person needs no extra body pass; hands remain outside the existing capture
+boundary. Explicit paired metadata identifies body exclusion, so native draws
+only one body even during startup/fallback. Native shares only the matching
+current-frame private guest depth with its player, retaining MHW depth tests.
+This preserves captured held-item/armor occlusion rather than making them vanish.
+
+Oracle: body absent from the capture, attachments/background intact, complete
+normal display restored, and no duplicate body from legacy/unfiltered snapshots.
+Actual-class frame-graph replay regression must expose missing schedule reset;
+headless native depth/order tests must expose the old independent-depth clear.
+Build matching Fabric/native, scoped install with both games closed, cmp,
+commit/push. Fresh loaded-code, all-F5 screenshots, capture identity/exclusion
+metadata, model/occlusion and F6 evidence remain required after deployment.
+Third-person extra GPU rendering has unmeasured cost; no performance claim.
+
+Implemented and passed ./gradlew build testBodyCapture testBakedPlayer (actual
+normal/slim 72-face models); tools/test-player-body.py (actual-graph schedule,
+body-pass/display restoration mutants and old duplicate/private-depth mutant);
+test-world-frame-transport.sh (Java/native v2/v3/v4, all F5/exclusion provenance
+and malformed flags); test-player-preview.py, test-paired-preview.py,
+test-world-capture-hook.py, test-world-reprojection.sh, test-world-upload.sh,
+test-guest-camera.sh, test-exclusive-input.sh, test-stream-cadence.sh,
+test-composition-requests.sh, test-paired-grid.sh, test-paired-full-coverage.py,
+test-paired-plane.py, all 13 shader entries, native Release and cargo workspace
+(26 tests). diff --check passes; all production shader bodies match the prior
+build exactly. Extra graph work occurs only when a third-person capture is due.
+User's original first/rear/front screenshots are archived, unmodified and ignored,
+in captures/player-single-body/baseline-user-20261012-0137/. They establish the
+reported overlap setup, not GPU color correctness or continuous motion.
+Matching native/Fabric installation awaits both games' normal closure. No new
+build has run in either game, and single-body/items/occlusion acceptance is pending.
+
 ## 2026-10-12 — Planar ground-depth renderer installed
 
 User closed both games normally; fresh host window and exact process checks

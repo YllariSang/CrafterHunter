@@ -11,7 +11,11 @@
     "PlayerMixin",
     "WorldCaptureMixin",
     "LevelWorldCaptureMixin",
-    "ModelPartAccessor"
+    "ModelPartAccessor",
+    "RenderTypeAccessor",
+    "LocalBodySubmitMixin",
+    "BodyRenderTypeMixin",
+    "PreparedBodyDrawMixin"
   ],
   "injectors": {
     "defaultRequire": 1

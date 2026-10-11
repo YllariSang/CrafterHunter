@@ -34,6 +34,7 @@ int main(int argc, char** argv) {
     assert(frame.cameraPosition[0]==917.546812345 && frame.viewRotation[15]==1);
     assert(frame.rangeMin==0 && frame.rangeMax==1 && frame.clearDepth==0);
     assert(!frame.playerKnown); // legacy v2 can be inspected, never player-calibrated
+    assert(!frame.bodyExcluded);
     for(auto pixel:frame.colour) assert(pixel==1);
     for(auto pixel:frame.depth) assert(pixel==1);
     for(unsigned mode=0;mode<3;++mode) {
@@ -43,6 +44,9 @@ int main(int argc, char** argv) {
         assert(read(playerPath.string().c_str(),frame) && frame.playerKnown && frame.cameraMode==mode);
         assert(frame.playerPosition[0]==917.546812345 && frame.playerPosition[1]==-60
             && frame.playerPosition[2]==343.1757);
+        assert(!frame.bodyExcluded);
+        const auto separatePath=std::filesystem::path(argv[1]).parent_path()/ ("separate-"+std::to_string(mode)+".frame");
+        assert(read(separatePath.string().c_str(),frame) && frame.bodyExcluded && frame.playerKnown);
     }
     assert(read(argv[2],frame));
     assert(frame.width==4 && frame.generation==100 && frame.identity==1);
@@ -73,5 +77,12 @@ int main(int argc, char** argv) {
     bad=playerBytes; bad[308]=1; refuse(bad); // v3 reserved fields stay zero
     bad=playerBytes; bad[4]=2; refuse(bad); // player fields cannot masquerade as v2
     bad=playerBytes; bad[286]=char(0xf8); bad[287]=char(0x7f); refuse(bad); // NaN feet
-    std::puts("PASS: v2/v3 Java/native round trip, exact camera/player references, all F5 modes, resize and malformed-frame refusals");
+    bad=playerBytes; bad[12]=7; refuse(bad); // unknown v4 flags
+    bad=playerBytes; bad[12]=3; bad[4]=3; refuse(bad); // v3 cannot claim body exclusion
+    bad=bytes; bad[12]=3; refuse(bad); // v2 cannot claim body exclusion
+    // Retain actual v3 archive compatibility, without claiming exclusion.
+    bad=playerBytes; bad[4]=3;
+    { std::ofstream out(rejected,std::ios::binary); out.write(bad.data(),bad.size()); }
+    assert(read(rejected.c_str(),frame) && frame.playerKnown && !frame.bodyExcluded);
+    std::puts("PASS: v2/v3/v4 Java/native round trip, exclusion provenance, all F5 modes, resize and malformed-frame refusals");
 }

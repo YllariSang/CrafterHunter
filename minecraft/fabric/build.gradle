@@ -58,3 +58,18 @@ tasks.register('compileBakedPlayerTest', JavaCompile) {
     classpath = sourceSets.client.compileClasspath + sourceSets.client.output
     destinationDirectory = layout.buildDirectory.dir('player-test')
 }
+
+tasks.register('testBodyCapture', JavaExec) {
+    dependsOn tasks.named('compileBodyCaptureTest')
+    classpath = sourceSets.client.compileClasspath + sourceSets.client.output + files(layout.buildDirectory.dir('body-test'))
+    mainClass = 'BodyCapturePassTest'
+    doLast {
+        layout.buildDirectory.file('body-test/classpath.txt').get().asFile.text = classpath.asPath
+    }
+}
+tasks.register('compileBodyCaptureTest', JavaCompile) {
+    source = files('tests/BodyCapturePassTest.java')
+    dependsOn tasks.named('compileClientJava')
+    classpath = sourceSets.client.compileClasspath + sourceSets.client.output
+    destinationDirectory = layout.buildDirectory.dir('body-test')
+}

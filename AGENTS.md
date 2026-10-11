@@ -59,6 +59,23 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Latest authorized slice (2026-10-12): render one local body. Read
+docs/player-single-body.md. PlayerBodyCapture tags
+only the local AvatarRenderState/PlayerModel main submit. Due third-person
+captures execute the prepared level graph body-free, capture at the existing
+pre-depth-clear boundary, then reset that completed graph's acquisition/release
+schedule and replay with the body for normal Minecraft display. Installed-class
+resource/display tests and original-behavior mutants pass; shader text unchanged.
+Attachments stay captured; first-person hands remain excluded as before. Snapshot
+v4 adds issue-time body-excluded flag bit 1; v2/v3 still read but cannot claim it.
+Native suppresses duplicate model drawing for unfiltered paired snapshots, and
+shares only same-frame/generation/identity/epoch/target/camera private guest depth
+with the model for filtered ones; MHW depth remains read-only. Fabric/native
+builds and relevant regressions pass; installation awaits both games closed.
+No live single-body/held-item/occlusion or extra-pass cost acceptance yet.
+Do not re-anchor on F5 or expand gameplay. Controller start/stop owns the new
+player-body-separate.enabled flag alongside export/composition.
+
 Current authorized goal (2026-10-11): Minecraft-owned host camera, alongside the
 existing hunter movement suppression. Read docs/guest-camera-control.md and
 docs/CONTRACT.md. User confirms camera following and all F5 angles work; walking

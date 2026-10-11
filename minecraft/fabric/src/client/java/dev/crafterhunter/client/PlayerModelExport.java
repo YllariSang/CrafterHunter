@@ -36,7 +36,13 @@ public final class PlayerModelExport {
     private static int skinWidth, skinHeight;
     private static int lastParts;
     private static boolean failed;
+    private static long publishedNanos;
     private PlayerModelExport() {}
+
+    public static boolean available(long now) {
+        return !failed && publishedNanos != 0 && now - publishedNanos < 500_000_000L
+            && Files.isRegularFile(ENABLED);
+    }
 
     public static void capture(float partialTick, CameraRenderState camera) {
         long now = System.nanoTime();
@@ -44,7 +50,9 @@ public final class PlayerModelExport {
         cadence.schedule(now, null); // Keep disabled/unreadable checks on the conservative budget.
         if (!Files.exists(ENABLED)) return;
         var mc = Minecraft.getInstance();
-        if (mc.player == null || mc.level == null || mc.getCameraEntity() != mc.player) return;
+        if (mc.player == null || mc.level == null || mc.getCameraEntity() != mc.player) {
+            publishedNanos = 0; return;
+        }
         try {
             String content;
             try { content = Files.readString(ENABLED); }
@@ -55,7 +63,7 @@ public final class PlayerModelExport {
             var renderer = mc.getEntityRenderDispatcher().getPlayerRenderer(mc.player);
             AvatarRenderState state = renderer.createRenderState();
             renderer.extractRenderState(mc.player, state, partialTick);
-            if (state.isInvisible || state.isSpectator) return;
+            if (state.isInvisible || state.isSpectator) { publishedNanos = 0; return; }
             var texture = mc.getTextureManager().getTexture(state.skin.body().texturePath()).getTexture();
             if (!(texture instanceof GlTexture gl) || gl.isClosed()) throw new IllegalStateException("player skin requires live OpenGL texture");
             if (gl != skinTexture) {
@@ -125,6 +133,7 @@ public final class PlayerModelExport {
         }
         atomic("player.pose",PlayerModelChannel.pose(generation,assetIdentity,++sequence,
             state.x,state.y,state.z,matrices,visibility));
+        publishedNanos = System.nanoTime();
     }
 
     private static void collect(ModelPart part, PoseStack stack, boolean parentVisible,

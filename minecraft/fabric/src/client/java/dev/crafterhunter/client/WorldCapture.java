@@ -91,6 +91,7 @@ public final class WorldCapture {
     private boolean worldBoundarySeen;
     private String worldBoundary;
     private String inFlightBoundary;
+    private boolean inFlightBodyExcluded;
 
     public void beginWorldFrame() {
         worldBoundarySeen = false;
@@ -127,6 +128,7 @@ public final class WorldCapture {
 
     /** Service exactly once: early clear if present, otherwise the hand clear. */
     public void beforeWorldDepthClear(String boundary) {
+        if (BodyCapturePass.restoring()) return;
         if (worldBoundarySeen) return;
         worldBoundarySeen = true;
         worldBoundary = boundary;
@@ -214,6 +216,16 @@ public final class WorldCapture {
      * @param nowNanos monotonic clock, for ageing the capture
      */
     public void onWorldRendered(long nowNanos) {
+        service(nowNanos, true);
+    }
+
+    /** Prepare a requested capture without copying attachments before rendering. */
+    public boolean wantsCapture(long nowNanos) {
+        service(nowNanos, false);
+        return !captureDisabled && remaining > 0 && !inFlight;
+    }
+
+    private void service(long nowNanos, boolean issue) {
         if (captureDisabled) {
             if (nowNanos >= nextSummaryNanos) {
                 nextSummaryNanos = nowNanos + SUMMARY_INTERVAL_NANOS;
@@ -274,7 +286,7 @@ public final class WorldCapture {
             nextStreamNanos = nowNanos + streamIntervalMillis * 1_000_000L;
         }
 
-        if (remaining > 0 && !inFlight) {
+        if (issue && remaining > 0 && !inFlight) {
             queueCapture(nowNanos);
         }
 
@@ -404,6 +416,7 @@ public final class WorldCapture {
             inFlight = true;
             inFlightQueuedNanos = nowNanos;
             inFlightColourFormat = wantColour ? String.valueOf(colour.getFormat()) : "not requested";
+            inFlightBodyExcluded = PlayerBodyCapture.excludedAtIssue();
             inFlightDepthFormat = wantDepth ? String.valueOf(depth.getFormat()) : "not requested";
             final WorldCopyState completion = new WorldCopyState(wantColour, wantDepth);
             copyState = completion;
@@ -682,7 +695,7 @@ public final class WorldCapture {
                         new float[] {inFlightX, inFlightY, inFlightZ, inFlightXRot, inFlightYRot},
                         inFlightView, inFlightPosition, inFlightClipMapping, inFlightClipOrigin,
                         inFlightCameraMode, inFlightDepthRangeMin, inFlightDepthRangeMax,
-                        inFlightPlayerKnown ? inFlightPlayerPosition : null, colour, depth);
+                        inFlightPlayerKnown ? inFlightPlayerPosition : null, inFlightBodyExcluded, colour, depth);
                     metadata += "worldFrameChannel=/dev/shm/crafterhunter/world.frame\n";
                 } catch (IOException | IllegalArgumentException refused) {
                     // Preserve diagnostic captures even if shared memory is full,
@@ -762,6 +775,7 @@ public final class WorldCapture {
         text.append("depthRead=").append(depthReadDetail).append('\n');
         text.append("anchorSource=").append(inFlightAnchorSource).append('\n');
         text.append("captureBoundary=").append(inFlightBoundary).append('\n');
+        text.append("localPlayerBody=").append(inFlightBodyExcluded ? "excluded" : "included-or-native-first-person").append('\n');
         text.append(String.format(Locale.ROOT, "anchor=%.4f %.4f %.4f%n",
             inFlightX, inFlightY, inFlightZ));
         text.append(String.format(Locale.ROOT, "anchorRot=%.3f %.3f%n",

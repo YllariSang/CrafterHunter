@@ -9,7 +9,7 @@
 #include <vector>
 
 namespace crafterhunter::world {
-constexpr std::uint32_t Magic = 0x50574843, Version = 3, HeaderBytes = 320, MaxDimension = 4096;
+constexpr std::uint32_t Magic = 0x50574843, Version = 4, HeaderBytes = 320, MaxDimension = 4096;
 struct Snapshot {
     std::uint32_t width{}, height{}, stride{};
     std::uint64_t generation{}, identity{}, issueNanos{};
@@ -20,6 +20,7 @@ struct Snapshot {
     std::array<double,3> cameraPosition{};
     std::array<double,3> playerPosition{};
     bool playerKnown{};
+    bool bodyExcluded{};
     std::uint32_t clipMapping{},clipOrigin{},cameraMode{};
     float clearDepth{},rangeMin{},rangeMax{};
     std::vector<std::uint8_t> colour, depth;
@@ -41,9 +42,11 @@ inline bool read(const char* path, Snapshot& output) {
     std::array<std::uint8_t, HeaderBytes> h{};
     if (!file.read(reinterpret_cast<char*>(h.data()), h.size())) return false;
     const auto version=u32(h.data()+4);
-    if (u32(h.data()) != Magic || (version!=2 && version!=Version) || u32(h.data()+8) != HeaderBytes
-            || u32(h.data()+12) != 1 || u32(h.data()+28) != 0) return false;
+    const auto flags=u32(h.data()+12);
+    if (u32(h.data()) != Magic || (version!=2 && version!=3 && version!=Version) || u32(h.data()+8) != HeaderBytes
+            || (version<4 ? flags!=1 : (flags!=1 && flags!=3)) || u32(h.data()+28) != 0) return false;
     Snapshot candidate;
+    candidate.bodyExcluded=version==4 && (flags&2)!=0;
     candidate.width = u32(h.data()+16); candidate.height = u32(h.data()+20); candidate.stride = u32(h.data()+24);
     if (!candidate.width || !candidate.height || candidate.width > MaxDimension || candidate.height > MaxDimension
             || candidate.stride != candidate.width * 4) return false;
@@ -78,7 +81,7 @@ inline bool read(const char* path, Snapshot& output) {
             || candidate.clearDepth!=0 || candidate.cameraMode>2 || candidate.rangeMin!=0 || candidate.rangeMax!=1
             || u32(h.data()+276)!=1) return false;
     unsigned reserved=280;
-    if(version==3) {
+    if(version>=3) {
         if(u32(h.data()+304)!=1) return false;
         for(unsigned i=0;i<3;++i) {
             candidate.playerPosition[i]=f64(h.data()+280+i*8);

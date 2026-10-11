@@ -22,6 +22,7 @@
 #include "frame_composite.hpp"
 #include "frame_clock.hpp"
 #include "world_frame.hpp"
+#include "player_body.hpp"
 #include "world_freshness.hpp"
 #include "world_reprojection.hpp"
 #include "world_alignment.hpp"
@@ -208,6 +209,7 @@ ComPtr<ID3D11Buffer> pairedConstants;
 ComPtr<ID3D11Texture2D> pairedDepth;
 ComPtr<ID3D11DepthStencilView> pairedDSV;
 ComPtr<ID3D11DepthStencilState> pairedDepthState;
+crafterhunter::player::GuestDepthStamp pairedDepthStamp;
 bool pairedFailed=false;
 // Full-resolution variant of the same composite. It shares the constant
 // buffer, the private depth target and the depth state with the preview; only
@@ -372,12 +374,13 @@ void serviceWorldUpload() {
     // the moment the paired draw existed.
     const bool previewRequested=compositionRequests.value().preview;
     const bool fullRequested=compositionRequests.value().full;
-    log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition=%s anchor=%s textures=%s",
+    log("paired world uploaded generation=%llu identity=%llu size=%ux%u RGBA8/R32_FLOAT bottom-up; composition=%s anchor=%s textures=%s local-body=%s",
         static_cast<unsigned long long>(worldMetadata.generation),static_cast<unsigned long long>(worldMetadata.identity),
         worldMetadata.width,worldMetadata.height,
         fullRequested ? "full" : (previewRequested ? "preview" : "none"),
         alignmentSession.anchor.armed ? "armed" : "unarmed",
-        upload==crafterhunter::world::UploadResult::Created ? "created" : "updated");
+        upload==crafterhunter::world::UploadResult::Created ? "created" : "updated",
+        worldMetadata.bodyExcluded ? "excluded" : "captured-or-native-first-person");
 }
 
 int drawBlock(ID3D11Texture2D* back, ID3D11Buffer* camera, ID3D11Buffer* ui);
@@ -2134,6 +2137,8 @@ bool drawPaired(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     ownDraw=true; context->Draw(vertices,0); ownDraw=false;
     ID3D11ShaderResourceView* empty[3]{}; context->VSSetShaderResources(0,2,empty); context->PSSetShaderResources(0,3,empty);
     context->OMSetRenderTargets(0,nullptr,nullptr); context1->SwapDeviceContextState(saved.Get(),nullptr);
+    pairedDepthStamp={frame,worldMetadata.generation,worldMetadata.identity,alignmentSession.epoch,
+        reinterpret_cast<std::uintptr_t>(back),reinterpret_cast<std::uintptr_t>(camera)};
     static bool reported=false;
     if(!reported) {
         log("paired reprojection draw submitted: %u vertices, real colour/depth samples, "
@@ -2195,6 +2200,8 @@ bool drawPairedFull(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui)
     ownDraw=true; context->Draw(vertices,0); ownDraw=false;
     ID3D11ShaderResourceView* empty[3]{}; context->VSSetShaderResources(0,2,empty); context->PSSetShaderResources(0,3,empty);
     context->OMSetRenderTargets(0,nullptr,nullptr); context1->SwapDeviceContextState(saved.Get(),nullptr);
+    pairedDepthStamp={frame,worldMetadata.generation,worldMetadata.identity,alignmentSession.epoch,
+        reinterpret_cast<std::uintptr_t>(back),reinterpret_cast<std::uintptr_t>(camera)};
     ++pairedFullDraws;
     if(!pairedFullNextLog || now>=pairedFullNextLog) {
         pairedFullNextLog=now+10000;
@@ -2235,6 +2242,12 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     const auto now=GetTickCount64();
     if(failed || !worldFreshness.live(now) || !alignmentPlayerKnown
             || !alignment::valid(alignmentSession.anchor,worldMetadata.generation,alignmentSession.epoch)) return false;
+    const bool pairedRequested=compositionRequests.value().full || compositionRequests.value().preview;
+    const player::GuestDepthStamp requestedDepth{frame,worldMetadata.generation,worldMetadata.identity,alignmentSession.epoch,
+        reinterpret_cast<std::uintptr_t>(back),reinterpret_cast<std::uintptr_t>(camera)};
+    const auto bodyDepth=player::bodyDepth(pairedRequested,worldMetadata.bodyExcluded,
+        pairedDSV && pairedDepthStamp.matches(requestedDepth));
+    if(bodyDepth==player::BodyDepth::Hidden) return false;
     player::Pose next;
     if(!player::readPose("Z:\\dev\\shm\\crafterhunter\\player.pose",next)
             && !player::readPose("/dev/shm/crafterhunter/player.pose",next)) return false;
@@ -2459,8 +2472,10 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     if(FAILED(device->CreateRenderTargetView(back,nullptr,&target))) return false;
     ComPtr<ID3DDeviceContextState> saved; context1->SwapDeviceContextState(drawState.Get(),&saved);
     context->UpdateSubresource(placement.Get(),0,nullptr,&parameters,0,0);
-    context->ClearDepthStencilView(privateDSV.Get(),D3D11_CLEAR_DEPTH,0,0);
-    context->OMSetRenderTargets(1,target.GetAddressOf(),privateDSV.Get()); context->OMSetDepthStencilState(depthState.Get(),0);
+    ID3D11DepthStencilView* modelDepth=privateDSV.Get();
+    if(bodyDepth==player::BodyDepth::SharedGuest) modelDepth=pairedDSV.Get();
+    else context->ClearDepthStencilView(privateDSV.Get(),D3D11_CLEAR_DEPTH,0,0);
+    context->OMSetRenderTargets(1,target.GetAddressOf(),modelDepth); context->OMSetDepthStencilState(depthState.Get(),0);
     context->OMSetBlendState(nullptr,nullptr,0xFFFFFFFF);
     context->IASetInputLayout(nullptr); context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
     context->VSSetShader(vs.Get(),nullptr,0);
@@ -2487,9 +2502,10 @@ bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
     ID3D11ShaderResourceView* empty[4]{}; context->VSSetShaderResources(0,4,empty); context->PSSetShaderResources(0,4,empty);
     context->OMSetRenderTargets(0,nullptr,nullptr); context1->SwapDeviceContextState(saved.Get(),nullptr);
     if(!reported) {
-        log("complete player draw submitted generation=%llu asset=%llu sequence=%llu vertices=%u: baked faces + Minecraft pose/skin; NOT visual acceptance",
+        log("complete player draw submitted generation=%llu asset=%llu sequence=%llu vertices=%u depth=%s: baked faces + Minecraft pose/skin; NOT visual acceptance",
             static_cast<unsigned long long>(pose.generation),static_cast<unsigned long long>(pose.asset),
-            static_cast<unsigned long long>(pose.sequence),static_cast<unsigned>(asset.vertices.size()));
+            static_cast<unsigned long long>(pose.sequence),static_cast<unsigned>(asset.vertices.size()),
+            bodyDepth==player::BodyDepth::SharedGuest ? "shared-current-guest" : "private-player");
         reported=true;
     }
     return true;
@@ -2671,6 +2687,7 @@ extern "C" __declspec(dllexport) void CH_Stop() {
     drawEnabled = false; pipelineFailed = false;
     composed = false; composedFrame = false; composedFrameCount = 0;
     compositionRequests.reset();
+    pairedDepthStamp={};
     sharedReady = false; framePipelineFailed = false; depthSelectionFrame = 0;
     sceneDepthView.Reset(); minecraftView.Reset(); minecraftTexture.Reset();
     frameVertexShader.Reset(); framePixelShader.Reset(); frameConstants.Reset();

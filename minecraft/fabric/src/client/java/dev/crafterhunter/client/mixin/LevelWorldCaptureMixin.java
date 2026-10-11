@@ -1,6 +1,9 @@
 package dev.crafterhunter.client.mixin;
 
 import dev.crafterhunter.client.WorldCapture;
+import dev.crafterhunter.client.BodyCapturePass;
+import dev.crafterhunter.client.PlayerBodyCapture;
+import com.mojang.blaze3d.framegraph.FrameGraphBuilder;
 import net.minecraft.client.renderer.LevelRenderer;
 import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.client.DeltaTracker;
@@ -11,6 +14,7 @@ import org.joml.Vector4f;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /** Capture scene attachments before the optional always-on-top pass erases depth. */
@@ -23,6 +27,14 @@ public abstract class LevelWorldCaptureMixin {
         WorldCapture.instance().recordWorldView(camera, view, delta.getGameTimeDeltaPartialTick(false));
         dev.crafterhunter.client.GuestCameraControl.capture(camera, view);
         dev.crafterhunter.client.PlayerModelExport.capture(delta.getGameTimeDeltaPartialTick(false), camera);
+        PlayerBodyCapture.begin();
+    }
+    @Redirect(method = "render", require = 1, at = @At(value = "INVOKE",
+        target = "Lcom/mojang/blaze3d/framegraph/FrameGraphBuilder;execute(Lcom/mojang/blaze3d/resource/GraphicsResourceAllocator;Lcom/mojang/blaze3d/framegraph/FrameGraphBuilder$Inspector;)V"))
+    private void crafterhunter$bodyFreeCapture(FrameGraphBuilder graph, GraphicsResourceAllocator allocator,
+            FrameGraphBuilder.Inspector inspector) {
+        BodyCapturePass.execute(graph, allocator, inspector, PlayerBodyCapture.filteredPass(),
+            () -> WorldCapture.instance().beforeWorldDepthClear("pre-hand-clear (no always-on-top pass)"));
     }
     // Version-pinned synthetic method: require a match, never silently skip it.
     @Inject(method = "lambda$addAlwaysOnTopPass$0", remap = false, require = 1,
