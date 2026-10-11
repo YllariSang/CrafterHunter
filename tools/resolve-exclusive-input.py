@@ -47,6 +47,11 @@ class Mem:
         self.f = open(f"/proc/{pid}/mem", "rb", 0)
 
     def raw(self, addr: int, n: int) -> bytes:
+        # The heap scan dereferences pointers it has not validated, so a wild
+        # one raises OverflowError here rather than an OS error. Callers treat
+        # any of these as "not a candidate".
+        if addr < 0 or addr > (1 << 47) - 1:
+            raise ValueError(f"implausible address 0x{addr:x}")
         self.f.seek(addr)
         return self.f.read(n)
 

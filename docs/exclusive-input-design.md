@@ -264,13 +264,13 @@ authoritative freeze signal and is what the numbers below use.
 | Case | Result | Evidence |
 |---|---|---|
 | 1. Baseline, no filter | PASS | 307 units/s; release stops; disable resumes |
-| 2. Enable mid-run, W held | FAIL | 195 units/s, trampoline silent (count unchanged) |
+| 2. Enable mid-run, W held | PASS (after the end rewrite) | 373 -> 0.58 -> 291 units/s across arm/disarm; state `(1,2)`->`(1,3)`->`(1,0)` |
 | 3. Enable at rest, W held | PASS | 0.94 units over 6s (render jitter only); trampoline +518 |
 | 4. Disable, W held | PASS | resumes immediately at 307 units/s |
 
-Cases 5-8 are untested. Case 2 was failed against the cMove-only filter; the
-end-transition rewrite described below is built and awaits its own live run, so
-case 2 remains **not accepted**.
+Cases 5-8 are untested. Case 2 first failed against the cMove-only filter and
+passes against the build that also rewrites `cMoveEnd`; the failing run is kept
+above because it is what identified the wrong object.
 
 Mechanism, now proven live: the vtable `+0x30` predicate (`0x141934220`) gates
 the TRANSITION into a move state. It is consulted every frame while at rest
@@ -331,6 +331,13 @@ resolver publishes.
 | idle `(1,0)` | `0x143f374b0`, 39 records | `0x93` (cMove, required result 0, dest `(1,2)`) - and **no** `0x94` |
 | running `(1,4)` | `0x143f37fc0`, 33 records | `0x94` (cMoveEnd, required result 0, dest `(1,3)`), `0x9b` (cMoveTurn, dest `(1,4)`) - and **no** `0x93` |
 
+Re-checked in a later session (different scene, different addresses): the idle
+table is the same static table and the split holds there too, and the state a
+run actually occupies is scene-dependent - in that session the hunter ran in
+`(1,2)` rather than `(1,4)`, whose table also carries `cMoveEnd` and
+`cMoveTurn` and no `cMove`. The split is the rule; the particular state id is
+not.
+
 That is exactly the observed behaviour. At rest the engine consults `cMove` about
 85 times a second, so the trampoline fires. During a run it consults `cMoveEnd`
 instead and never `cMove`, so the trampoline is silent. **Suppressing `cMove`
@@ -368,9 +375,24 @@ Why this is the right shape:
   deliberately refusing.
 - `cMoveTurn` is still never rewritten, so turning remains the documented gap.
 
-**Not yet verified.** This is static evidence plus a headless policy test. The
-claim that a mid-run enable now stops the hunter requires the live acceptance
-run; until then case 2 is implemented, not accepted.
+**Accepted 2026-10-11.** `tools/accept-exclusive-input.py` runs the three phases
+with the key held across all of them and reports units/s per player field, so
+the numbers come from the game's own position rather than an assumed offset. Two
+runs, filter armed at t=7s mid-run:
+
+| field | A baseline | B armed | C released |
+|---|---|---|---|
+| `P+0x390` world | 373.35 / 333.46 | **0.58 / 0.67** | 290.75 / 290.42 |
+| `P+0x394` | 82.35 / 78.43 | **0.29 / 0.30** | 100.80 / 128.95 |
+| `P+0x398` | 187.32 / 250.41 | **0.72 / 0.81** | 235.42 / 217.81 |
+
+The transition state agrees: `(1,2)` at rest of the run, `(1,3)` - the end
+transition's own destination - about 0.6 s after the arm, `(1,0)` idle a further
+0.4 s later, and back to `(1,2)` about 0.6 s after the disarm. `released`
+advanced by exactly one per arm cycle; `suppressed` kept climbing because the
+idle table consults `cMove` continuously. The residual 0.3-0.8 units/s while
+armed is the same order as the at-rest figure (0.94 units over 6 s), not
+movement.
 
 ## Status
 
@@ -379,14 +401,13 @@ Installed and live-tested 2026-10-11 (SHA-256
 3, 4 pass; case 2 (mid-run stop) did not. Resolver non-determinism fixed (all
 local cMove slots covered) in ad54597.
 
-Installed 2026-10-11 after MHW was closed (installed SHA-256
+Replaced the same day by the end-transition rewrite (installed SHA-256
 `257b9cc6514f5e81c75fdd98bfbe57f92352e1965e6c59dcd4798b0284a79a9e`, `cmp`-clean
-against the build; previous DLL preserved in `build/rollback.78uMwX`). The
-end-transition rewrite that targets case 2 is therefore deployed but **not
-runtime-accepted**; its mechanism is established from the loaded image, not
-inferred (see the section above). Build outputs are not byte-reproducible (the
-PE header carries a timestamp, so the same source hashes differently each
-build): identity is established by `cmp` against the installed file, which is
-what `tools/install-mhw-renderer.sh` does, not by quoting a build hash. The
-filter is disarmed at rest and nothing is patched until a request arrives.
-Open: the case-2 acceptance run, and cases 5-8.
+against the build; previous DLL preserved in `build/rollback.78uMwX`), which
+makes case 2 pass. Build outputs are not byte-reproducible (the PE header
+carries a timestamp), so identity is `cmp` against the installed file, which is
+what `tools/install-mhw-renderer.sh` does, not a quoted build hash.
+
+Open: cases 5-8, `cMoveTurn` (deliberately unfiltered - turning under exclusive
+mode is a measurement, not an assumption), and the cutscene case noted in the
+handoff.

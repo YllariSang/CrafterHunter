@@ -9,32 +9,33 @@ Playable mode must preserve Minecraft's native F5 first-person, rear third-perso
 and front-facing third-person cameras. Use the actual render camera, not player
 angles alone; camera displacement/collision and model visibility must follow MC.
 
-Verified checkpoint: exclusive-input suppression. The filter is installed and
-live-tested against pinned MHW build 421810; enabling it at rest stops the
-local hunter starting a move (cases 1, 3, 4 pass). Enabling it mid-run did not
-stop the hunter, and the reason is now structural rather than mysterious: the
-engine's per-state transition tables are split - the idle table contains
-`cMove`, the running table contains `cMoveEnd` - so suppressing `cMove` cannot
-end a run. A rewrite that forces the local `cMoveEnd` predicate's ineligible
-result to eligible is installed and awaits its acceptance run. Read README.md,
-MODDING_PLAN.md, docs/exclusive-input-design.md,
-docs/exclusive-input-handoff.md and the latest MODLOG.md entries before changes;
-distinguish plans from measured evidence.
+Verified checkpoint: exclusive-input suppression, cases 1-4 accepted live. With
+the filter armed the hunter neither starts a move nor continues one: enabling at
+rest stops it, enabling mid-run stops it without a key release, disabling
+resumes it. Enabling it mid-run used to fail because the filter was pointed at
+the wrong object - the engine's per-state transition tables are split, the idle
+table containing `cMove` and every locomotion table containing `cMoveEnd` and no
+`cMove` - so the current build rewrites the local `cMoveEnd` predicate's
+ineligible result to eligible as well. Read README.md, MODDING_PLAN.md,
+docs/exclusive-input-design.md, docs/exclusive-input-handoff.md and the latest
+MODLOG.md entries before changes; distinguish plans from measured evidence.
 
 The composition/transport work below is a separate, still-open line; do not
 regress it while working on input.
 
 ## Next acceptance gate
 
-Case 2 of the exclusive-input matrix: arm the filter while the hunter is already
-running, without releasing the key, and confirm the hunter stops and the
-`released` counter advances. The end-transition rewrite is installed (2026-10-11)
-but **not runtime-accepted** - run the acceptance before claiming it. Build
-outputs are not byte-reproducible (PE timestamp), so identify artifacts with
-`cmp`, not a quoted hash. Cases 5-8 (repeat toggles, scene reload and
-re-resolution, plugin unload while enabled, menus/UI) are untested.
-`cMoveTurn` is deliberately still unfiltered; turning under exclusive mode is
-an open measurement, not an assumption.
+Cases 5-8 of the exclusive-input matrix: repeat toggles and duplicate enables
+(no stacked patch, no stuck state), scene reload and re-resolution, plugin
+unload while enabled, and menus/UI. Run them with
+`python3 tools/accept-exclusive-input.py --pid <MHW_PID>` or the resolver's
+`--publish`, always ending with a disarm. `cMoveTurn` is deliberately still
+unfiltered: turning under exclusive mode is an open measurement, not an
+assumption. The end rewrite changes only a `-1` result, so a cutscene whose end
+predicate returns `-1` would be rewritten; that is untested.
+
+Build outputs are not byte-reproducible (PE timestamp), so identify artifacts
+with `cmp`, not a quoted hash.
 
 Addresses are never persisted: they change per session and per scene load.
 Re-resolve with `python3 tools/resolve-exclusive-input.py --pid <MHW_PID>` in a

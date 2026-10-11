@@ -1,5 +1,33 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Exclusive input accepted: cases 1-4 pass
+
+Ran the acceptance against the installed end-transition rewrite, MHW live, key
+held across the whole run. `tools/accept-exclusive-input.py` resolves the
+instances, arms mid-run, disarms, and reports units/s for every player field
+that moved, so the numbers come from the game's own position rather than an
+assumed offset. Two consecutive runs, armed at t=7s with W never released:
+
+  P+0x390 (world)  373.35 -> 0.58 -> 290.75    and   333.46 -> 0.67 -> 290.42
+
+The transition state agrees: `(1,2)` -> `(1,3)` (the end transition's own
+destination) 0.6s after the arm -> `(1,0)` idle -> back to `(1,2)` 0.6s after
+the disarm. `released` advanced by exactly one per arm cycle; `suppressed` kept
+climbing because the idle table consults cMove continuously. The residual
+0.3-0.8 units/s while armed is the same order as the at-rest figure (0.94 units
+over 6s), i.e. jitter, not movement. Cases 1, 2, 3 and 4 now pass.
+
+Two scenes, same structure: the run occupies state `(1,4)` in one and `(1,2)` in
+the other, and both tables carry cMoveEnd and cMoveTurn and no cMove. The state
+id is scene-dependent; the split is the rule.
+
+Also fixed: the resolver raised OverflowError on a wild heap pointer instead of
+rejecting the candidate, which aborted a whole run; implausible addresses are now
+refused before dereference. New tool `tools/accept-exclusive-input.py`
+(read-only, never attaches, never launches). The filter was left disarmed after
+every run. Open: cases 5-8, cMoveTurn (deliberately unfiltered), and the
+untested cutscene case.
+
 ## 2026-10-11 — Why case 2 failed: the run's exit is governed by cMoveEnd
 
 MHW happened to be running in a loaded scene, so the decrypted image was read
