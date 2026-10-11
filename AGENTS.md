@@ -93,7 +93,7 @@ host polls once per MHW frame, so ~40 fps is MHW's rate, not the transport's. An
 unfocused guest measures ~15 publishes/s, which is focus pausing - do not read
 that as a readback limit.
 
-What remains for the spike: MHW's frame rate and ~25 ms of latency. Neither is a
+What remains for the spike: MHW's frame rate and unmeasured end-to-end latency. Neither is a
 redesign. Note that log lines must report state, not slogans: two hardcoded
 claims ("composition disabled", "drawing disabled") survived into the session
 where a 483,041-point composite was running, and were believed.
@@ -124,6 +124,17 @@ success latch. Actual draw refusals still retry; all capture/depth/F5 gates stay
 Headless regression/mutant and build pass; installed cmp-clean with scoped backup
 build/rollback.vQD9KX. Next repeat comparison after restart/calibration; live
 cadence improvement is unverified. Do not infer the slowdown's cause from code.
+
+Live repeat 203655: loaded/build cmp matched, fresh calibration epoch 1220 and
+generation 10018048051975, no invalidation, visible full paired/player draws;
+flags restored. ON/OFF/OFF/ON callbacks/s = 39.13/44.08/42.88/41.38. Guest changed
+from 48.97 publishes/s in ON 1 to ~30/s afterward. The prior OFF collapse was
+absent, but producer/camera/weather differences prevent causal speed attribution.
+Actual local 26.2 FramerateLimitTracker bytecode confirms AFK caps to 30 after
+60s without input even while focused, and 10 after 10min. User setting is AFK;
+MINIMIZED skips idle caps while visible. Next user-approved temporary Minimized
+comparison, restore AFK afterward. No sole CPU/GPU limiter, new pixel acceptance,
+E2E latency or 60 fps claim. Evidence captures/composition-ab-20261011-203655/.
 
 Validate same-frame Minecraft world colour/depth capture before changing native
 composition. WorldCapture currently fails closed permanently after a timeout or

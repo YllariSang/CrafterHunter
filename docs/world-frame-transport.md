@@ -32,6 +32,22 @@ reset. Build and relevant regressions pass; installed cmp-clean with scoped back
 `native/mhw-renderer/build/rollback.vQD9KX`. Live impact on cadence is unverified;
 repeat the comparison before claiming improvement. The 60 fps gate remains open.
 
+Live repeat after restart: `captures/composition-ab-20261011-203655/` preserves
+screenshots/logs and the same script. CH_Frame rates ON/OFF/OFF/ON were
+39.13/44.08/42.88/41.38 per second; guest publishes changed from 48.97 in ON 1 to
+about 30/s thereafter. The previous OFF collapse was absent, but changed producer
+rate, camera/weather and cross-session conditions prevent a causal before/after
+speed claim. Fixed epoch 1220/generation 10018048051975, no invalidation, visible
+full paired/player draws, flags restored. This is basic runtime regression
+evidence, not new fine pixel/depth acceptance or 60 fps.
+
+The actual 26.2 FramerateLimitTracker bytecode confirms AFK mode caps rendering
+at min(maxFps,30) after 60 seconds without input, even while focused, then 10 fps
+after ten minutes. User options select AFK. MINIMIZED skips those idle thresholds
+while retaining the iconification limit. For a still-player cadence comparison,
+obtain approval to select Minimized temporarily, keep both games visible and
+restore AFK afterward. No setting was changed during the recorded repeat.
+
 ## Resident native upload pair (2026-10-11)
 
 The next bounded cadence change replaces per-capture immutable texture/SRV

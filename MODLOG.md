@@ -1,5 +1,45 @@
 # CrafterHunter mod journal
 
+## 2026-10-11 — Flag-cache live repeat; still-player AFK cap confirmed
+
+After the user reopened both games, the fresh MHW PID 160189 loaded a renderer
+byte-identical to the new build. Both windows were visible at 949x509, Minecraft
+focused, F7/F9 OFF, first person. Requested one new-session feet calibration;
+epoch 1220/generation 10018048051975 stayed fixed through the comparison. Full
+paired and player drawing were submitted visibly; screenshots and fresh logs
+are in ignored `captures/composition-ab-20261011-203655/`, along with the same
+comparison script, preconditions and results. All flag changes were restored;
+capture/upload channels were left intact. No freshness/alignment invalidation.
+
+| Drawing | CH_Frame callbacks/s | Guest publishes/s | Host uploads/s |
+| --- | ---: | ---: | ---: |
+| ON 1 | 39.13 | 48.97 | 38.63 |
+| OFF 2 | 44.08 | 29.93 | 29.78 |
+| OFF 3 | 42.88 | 29.74 | 29.59 |
+| ON 4 | 41.38 | 29.84 | 29.84 |
+
+The guest rate changed during this ABBA run, so the complete four-phase run is
+not a constant-producer-rate composition comparison. The last three phases have
+roughly 30/s guest cadence, with OFF 42.88–44.08 versus ON 41.38 host callbacks/s.
+MHW's camera angle and Minecraft weather/view also differ from the pre-install
+session. The prior OFF 25–26 collapse was not observed here, but these differences
+prevent attributing its disappearance quantitatively to the cache change.
+Shared GPU readings were 53–73% in ON 1, 67–94% OFF, 66–89% ON 4; neither sole
+GPU nor sole CPU bottleneck is established. No independent Present measurement,
+E2E latency, new skin/depth acceptance or 60 fps claim.
+
+Checked the actual local Loom 26.2 client bytecode with javap, keeping output
+outside the repository at `/tmp/ch-framerate-tracker.javap`.
+`com.mojang.blaze3d.platform.FramerateLimitTracker` applies SHORT_AFK after
+60,000ms since input when InactivityFpsLimit is AFK, limiting to min(maxFps,30).
+After 600,000ms it uses 10 fps. MINIMIZED omits those AFK checks; iconification
+still caps to 10. The user's options currently select AFK, maxFps 120 and VSync.
+This explains why a focused still-player test can publish at 30/s; focus alone
+does not guarantee an unthrottled producer. No settings changed by the agent.
+Next temporarily select Minimized with user approval and repeat while both games
+remain visible, then restore AFK. Continue profiling from that controlled result;
+do not infer a transport limit or turn the measured checkpoint into a 60 fps claim.
+
 ## 2026-10-11 — Matched composition comparison and bounded flag polling
 
 Ran ON/OFF/OFF/ON with four seconds settling and twenty seconds measured per
