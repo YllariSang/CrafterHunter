@@ -69,10 +69,15 @@ is opt-in via `paired-full.enabled` (`tools/control-paired-preview.py
 start-full`), which takes precedence over the preview flag. It has now rendered
 and been seen: guest geometry composites into MHW at native resolution and the
 player model draws in world space, in all three F5 modes, at 483,041 points/frame
-and ~41 fps. Two defects are visible and unlocalised: the player figure reads
-flat/pale despite a byte-verified skin (CPU and GPU CRC both ab329927, equal=1),
-and it appears to float slightly above the ground. Next probe is the UV debug
-skin, which separates wrong UVs from wrong sampling in one screenshot.
+and ~41 fps. The player figure and the composited block both read pale, which is
+unexplained. Two things are now ruled out: the UV debug skin renders correct
+per-face colours with a vertical gradient in all three modes, so UVs, geometry,
+pose and placement are right; and the guest colour attachment is measured healthy
+straight out of the shared frame (mean luminance 117/255, 88.5% saturated, 0%
+near-white, grass green at the origin). The defect is therefore downstream of the
+guest bytes. It is not yet located, and it may partly be an artefact of judging a
+1920x1080 window from a 960-wide screenshot - one native-resolution shot of the
+MHW window alone settles it.
 
 The remaining half of the spike is **cadence**. Both transport floors are now
 negotiable rather than hardcoded: each flag file's content is an interval in
