@@ -13,6 +13,15 @@ are bash on purpose - do not rewrite them in fish.
 
 ## Goal and current checkpoint
 
+Latest authorization (2026-10-12): user accepts the installed F5 guard (“Everything
+is good now”) and authorizes the next terrain-collision work. This supersedes
+older no-collision-expansion scope for this bounded line. First slice connects
+existing host rays to the guest endpoint; see docs/guest-terrain-query.md. No
+physics/save edits yet. Verified guest installed (backup rollback.guest-terrain.nncspc4o),
+all3 cmp-clean, native/managed/flags preserved, control OFF and games closed.
+Next manual reopen and explicit floor/wall query evidence. Preserve accepted rendering/F5/input, fixed anchor and
+F6. Combat remains out of scope.
+
 The goal is real Minecraft gameplay inside MHW on Linux/Proton: Minecraft owns
 Steve/items/building; MHW owns its monsters, quests and world. Exactly one game
 must own movement/input at a time. Combat and quest integration are NOT implemented.

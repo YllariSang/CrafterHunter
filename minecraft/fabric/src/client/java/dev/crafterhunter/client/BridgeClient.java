@@ -22,6 +22,7 @@ final class BridgeClient implements AutoCloseable {
     private Thread thread;
     private volatile DatagramSocket socket;
     private int sequence;
+    private final TerrainQuery terrain = new TerrainQuery(java.nio.file.Path.of("/dev/shm/crafterhunter"));
 
     synchronized void start() {
         if (!running.compareAndSet(false, true)) {
@@ -76,6 +77,12 @@ final class BridgeClient implements AutoCloseable {
                 }
 
                 long now = System.nanoTime();
+                try {
+                    byte[] query = terrain.poll(now, System.currentTimeMillis());
+                    if (query != null) send(activeSocket, Protocol.KIND_TERRAIN_REQUEST, query);
+                } catch (java.nio.file.FileSystemException error) {
+                    System.err.println("[CrafterHunter] Terrain diagnostic channel: " + error.getMessage());
+                }
                 if (now >= nextKeepAlive) {
                     send(activeSocket, Protocol.KIND_HEARTBEAT, new byte[0]);
                     nextKeepAlive = now + HEARTBEAT_INTERVAL.toNanos();
@@ -91,10 +98,15 @@ final class BridgeClient implements AutoCloseable {
             }
         } finally {
             socket = null;
+            terrain.disconnect();
         }
     }
 
-    private void onPacket(Protocol.Packet packet) {
+    private void onPacket(Protocol.Packet packet) throws IOException {
+        if (packet.source() == Protocol.SOURCE_MHW && packet.session() == 0
+                && packet.kind() == Protocol.KIND_TERRAIN_RESULT) {
+            terrain.receive(packet.payload(), System.nanoTime());
+        }
         if (packet.source() == Protocol.SOURCE_BRIDGE && packet.kind() == Protocol.KIND_HELLO_ACK) {
             System.out.println("[CrafterHunter] Connected to " + Protocol.payloadText(packet));
             return;

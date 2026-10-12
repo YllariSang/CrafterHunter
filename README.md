@@ -28,6 +28,10 @@ fail-closed version handling. See [docs/prior-art.md](docs/prior-art.md).
 
 ## Current milestone
 
+Latest: user accepts the F5 transition guard. Terrain integration now begins with
+the [guest terrain-query path](docs/guest-terrain-query.md), using the existing
+MHW segment adapter. Queries do not yet make Steve collide with MHW terrain.
+
 2026-10-12 latest slice: keep one exported player body, exclude its duplicate from
 paired world capture, retain held-item/armor layers and normal Minecraft display.
 Matching verified guest/native builds are installed; the user accepts basic

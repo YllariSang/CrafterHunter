@@ -1,5 +1,30 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — F5 accepted; guest terrain query path
+
+User reports “Everything is good now” after the installed F5 guard test. Bounded
+recording has 3329 ACTIVE observations over 359.91s, 33 transitions held for one
+host callback each, all three views, 211 distinct feet and zero invalidations.
+Body feet match each atomic capture throughout. Current-run F6 was not observed;
+prior F6 acceptance stands. Evidence: captures/f5-frame/runtime-20261012-122224Z/.
+
+User now authorizes the proposed terrain collision work. Existing MHW segment
+adapter is implemented/live measured; the missing guest request/result path is
+the first bounded slice. Added explicit host-metre queries through the existing
+guest connection, one pending request, bounded input and monotonic timeout,
+strict result decoding and atomic command/reply. No movement or save changes.
+Tests pin existing Rust/C# wire bytes and stale/unrelated/invalid/lifecycle cases;
+Fabric build and cargo workspace tests pass. See docs/guest-terrain-query.md.
+Live queries and terrain-driven movement remain pending.
+
+Verified guest jar installed after control/filter release and PID-verified SIGTERM
+of only MHW 376733 and Minecraft 376648; both exited. Scoped backup:
+`native/mhw-renderer/build/rollback.guest-terrain.nncspc4o/`. All three installed
+artifacts cmp-match their builds; native/managed and seven enabled flags preserved.
+Control OFF; no launches. Next manual reopen into loaded offline scenes, then
+explicit host-coordinate floor/wall queries. No live guest-query acceptance yet.
+
+
 ## 2026-10-12 — Verified F5 frame guard installed
 
 Native implementation 28c19e5 installed after fresh process/window closure checks.
