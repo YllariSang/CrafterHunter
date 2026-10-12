@@ -63,11 +63,35 @@ class AnchorReader:
         return data, guest, host, generation, epoch
 
 
+def validate_strip_reply(lines, nonce, segments, issued, now):
+    """All-or-nothing batch: no geometry from partial, mixed, stale or nonflat data."""
+    if (not lines or lines[0].split()!=[str(nonce),'batch','8'] or len(lines)!=9
+            or len(segments)!=8 or now<issued or now-issued>=.5):
+        raise RuntimeError('Incomplete, mismatched or stale strip batch')
+    samples=[]
+    for i,(line,segment) in enumerate(zip(lines[1:],segments)):
+        f=line.split()
+        if len(f)!=9 or f[:2]!=[str(i),'hit']:
+            raise RuntimeError('Strip requires eight ordered hits')
+        v=list(map(float,f[2:8]));hx,hy,hz,nx,ny,nz=v
+        attribute=int(f[8])
+        if (not 0<=attribute<=0xffffffff or not all(map(math.isfinite,v))
+                or abs(hx-segment[0])>.001 or abs(hz-segment[2])>.001
+                or not segment[4]<=hy<=segment[1]
+                or abs(nx*nx+ny*ny+nz*nz-1)>.01 or ny<.999):
+            raise RuntimeError('Invalid strip hit geometry')
+        samples.append(v)
+    if max(v[1] for v in samples)-min(v[1] for v in samples)>.01:
+        raise RuntimeError('Strip is not flat within one centimetre')
+    return samples
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--pid',type=int,required=True)
     parser.add_argument('--seconds',type=int,default=60)
     parser.add_argument('--output',type=Path,required=True)
+    parser.add_argument('--strip',action='store_true',help='Two adjoining fixed cells along +X; eight-ray batch')
     args=parser.parse_args()
     if not 1<=args.seconds<=120:
         parser.error('duration must be 1..120 seconds')
@@ -102,6 +126,35 @@ def main():
             offsets=[(0,0),(-.25,-.25),(-.25,.25),(.25,-.25),(.25,.25)]
             index=0
             while time.monotonic()-start<args.seconds:
+                if args.strip:
+                    strip_offsets=offsets+[(.5,0),(.75,-.25),(.75,.25)]
+                    active();x,y,z=host
+                    segments=[[x+dx,y+1,z+dz,x+dx,y-5,z+dz] for dx,dz in strip_offsets]
+                    nonce=secrets.randbelow(2**63-1)+1
+                    if (CHANNEL/'terrain.request').exists():raise RuntimeError('Another query pending')
+                    issued=time.monotonic()
+                    values=[v for segment in segments for v in segment]
+                    atomic(CHANNEL/'terrain.request',f'batch {nonce} {int(time.time()*1000)+1000} 8 '+
+                           ' '.join(map(str,values))+'\n')
+                    answer=None
+                    while time.monotonic()-issued<1:
+                        active()
+                        try:
+                            lines=(CHANNEL/'terrain.reply').read_text().splitlines()
+                            if lines and lines[0].split()[0]==str(nonce):answer=lines;break
+                        except FileNotFoundError:pass
+                        time.sleep(.005)
+                    now=time.monotonic()
+                    samples=validate_strip_reply(answer,nonce,segments,issued,now)
+                    records.append({'nonce':nonce,'hits':samples,'elapsed':now-start,
+                                    'round_trip_ms':(now-issued)*1000})
+                    active();now=time.monotonic();age=math.ceil((now-issued)*1000)
+                    if age>=500:raise RuntimeError('Strip batch too slow; collider remains disabled')
+                    fields=[2,time.monotonic_ns(),int(time.time()*1000),token,generation,epoch,*guest,*host]
+                    for v in samples:fields.extend([*v,age])
+                    atomic(patch,' '.join(map(str,fields))+'\n');published+=1
+                    if published==1:print('Fresh two-cell strip published; fixed +X, 1m by 0.5m',flush=True)
+                    continue
                 active();dx,dz=offsets[index];x,y,z=host
                 segment=[x+dx,y+1,z+dz,x+dx,y-5,z+dz]
                 nonce=secrets.randbelow(2**63-1)+1
@@ -142,7 +195,7 @@ def main():
             patch.unlink(missing_ok=True)
             os.close(reader.fd)
             report={'token':token,'generation':generation,'epoch':epoch,'guest_origin':guest,'host_origin':host,
-                    'published':published,'reason':reason,'rays':records,'limits':'Flat sampled patch only; collider hook counts and landing still require game evidence'}
+                    'published':published,'reason':reason,'strip':args.strip,'rays':records,'limits':'Flat sampled patch only; collider hook counts and landing still require game evidence'}
             (args.output/'ground-sampler.json').write_text(json.dumps(report,indent=2)+'\n')
             print(json.dumps({k:v for k,v in report.items() if k!='rays'}),flush=True)
     return 0 if published else 1

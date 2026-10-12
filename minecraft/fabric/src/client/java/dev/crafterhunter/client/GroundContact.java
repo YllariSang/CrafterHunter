@@ -39,6 +39,28 @@ public final class GroundContact {
         double x=a.guestX+centre.x-a.hostX,z=a.guestZ+centre.z-a.hostZ;
         return new Patch(x-.25,a.guestY+top-a.hostY,z-.25,x+.25,z+.25);
     }
+    /** Two adjacent cells along fixed host/guest +X, sharing their boundary rays.
+     * All eight samples must agree; no interpolation over missing/nonflat cells. */
+    public static java.util.List<Patch> flatStrip(Anchor a, Hit[] hits, long generation,
+                                                 long epoch, long token, long now) {
+        if(a==null || hits==null || hits.length!=8 || hits[0]==null || hits[5]==null)
+            return null;
+        Patch left=flatPatch(a,new Hit[]{hits[0],hits[1],hits[2],hits[3],hits[4]},
+                            generation,epoch,token,now);
+        Patch right=flatPatch(a,new Hit[]{hits[5],hits[3],hits[4],hits[6],hits[7]},
+                             generation,epoch,token,now);
+        if(left==null || right==null || Math.abs(hits[0].x-a.hostX)>.001
+                || Math.abs(hits[0].z-a.hostZ)>.001
+                || Math.abs(hits[5].x-hits[0].x-.5)>.001
+                || Math.abs(hits[5].z-hits[0].z)>.001) return null;
+        double low=Double.POSITIVE_INFINITY,high=Double.NEGATIVE_INFINITY;
+        for(Hit h:hits) { low=Math.min(low,h.y); high=Math.max(high,h.y); }
+        if(high-low>.01) return null;
+        // Snap only validated sub-millimetre serialization differences at the seam.
+        double x=a.guestX,z=a.guestZ,top=a.guestY+low-a.hostY;
+        return java.util.List.of(new Patch(x-.25,top,z-.25,x+.25,z+.25),
+                                 new Patch(x+.25,top,z-.25,x+.75,z+.25));
+    }
     private static boolean finite(double... values) {
         for(double v:values) if(!Double.isFinite(v)) return false;
         return true;

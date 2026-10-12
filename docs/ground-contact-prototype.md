@@ -219,3 +219,51 @@ The preceding60-query OFF probe observed median pickup20.31ms vs38.47ms before,
 round trip65.69ms vs78.15ms, all hits; largest five-query sum457.28ms. Evidence:
 captures/ground-contact/query-timing-20261012-142356Z/. Cross-session file timing,
 not controlled causal speed attribution or exact host stage timing.
+
+## Two-cell flat strip (implementation; live acceptance pending)
+
+The next bounded extension uses two adjacent 0.5m squares along fixed +X. The
+first is the accepted anchor-centred cell; the second is centred 0.5m east.
+Bounds relative to guest anchor: X[-0.25,+0.75], Z[-0.25,+0.25]. They do not follow
+Steve or recalibrate on F5. Each cell retains centre + four-corner validation,
+sharing two seam corners (eight distinct rays). All eight must be fresh, upward,
+unit-normal, on-segment hits agreeing in height within1cm. Both cells use their
+common minimum height and an exact shared seam after validating float-coordinate
+rounding. Missing/nonflat/expired data refuses the whole strip; no extrapolation.
+This is a sampled finite approximation, not continuous terrain extraction.
+
+`tools/control-ground-contact.py --pid PID --seconds 120 --output DIR --strip`
+opts into eight-ray batches. Without --strip the accepted single-cell sampler
+is unchanged. One complete batch is in flight at a time; every sample age starts
+at local batch issue, conservatively before host execution. Query response may
+take up to1s, but publication/guest admission still require every sample <500ms.
+Previous geometry also expires during a slow subsequent batch; expiry is never
+renewed by rereading it. Reply loss, a miss, nonflatness, anchor/lease change or
+F6 ends sampling and removes the patch. A fresh batch is not claimed to be a
+single simultaneous host frame. No host ray budget or native rendering change.
+
+Local ground.patch version2 has the same12-field header as version1 followed by
+eight7-field hit/age records (68 fields total). Hit order: original centre, four
+original corners, adjacent centre, two outer corners. Version1 remains readable.
+Frame stores an immutable one/two-cell list; GroundRuntime builds their union for
+the same exact UUID and client/server levels. Shape expiry, tick/ack heartbeat,
+Creative/not-flying gating, first-person/F5 behavior and F6 clearing are unchanged.
+Logs include cells=1/2. The fixed strip is intentionally small: tests should cross
+the shared seam to X=anchor+0.65, jump/reland, then release. A0.6m-wide player at
+that centre has no overlap with the original cell, proving adjacent support.
+Do not walk beyond X=anchor+0.75 during the first check or move sideways in Z.
+
+Headless tests exercise the actual Minecraft solver across the seam, upward jump,
+fall beyond the outer edge, original-cell-only refusal at the far test point,
+missing/stale/nonflat corner rejection and version2/legacy channel bounds. Batch
+reply admission tests reject partial, duplicate, out-of-order-index, stale,
+wrong-nonce, nonunit and off-segment geometry. Guest endpoint tests cover bounded
+batch admission, out-of-order network replies reconstructed in input order,
+duplicate/foreign refusal, no partial publication, timeout/disconnect and complete
+validation before sending. Build success does not establish live strip support.
+
+Verified guest-only strip build installed after both games exited. Backup:
+`native/mhw-renderer/build/rollback.ground-strip.uvpa2ya5/`. All3 cmp-clean;
+native/managed/seven flags preserved. Games closed/control OFF. Next manual
+restart and batch timing/centred landing/+X seam crossing/jump/F6 evidence;
+no live strip acceptance yet.

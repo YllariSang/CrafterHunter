@@ -47,6 +47,34 @@ public class GroundContactTest {
         check(new GroundPatchChannel().decode(text,3,1,2,now,999)==null,"future wall publication accepted");
         check(new GroundPatchChannel().decode(text,4,1,2,now,1050)==null,"wrong ownership accepted");
         check(new GroundPatchChannel().decode(text+" 0",3,1,2,now,1050)==null,"extra fields accepted");
+        Hit[] strip={new Hit(-5,-6,0,0,1,0,now),
+            new Hit(-5.25,-6,-.25,0,1,0,now),new Hit(-5.25,-6,.25,0,1,0,now),
+            new Hit(-4.75,-6,-.25,0,1,0,now),new Hit(-4.75,-6,.25,0,1,0,now),
+            new Hit(-4.5,-6,0,0,1,0,now),new Hit(-4.25,-6,-.25,0,1,0,now),
+            new Hit(-4.25,-6,.25,0,1,0,now)};
+        var cells=GroundContact.flatStrip(a,strip,1,2,3,now);
+        check(cells!=null && cells.size()==2 && cells.get(0).maxX()==cells.get(1).minX(),"strip has gap");
+        var shapes=cells.stream().map(c->Shapes.box(c.minX(),c.top()-.05,c.minZ(),c.maxX(),c.top(),c.maxZ())).toList();
+        // Move across the seam and fully beyond the original cell's support.
+        for(double x=0;x<=.7;x+=.05) {
+            check(Math.abs(Shapes.collide(Direction.Axis.Y,body.move(x,0,0),shapes,-.2)+.1)<1e-8,"seam fall");
+            check(Shapes.collide(Direction.Axis.X,body.move(x,-.1,0),shapes,.05)==.05,"seam blocked walking");
+        }
+        check(Shapes.collide(Direction.Axis.Y,body.move(.65,0,0),List.of(shape),-.2)==-.2,"old single cell mutant still supports far cell");
+        check(Shapes.collide(Direction.Axis.Y,body.move(1.1,0,0),shapes,-.2)==-.2,"strip extended beyond sampled edge");
+        check(Shapes.collide(Direction.Axis.Y,body,shapes,.4)==.4,"strip blocked jump");
+        Hit saved=strip[7];strip[7]=null;
+        check(GroundContact.flatStrip(a,strip,1,2,3,now)==null,"missing corner fabricated neighbour");
+        strip[7]=new Hit(-4.25,-5.8,.25,0,1,0,now);
+        check(GroundContact.flatStrip(a,strip,1,2,3,now)==null,"step flattened across cells");
+        strip[7]=new Hit(-4.25,-6,.25,0,1,0,now-500_000_000L);
+        check(GroundContact.flatStrip(a,strip,1,2,3,now)==null,"stale corner accepted");strip[7]=saved;
+        StringBuilder two=new StringBuilder("2 20 1000 3 1 2 80 -60 230 -5 -6 0");
+        for(Hit h:strip) two.append(" ").append(h.x()).append(" ").append(h.y()).append(" ").append(h.z()).append(" 0 1 0 100");
+        var pair=new GroundPatchChannel().decode(two.toString(),3,1,2,now,1050);
+        check(pair!=null && pair.patches().size()==2 && pair.expiresNanos()==now+350_000_000L,"v2 strip channel failed");
+        check(new GroundPatchChannel().decode(two.toString(),3,1,2,now,1400)==null,"stale v2 accepted");
+        check(new GroundPatchChannel().decode(two.toString().replace("2 20","1 20"),3,1,2,now,1050)==null,"v1 accepted strip layout");
         System.out.println("Ground patch channel duplicate, age, ownership and malformed refusal passed");
         System.out.println("Flat patch mapping, lifecycle and actual Minecraft landing/jump/edge collision passed");
     }

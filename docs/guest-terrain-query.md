@@ -27,7 +27,7 @@ The guest UDP worker claims by same-directory atomic rename before reading. It
 uses a 50ms idle poll interval and a 5ms interval for two seconds after a valid
 request (actual cadence also depends on the worker receive loop). Completion
 clears the previous poll deadline; disconnect clears the active window. It still
-allows one outstanding request and limits input to 512 bytes,
+allows one outstanding command and limits single-ray input to 512 bytes,
 finite endpoints within 100000 metres and a segment length in (0,64] metres.
 Expiry is at most five seconds ahead on the same Linux wall clock; request
 round-trip timeout uses the guest's monotonic clock (one second). No cross-game
@@ -37,7 +37,7 @@ for its matching nonce; a stale reply cannot answer a new request.
 Wire kinds 12/13 and their existing 28/36-byte layouts are unchanged. A random
 initial 32-bit wire ID advances for each query, independent of the local nonce.
 The request goes through Minecraft's existing connection, preserving its bridge
-registration. The host retains its two-ray/50ms budget and bounded queues.
+registration. The host retains its existing per-update two-ray budget and bounded queues.
 Answers must have MHW source, zero packet session, matching request ID, exact
 length, valid status, zero reserved bytes and finite geometry. Non-hit geometry
 must be zero. Late and unrelated results cannot replace the current result.
@@ -92,3 +92,25 @@ scales them. Correct this dimensionless-vector conversion with a regression
 before relying on normals for slope decisions; raw engine validity still needs
 guards. Next physics integration must also map through the fixed renderer anchor
 and apply collision consistently to Minecraft client and integrated server.
+
+
+## Bounded local batches for adjacent floor cells
+
+An explicit `batch nonce expiry-unix-ms count start/end...` command permits1–8
+segments, exactly6 coordinates per segment, at most2048 bytes. Single-ray syntax
+and replies remain compatible. The UDP worker validates the entire batch before
+emitting any request, assigns a distinct wire ID to each, and sends up to8 existing
+kind12 packets. The host/protocol/bridge are unchanged. One command remains in
+flight; one command-wide monotonic1s timeout, no retries. Replies are matched by
+ID, strict-decoded as before, and duplicates cannot fill a missing slot. Only all
+completed slots publish `nonce batch count`, followed by indexed status/geometry
+lines in request order. Timeout/disconnect emits the original single status and
+retires the whole batch. Partial hits never become a batch answer.
+
+The collision sampler separately requires all8 hits and <500ms conservative age;
+wire success alone grants no collision. No addresses or host clocks enter the
+message. The existing host queue depth8 and two rays per Tick remain unchanged.
+Audit clarification: current TerrainAdapter.Tick assigns _nextSample but does
+not check it on entry; the50ms constant alone is not evidence of a50ms enforced
+cadence. This slice neither changes that existing behavior nor claims a measured
+host query execution rate.

@@ -79,8 +79,9 @@ final class BridgeClient implements AutoCloseable {
 
                 long now = System.nanoTime();
                 try {
-                    byte[] query = terrain.poll(now, System.currentTimeMillis());
-                    if (query != null) send(activeSocket, Protocol.KIND_TERRAIN_REQUEST, query);
+                    byte[][] queries = terrain.poll(now, System.currentTimeMillis());
+                    if (queries != null)
+                        for (byte[] query : queries) send(activeSocket, Protocol.KIND_TERRAIN_REQUEST, query);
                 } catch (java.nio.file.FileSystemException error) {
                     System.err.println("[CrafterHunter] Terrain diagnostic channel: " + error.getMessage());
                 }

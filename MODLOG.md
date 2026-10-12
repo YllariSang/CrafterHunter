@@ -1,5 +1,41 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Adjacent flat cells and bounded batch queries installed
+
+Implemented explicit --strip in control-ground-contact.py: two fixed half-metre
+cells along anchor+X, sharing seam samples, eight distinct rays. Complete fresh
+hits only, common conservative top, exact shared seam; no moving/chasing patch,
+wall/slope extrapolation or freshness relaxation. Ground channel v2 carries8 hits;
+v1 and the accepted single-cell path remain available. Runtime unions immutable
+cells for the existing UUID/client/server binding; all control/lease/tick gates
+and500ms source-age bounds preserved.
+
+Eight serial round trips provide too little freshness margin. Guest now accepts
+an explicit bounded local batch (1..8 rays,2048 bytes), validates it completely,
+then sends existing kind12 packets with distinct IDs. One command in flight,
+1s timeout, exact ID/status/geometry checks; out-of-order replies reconstruct
+input order, duplicates do not complete missing slots, partial batches never
+publish. Host/bridge/native packet layouts, queues and per-update ray budget
+unchanged. No host clock subtraction. Source audit notes that existing host
+Tick assigns its50ms deadline but does not gate entry; do not claim the constant
+alone enforces20Hz. This slice does not modify that behavior.
+
+Passed Fabric build and actual Minecraft collision/channel tests (seam walk,
+far-cell support beyond old footprint, jump, outer-edge fall, missing/nonflat/stale
+refusal), terrain batch/lifecycle/golden tests, idle-delay and single-ray mutants,
+Python strip parser refusal tests/compile, camera/controller regression, Rust
+workspace tests and diff check. Live batch reliability and two-cell crossing are
+NOT accepted yet; the previous single-cell landing checkpoint remains accepted.
+
+Installed guest-only after PID-verified SIGTERM MHW869745/MC869638 and verified
+exit. Scoped backup/manifest rollback.ground-strip.uvpa2ya5 under native/mhw-renderer/build.
+All3 installed cmp-clean; native/managed and seven flags preserved. Games CLOSED,
+control OFF, no launches. Next MANUAL reopen offline Creative, hover~3 blocks above
+clear grass, first-person/F7/F9 OFF and focus MC. Then one new-session calibration,
+verify batched samples, land and move~0.65m along +X at fixed Z into the second
+cell, jump/reland and F6 drop. Capture positions, cells=2, both counters and original
+screenshots. See docs/ground-contact-prototype.md for exact bounds and limitations.
+
 ## 2026-10-12 — Fixed flat-ground contact accepted live
 
 User reports the landing/jump/F6 test worked flawlessly. Fresh original screenshots,

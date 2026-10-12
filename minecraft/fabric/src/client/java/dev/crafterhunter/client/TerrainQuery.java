@@ -16,11 +16,13 @@ final class TerrainQuery {
     private final Path directory;
     private long nonce, sentAt, nextPoll, responsiveUntil;
     private int wireId = new java.security.SecureRandom().nextInt();
-    private boolean pending;
+    private boolean pending, batch;
+    private int[] ids;
+    private String[] results;
 
     TerrainQuery(Path directory) { this.directory = directory; }
 
-    byte[] poll(long now, long wallMillis) throws IOException {
+    byte[][] poll(long now, long wallMillis) throws IOException {
         if (pending) {
             if (now - sentAt >= TIMEOUT || now < sentAt) finish("timeout");
             return null;
@@ -36,20 +38,32 @@ final class TerrainQuery {
         catch (NoSuchFileException absent) { return null; }
         try {
             nonce = 0;
-            if (Files.size(claim) > 512) throw new IllegalArgumentException("request too large");
+            if (Files.size(claim) > 2048) throw new IllegalArgumentException("request too large");
             String[] fields = Files.readString(claim).trim().split("\\s+");
-            if (fields.length != 8) throw new IllegalArgumentException("request field count");
-            nonce = Long.parseLong(fields[0]);
-            long deadline = Long.parseLong(fields[1]);
+            batch = fields.length > 0 && fields[0].equals("batch");
+            int base = batch ? 4 : 2;
+            if (fields.length < base) throw new IllegalArgumentException("request field count");
+            nonce = Long.parseLong(fields[batch ? 1 : 0]);
+            long deadline = Long.parseLong(fields[batch ? 2 : 1]);
+            int count = batch ? Integer.parseInt(fields[3]) : 1;
+            if (count < 1 || count > 8 || fields.length != base + count*6
+                    || (!batch && Files.size(claim) > 512))
+                throw new IllegalArgumentException("request count/size");
             if (nonce <= 0 || deadline < wallMillis || deadline - wallMillis > 5000)
                 throw new IllegalArgumentException("expired or invalid request");
-            float[] segment = new float[6];
-            for (int i = 0; i < 6; i++) segment[i] = Float.parseFloat(fields[i + 2]);
-            byte[] payload = encode(++wireId, segment);
+            byte[][] payloads = new byte[count][];
+            ids = new int[count]; results = new String[count];
+            // Validate the complete batch before the caller can send any packet.
+            for (int j=0;j<count;j++) {
+                float[] segment = new float[6];
+                for (int i=0;i<6;i++) segment[i] = Float.parseFloat(fields[base+j*6+i]);
+                ids[j] = ++wireId;
+                payloads[j] = encode(ids[j], segment);
+            }
             responsiveUntil = now + ACTIVE_WINDOW;
             sentAt = now;
             pending = true;
-            return payload;
+            return payloads;
         } catch (IllegalArgumentException invalid) {
             finish("invalid");
             return null;
@@ -75,7 +89,9 @@ final class TerrainQuery {
         if (now < sentAt || now - sentAt >= TIMEOUT) { finish("timeout"); return; }
         if (payload.length != 36) return;
         ByteBuffer b = ByteBuffer.wrap(payload).order(ByteOrder.LITTLE_ENDIAN);
-        if (b.getInt() != wireId) return;
+        int id=b.getInt(), index=-1;
+        for(int i=0;i<ids.length;i++) if(ids[i]==id) { index=i; break; }
+        if(index<0 || results[index]!=null) return;
         int status = Byte.toUnsignedInt(b.get());
         if (status > 2 || b.get() != 0 || b.get() != 0 || b.get() != 0) return;
         float[] values = new float[6];
@@ -90,7 +106,12 @@ final class TerrainQuery {
             for (float v : values) result += " " + Float.toString(v);
             result += " " + attribute;
         }
-        finish(result);
+        results[index]=result;
+        for(String value:results) if(value==null) return;
+        if(!batch) { finish(results[0]); return; }
+        StringBuilder reply=new StringBuilder("batch ").append(results.length);
+        for(int i=0;i<results.length;i++) reply.append("\n").append(i).append(" ").append(results[i]);
+        finish(reply.toString());
     }
 
     void disconnect() throws IOException {
@@ -100,6 +121,7 @@ final class TerrainQuery {
 
     private void finish(String result) throws IOException {
         pending = false;
+        ids = null; results = null;
         nextPoll = 0;
         Path temporary = Files.createTempFile(directory, "terrain-reply-", ".tmp");
         try {

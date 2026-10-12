@@ -13,6 +13,20 @@ are bash on purpose - do not rewrite them in fish.
 
 ## Goal and current checkpoint
 
+Latest installed slice (2026-10-12): adjacent flat-floor strip, two0.5m cells along
+fixed anchor+X, eight shared-boundary samples, --strip explicit opt-in. Bounded
+local batch1..8 over existing wire packets removes serial waiting, single command,
+1s timeout, complete replies only. Ground v2 immutable cell union; v1 accepted
+single-cell path preserved.500ms age, host budget/queues, native rendering/F5/F6
+unchanged. Relevant build, real Minecraft seam/edge solver tests, batch refusal/
+lifecycle/mutants, camera/controller and Rust tests pass. Guest-only installed
+cmp-clean after game closure; backup rollback.ground-strip.uvpa2ya5, all3 match,
+native/managed/seven flags preserved. Games CLOSED/control OFF. Next MANUAL
+reopen offline Creative, hover~3 blocks above clear ground, first-person/F7/F9 OFF.
+One new-session calibration, batch reliability then land/walk+0.65X at fixed Z,
+jump and F6 with pose/counters/screenshots. Two-cell walking NOT live accepted;
+previous fixed single-cell pass below remains. See ground-contact-prototype.md.
+
 Latest accepted checkpoint (2026-10-12): centred flat-patch landing, jump/relanding
 and F6 removal PASS with user confirmation plus native-size screenshots, pose
 trace and both client/server collider counters (138/139). Evidence:

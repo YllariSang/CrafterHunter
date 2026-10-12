@@ -28,9 +28,11 @@ fail-closed version handling. See [docs/prior-art.md](docs/prior-art.md).
 
 ## Current milestone
 
-Latest: user accepts the F5 transition guard. Terrain integration now begins with
-the [guest terrain-query path](docs/guest-terrain-query.md), using the existing
-MHW segment adapter. Queries do not yet make Steve collide with MHW terrain.
+Latest: centred landing, jumping and F6 release on a small sampled MHW floor
+patch are accepted live. The next [adjacent flat-floor strip](docs/ground-contact-prototype.md)
+is implemented and tested headlessly; walking across its cell boundary still
+requires live acceptance. Slopes, stairs, walls and general terrain collision remain
+outside this checkpoint.
 
 2026-10-12 latest slice: keep one exported player body, exclude its duplicate from
 paired world capture, retain held-item/armor layers and normal Minecraft display.

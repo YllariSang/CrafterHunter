@@ -9,7 +9,8 @@ public class TerrainQueryTest {
     }
     static int request(TerrainQuery q, Path p, long now, long nonce) throws Exception {
         Files.writeString(p.resolve("terrain.request"), nonce+" 4000 1 2 3.5 -4 5 6.5\n");
-        byte[] bytes=q.poll(now, 1000);
+        byte[][] packets=q.poll(now, 1000);
+        byte[] bytes=packets==null?null:packets[0];
         check(bytes!=null,"no query");
         check(!Files.exists(p.resolve("terrain.request")),"request was not claimed");
         return ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN).getInt();
@@ -54,9 +55,9 @@ public class TerrainQueryTest {
             Files.writeString(p.resolve("terrain.request"),(21+ray)+" 4000 1 2 3.5 -4 5 6.5\n");
             check(q.poll(now+1_000_000L,1000)==null,"active poll is unbounded");
             now+=6_000_000L;
-            byte[] next=q.poll(now,1000);
+            byte[][] next=q.poll(now,1000);
             check(next!=null,"sequential ray charged idle delay after reply");
-            id=ByteBuffer.wrap(next).order(ByteOrder.LITTLE_ENDIAN).getInt();
+            id=ByteBuffer.wrap(next[0]).order(ByteOrder.LITTLE_ENDIAN).getInt();
             check(q.poll(now+6_000_000L,1000)==null,"burst allowed concurrent requests");
         }
         q.receive(result(id,1),now+60_000_000L);
@@ -72,6 +73,42 @@ public class TerrainQueryTest {
         check(q.poll(now+6_000_000L,1000)==null,"disconnect retained burst polling");
         check(q.poll(now+50_000_000L,1000)!=null,"post-disconnect idle query not serviced");
         q.disconnect();
+        String batch="batch 40 4000 8"+" 1 2 3.5 -4 5 6.5".repeat(8)+"\n";
+        Files.writeString(p.resolve("terrain.request"),batch);
+        byte[][] packets=q.poll(20_000_000_000L,1000);
+        check(packets!=null && packets.length==8,"batch was not fully admitted");
+        String previous=Files.readString(p.resolve("terrain.reply"));
+        int[] batchIds=new int[8];
+        for(int i=0;i<8;i++) batchIds[i]=ByteBuffer.wrap(packets[i]).order(ByteOrder.LITTLE_ENDIAN).getInt();
+        check(Arrays.stream(batchIds).distinct().count()==8,"batch wire IDs collide");
+        q.receive(result(batchIds[0]+100,1),20_100_000_000L);
+        for(int i=7;i>0;i--) {
+            q.receive(result(batchIds[i],1),20_100_000_000L);
+            q.receive(result(batchIds[i],1),20_100_000_000L); // duplicates cannot complete it
+        }
+        check(Files.readString(p.resolve("terrain.reply")).equals(previous),"partial batch published");
+        check(q.poll(20_200_000_000L,1000)==null,"second batch admitted while pending");
+        q.receive(result(batchIds[0],0),20_200_000_000L);
+        String expected="40 batch 8\n0 unavailable\n";
+        for(int i=1;i<8;i++) expected+=i+" miss\n";
+        check(Files.readString(p.resolve("terrain.reply")).equals(expected),"out-of-order batch lost input order/status");
+        Files.writeString(p.resolve("terrain.request"),batch.replace(" 40 "," 41 "));
+        packets=q.poll(21_000_000_000L,1000);
+        id=ByteBuffer.wrap(packets[0]).order(ByteOrder.LITTLE_ENDIAN).getInt();
+        q.receive(result(id,1),21_100_000_000L);
+        check(q.poll(22_000_000_000L,1000)==null,"expired batch sent again");
+        check(Files.readString(p.resolve("terrain.reply")).equals("41 timeout\n"),"partial batch survived timeout");
+        q.receive(result(id,2),22_000_000_001L);
+        check(Files.readString(p.resolve("terrain.reply")).equals("41 timeout\n"),"late batch revived");
+        Files.writeString(p.resolve("terrain.request"),"batch 42 4000 9"+" 1 2 3 -4 5 6".repeat(9));
+        check(q.poll(23_000_000_000L,1000)==null,"oversized batch admitted");
+        check(Files.readString(p.resolve("terrain.reply")).equals("42 invalid\n"),"batch bound refusal lost");
+        Files.writeString(p.resolve("terrain.request"),"batch 43 4000 2 1 2 3 -4 5 6 NaN 2 3 -4 5 6");
+        check(q.poll(24_000_000_000L,1000)==null,"partially valid batch emitted packets");
+        Files.writeString(p.resolve("terrain.request"),batch.replace(" 40 "," 44 "));
+        check(q.poll(25_000_000_000L,1000).length==8,"new batch after refusal failed");
+        q.disconnect();
+        check(Files.readString(p.resolve("terrain.reply")).equals("44 disconnected\n"),"disconnect retained batch");
         try(var paths=Files.list(p)) { for(Path f:paths.toList()) Files.delete(f); } Files.delete(p);
         System.out.println("Terrain golden bytes, bounded request, claim, stale/foreign replies and lifecycle passed");
     }

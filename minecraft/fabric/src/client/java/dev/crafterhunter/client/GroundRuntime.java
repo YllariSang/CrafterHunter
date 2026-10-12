@@ -58,13 +58,16 @@ public final class GroundRuntime {
             var server=mc.getSingleplayerServer().getLevel(mc.level.dimension());
             if(server==null) { clear();return; }
             var p=frame.patch();
+            VoxelShape shape=Shapes.empty();
+            for(var cell:frame.patches()) shape=Shapes.or(shape,
+                Shapes.box(cell.minX(),cell.top()-.05,cell.minZ(),cell.maxX(),cell.top(),cell.maxZ()));
             binding=new Binding(mc.player.getUUID(),mc.level,server,
-                Shapes.box(p.minX(),p.top()-.05,p.minZ(),p.maxX(),p.top(),p.maxZ()),
+                shape,
                 Math.min(frame.expiresNanos(),Math.min(ack.expiresNanos(),now+100_000_000L)));
             if(now>=reportAt) {
                 reportAt=now+1_000_000_000L;
                 System.out.println("[CrafterHunter] ground patch seq="+frame.sequence()+" token="+token
-                    +" epoch="+epoch+" top="+p.top()+" client-colliders="+CLIENT.get()+" server-colliders="+SERVER.get());
+                    +" epoch="+epoch+" cells="+frame.patches().size()+" top="+p.top()+" client-colliders="+CLIENT.get()+" server-colliders="+SERVER.get());
             }
         } catch(java.io.IOException | IllegalArgumentException e) { binding=null;frame=null; }
     }
