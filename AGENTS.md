@@ -19,7 +19,10 @@ older no-collision-expansion scope for this bounded line. First slice connects
 existing host rays to the guest endpoint; see docs/guest-terrain-query.md. No
 physics/save edits yet. Verified guest installed (backup rollback.guest-terrain.nncspc4o),
 all3 cmp-clean, native/managed/flags preserved, control OFF and games closed.
-Next manual reopen and explicit floor/wall query evidence. Preserve accepted rendering/F5/input, fixed anchor and
+Live query evidence now passes: eight requests, six hits/two misses, floor agrees
+with hunter feet, three horizontal hits. Evidence captures/guest-terrain/runtime-20261012-124613Z/.
+Control OFF, games open. Next correct TerrainAdapter normal scaling (it divides
+dimensionless normals by 100) before slope use; no Steve physics acceptance. Preserve accepted rendering/F5/input, fixed anchor and
 F6. Combat remains out of scope.
 
 The goal is real Minecraft gameplay inside MHW on Linux/Proton: Minecraft owns

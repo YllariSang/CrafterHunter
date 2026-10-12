@@ -1,5 +1,15 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Guest terrain requests accepted live
+
+Eight bounded queries in the freshly loaded scene: six hits, two misses, matching
+nonces; three floor heights agree with hunter feet and three horizontal segments
+hit nearby surfaces. Original screenshots/logs/report are in
+captures/guest-terrain/runtime-20261012-124613Z/. All3 installed and loaded native
+cmp-clean; control OFF, no calibration or movement. No physics acceptance.
+Source now identifies the 0.01-length normal cause: TerrainAdapter divides normals
+by 100 as well as positions. Correct before slope use; see guest-terrain-query.md.
+
 ## 2026-10-12 — F5 accepted; guest terrain query path
 
 User reports “Everything is good now” after the installed F5 guard test. Bounded

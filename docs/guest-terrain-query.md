@@ -64,3 +64,28 @@ of only MHW 376733 and Minecraft 376648; both exited. Scoped backup:
 artifacts cmp-match their builds; native/managed and seven enabled flags preserved.
 Control OFF; no launches. Next manual reopen into loaded offline scenes, then
 explicit host-coordinate floor/wall queries. No live guest-query acceptance yet.
+
+## 2026-10-12 live guest query evidence
+
+Fresh MC 503565 / MHW 503751, all installed artifacts cmp-clean and loaded native
+cmp-clean. Eight explicit queries through the real guest endpoint produced six
+hits and two misses, each with its own matching nonce; host frame counters
+advanced throughout. Three floor columns (hunter X and +/-1m) returned
+Y=-6.3402185m, matching hunter feet within float serialization precision.
+Horizontal west/south/north rays hit at 2.5335/4.6673/3.8022m; east and the short
+above-head segment missed. All returned hit positions lie within the requested
+segments (off-segment error <0.000001m). Original before/after screenshots and
+logs: captures/guest-terrain/runtime-20261012-124613Z/.
+
+This accepts stationary live guest query transport and hit/miss decoding, not
+Steve terrain collision, exact wall identity, scene-change handling or latency.
+Control stayed off; no calibration, movement, save writes or live channel deletion.
+
+New source finding: TerrainAdapter.TryCast divides both hit positions AND normals
+by UnitsPerMetre=100. All six observed normal lengths are approximately 0.01;
+the corresponding pre-conversion lengths are approximately one. Earlier wording
+that these normals are inherently unusable was premature: the adapter itself
+scales them. Correct this dimensionless-vector conversion with a regression
+before relying on normals for slope decisions; raw engine validity still needs
+guards. Next physics integration must also map through the fixed renderer anchor
+and apply collision consistently to Minecraft client and integrated server.
