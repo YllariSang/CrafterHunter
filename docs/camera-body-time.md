@@ -7,6 +7,30 @@ the unchanged 500ms lease. World capture receipt freshness remains 1000ms.
 Snapshot and acknowledgement formats, source mesh, skin, shaders and depth tests
 are unchanged. Standalone model/camera rendering still uses the fast feed.
 
+Fresh post-install observation is saved under ignored
+`captures/player-camera-occlusion/runtime-20261012-111306Z/`. Installed guest,
+managed and native artifacts and the loaded native shadow cmp-match the tested
+outputs. Generation 152840515317, one calibration epoch 1378, token
+5759468977933993933: 2313 samples over 254.90s, 2300 matching ACTIVE and 13
+matching released acknowledgements, zero sampling errors or alignment
+invalidations. All three F5 modes and 467 distinct body feet positions occur;
+every captured body's generation/feet matches its atomic world capture. User
+original screenshots show first-person body hiding and rear/front Steve.
+Native captures were requested in each mode but may complete after a view change;
+do not assume their mode from the containing folder alone.
+
+The read-only centre probe accepts 2130 coherent third-person samples with 311
+distinct feet positions; maximum absolute X/Y discrepancy is 0.000189/0.000089
+pixels. It refuses 4741 first-person samples and 463 reads crossing a frame or
+capture/plan update. This supports the implemented relative camera/body timing
+correction, not exact GPU/display pairing, screen latency or visual acceptance.
+Camera sequence 7640 temporarily stopped advancing before control released;
+the guest request flag remained present, so this is **not F6 acceptance**.
+Explicit cleanup then confirmed a fresh `armed=0` reply. Channels are preserved,
+games remain open and control is OFF. User walking/flying jitter, cape/item,
+occlusion and responsiveness reports remain pending; previous F6 acceptance
+stands separately. Do not relax the independent lease to keep this request alive.
+
 Verified native implementation 74f2437 is installed, with the expanded regression
 corrected and passing at a722763. Both games exited under the user's explicit
 closure permission; fresh process/window checks preceded installation. Guest and

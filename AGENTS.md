@@ -59,6 +59,22 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Post-install runtime (2026-10-12): user manually reopened games/bridge. Loaded
+native and all installed artifacts cmp-match. New generation 152840515317,
+one epoch 1378/token 5759468977933993933; 2313 samples over 254.90s, 2300 ACTIVE,
+13 released, zero sampling errors/alignment invalidations, all F5 and 467 feet.
+Embedded body generation/feet always match atomic capture. User originals show
+first-person hiding and both third-person views. Centre probe: 2130 coherent
+third-person samples/311 feet, maximum absolute X/Y 0.000189/0.000089px; 4741
+first-person and 463 straddling reads refused. Relative timing fix supported,
+visual jitter/attachments/occlusion/responsiveness report pending. Independent
+camera sequence temporarily held at 7640 before release while guest flag stayed
+present; not F6 acceptance. Explicit cleanup confirms fresh armed=0; games open,
+control OFF, channels/anchor preserved. Evidence:
+captures/player-camera-occlusion/runtime-20261012-111306Z/report.json.
+Do not infer native capture mode from request folder after a rapid F5 change.
+Do not relax the lease or claim exact GPU/display timing from the centre probe.
+
 Current authorized fix (2026-10-12): moving/flying Steve jitter includes cape and
 held item and appears in real and white diagnostics. Stationary off/on is good.
 Read-only native plan versus atomic capture probe: stationary <0.00002px;

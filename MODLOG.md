@@ -1,5 +1,29 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Installed camera/body fix observed; visual report pending
+
+User manually reopened games and bridge. Loaded native shadow and all installed
+artifacts cmp-match tested outputs. Fresh generation 152840515317, one calibration
+epoch 1378, token 5759468977933993933; input objects resolved for this process.
+Evidence: captures/player-camera-occlusion/runtime-20261012-111306Z/report.json.
+Bounded observation: 2313 samples over 254.90s, 2300 matching ACTIVE and 13
+matching released, zero sampling errors/alignment invalidations. All F5 modes,
+467 distinct body feet, all embedded body generation/feet match atomic captures.
+User original screenshots show native first-person body hiding and rear/front
+Steve. Native capture requests can finish after a view change; their folder mode
+alone does not establish the captured camera mode.
+
+Read-only centre probe: 2130 coherent third-person samples, 311 distinct feet;
+maximum absolute X/Y discrepancy 0.000189/0.000089 pixels. Refused 4741
+first-person and 463 frame/capture-plan-straddling reads. Relative timing fix is
+supported; visible walking/flying jitter, cape/item, occlusion and responsiveness
+acceptance still awaits user report. No exact GPU/screen latency or fps claim.
+
+Independent camera sequence briefly held at 7640 before release while the guest
+request flag remained present. This release is not an observed F6 action.
+Explicit stop cleanup confirmed fresh armed=0; live channels preserved, both
+games remain open and control OFF. Preserve lease/freshness and fixed anchor.
+
 ## 2026-10-12 — Captured camera/body timing fix installed
 
 Closed only freshly verified MHW 1497410 and Minecraft 1496818 under explicit
