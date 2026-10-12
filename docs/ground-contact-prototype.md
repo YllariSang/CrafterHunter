@@ -44,3 +44,16 @@ PID-verified closure of MHW 503751 / MC 503565. Scoped backup:
 cmp-clean; native renderer and all seven enabled flags preserved. Control OFF,
 games closed, no launches. Next manual restart and ground/horizontal normal
 comparison; runtime ground-contact wiring is still pending.
+
+## Corrected-normal runtime check (2026-10-12)
+
+Fresh loaded session evidence: captures/guest-terrain/runtime-20261012-125913Z/.
+All three installed artifacts and loaded native renderer cmp-match. The same
+8 segments as runtime-20261012-124613Z return identical statuses (6 hits, 2 misses),
+hit positions and attributes. All 6 normal lengths are within 0.000001 of one;
+the 3 floor normals are exactly (0,1,0). Host frames advance during every query.
+Original before/after screenshots and matching-nonce replies are preserved.
+This accepts the unit conversion in the live guest/host query path. No slopes,
+stairs, scene transitions, physical Steve contact or latency acceptance. Games
+remain open, control OFF. Next connect the prototype to both client/server
+collision using matched fresh queries and the actual renderer anchor.

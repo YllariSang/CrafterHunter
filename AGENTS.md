@@ -25,8 +25,9 @@ Control OFF, games open. Normal scaling corrected and managed/guest installed cm
 rollback.ground-normal.7d2x5xzl; native/flags preserved, games now closed, control OFF.
 GroundContact finite flat-patch prototype passes actual Minecraft Shapes.collide
 landing/jump/edge and lifecycle checks, but has NO runtime movement hook yet.
-Next manual restart to verify unit normals and unchanged hit positions, then
-connect matched patch acquisition and client/server collision with fixed anchor
+Normal correction now accepted live: same 8 rays (6 hits/2 misses), positions and
+attributes unchanged, normals unit length; captures/guest-terrain/runtime-20261012-125913Z/.
+Games open, control OFF. Next connect matched patch acquisition and client/server collision with fixed anchor
 and ACTIVE/F6 lifecycle. See docs/ground-contact-prototype.md; no Steve physics acceptance. Preserve accepted rendering/F5/input, fixed anchor and
 F6. Combat remains out of scope.
 

@@ -1,5 +1,14 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Terrain normal correction accepted live
+
+Same eight segments after restart: six hits/two misses, identical hit positions
+and attributes, all six normals now unit length within 0.000001. Three floor
+normals exactly (0,1,0). Matching-nonce replies, advancing host frames and original
+screenshots in captures/guest-terrain/runtime-20261012-125913Z/. Installed all3
+and loaded native cmp-clean. Games open, control OFF, no physics enabled.
+Ground contact still requires actual-anchor/query and client/server collision wiring.
+
 ## 2026-10-12 — Terrain normal units and flat-ground solver prototype
 
 User authorizes normal correction and ground-contact work. The adapter now divides
