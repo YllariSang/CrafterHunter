@@ -13,6 +13,18 @@ are bash on purpose - do not rewrite them in fish.
 
 ## Goal and current checkpoint
 
+Latest accepted checkpoint (2026-10-12): centred flat-patch landing, jump/relanding
+and F6 removal PASS with user confirmation plus native-size screenshots, pose
+trace and both client/server collider counters (138/139). Evidence:
+captures/ground-contact/runtime-20261012-142354Z/acceptance.json. Fixed epoch1831,
+generation12014104535856;1586 publications without sweep expiry, F6 stops sampler.
+Feet land exactly at mapped floor -56.7598612, jump then reland; F6 falls to-60.
+Games OPEN/control OFF, explicit cleanup armed=0, patch/flag absent. This supersedes
+pending landing states below. Only the fixed0.5m flat patch is accepted; adjacent
+walking coverage, edges, slopes/stairs/walls and survival remain unimplemented or
+unaccepted. Next bounded development: adjacent flat-floor support, preserving
+freshness, fixed anchor, native F5, F6, and client/server movement authority.
+
 Latest installed slice (2026-10-12): measured60 queries with control OFF, median
 pickup38.47ms / total78.15ms (file observation, not host stage attribution).
 Guest TerrainQuery now uses5ms polling for2s after valid query activity, otherwise

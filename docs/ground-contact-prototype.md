@@ -194,3 +194,28 @@ hover about3 blocks above clear ground, first person/F7/F9 OFF. Then compare
 pickup timing, calibrate once for the new session and collect centred landing,
 jump, both collision counters and F6 with a fresh sampler. No runtime speed or
 landing acceptance claim yet.
+
+## 2026-10-12 — Fixed flat-ground contact accepted live
+
+User reports the landing/jump/F6 test worked flawlessly. Fresh original screenshots,
+879 pose/control samples and client/server counters independently support this
+bounded pass. Evidence: captures/ground-contact/runtime-20261012-142354Z/acceptance.json.
+Generation12014104535856, fixed epoch1831, token9116850822019451573. Sampler
+published1586 patches and stopped when F6 removed the guest control flag; no
+five-ray-age failure. X/Z stayed fixed. Falling feet reached patch top
+Y=-56.759861197421145 (41 matching samples in the first landing window), jumped
+to sampled peak -55.50838, then landed again. After matching release sequence4513,
+feet fell to Minecraft ground Y=-60, 3.24014 blocks lower. Final logged collider
+counts client138/server139; original ground-080/085 show ACTIVE/test patch,
+ground-090 shows preview/GROUND OFF. Explicit cleanup confirms armed=0;
+control flag/patch absent, games remain open.
+
+This accepts centred Creative landing, jump/relanding and F6 removal on the fixed
+0.5m square sampled flat patch. It does not accept walking coverage, edges, slopes,
+stairs, walls, survival or general MHW collision. Preserve this checkpoint when
+extending coverage; next bounded development is adjacent flat-floor support.
+
+The preceding60-query OFF probe observed median pickup20.31ms vs38.47ms before,
+round trip65.69ms vs78.15ms, all hits; largest five-query sum457.28ms. Evidence:
+captures/ground-contact/query-timing-20261012-142356Z/. Cross-session file timing,
+not controlled causal speed attribution or exact host stage timing.
