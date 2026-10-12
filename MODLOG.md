@@ -1,5 +1,25 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Terrain normal units and flat-ground solver prototype
+
+User authorizes normal correction and ground-contact work. The adapter now divides
+only positions by 100; raw finite normals are preserved, nonfinite hits refused.
+Tests expose the former unit-normal-to-0.01 regression. Existing host tests and
+managed build pass. GroundContact builds a bounded five-hit flat patch using the
+fixed XYZ anchor with ownership/epoch/generation and freshness refusals. Actual
+installed Minecraft Shapes.collide confirms landing, jumping and finite edges;
+this is headless only, with no runtime movement hook or save changes. See
+docs/ground-contact-prototype.md. Corrected live normals are the next runtime
+gate before connecting patch acquisition to client/server collision.
+
+Verified managed correction and guest prototype installed after release and
+PID-verified closure of MHW 503751 / MC 503565. Scoped backup:
+`native/mhw-renderer/build/rollback.ground-normal.7d2x5xzl/`. All three artifacts
+cmp-clean; native renderer and all seven enabled flags preserved. Control OFF,
+games closed, no launches. Next manual restart and ground/horizontal normal
+comparison; runtime ground-contact wiring is still pending.
+
+
 ## 2026-10-12 — Guest terrain requests accepted live
 
 Eight bounded queries in the freshly loaded scene: six hits, two misses, matching

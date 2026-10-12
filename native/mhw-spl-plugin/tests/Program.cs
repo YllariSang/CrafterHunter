@@ -163,6 +163,22 @@ if (lifecycle.Anchor is not null || lifecycle.InvalidatedBecause is not null)
 }
 Console.WriteLine("Placement lifecycle checks passed.");
 
+// Normals are dimensionless: the old adapter divided them by 100 with positions.
+if (!TerrainRay.TryConvertHit(new Vector3(100, -634.02185f, 300),
+        Vector3.UnitY, out var metres, out var normal) ||
+    Vector3.Distance(metres, new Vector3(1, -6.3402185f, 3)) > 1e-6f || normal != Vector3.UnitY)
+    throw new Exception("Terrain position units or dimensionless normal changed.");
+var slopedNormal = new Vector3(0.6f, 0.8f, 0);
+if (!TerrainRay.TryConvertHit(Vector3.Zero, slopedNormal, out _, out normal) || normal != slopedNormal)
+    throw new Exception("Slope normal was scaled or rewritten.");
+if (!TerrainRay.TryConvertHit(Vector3.Zero, Vector3.Zero, out _, out normal) || normal != Vector3.Zero)
+    throw new Exception("Missing normal became an invented direction.");
+if (TerrainRay.TryConvertHit(new Vector3(float.NaN,0,0), Vector3.UnitY, out metres, out normal) ||
+    metres != Vector3.Zero || normal != Vector3.Zero ||
+    TerrainRay.TryConvertHit(Vector3.Zero, new Vector3(0,float.PositiveInfinity,0), out _, out _))
+    throw new Exception("Non-finite terrain geometry accepted.");
+Console.WriteLine("Terrain hit conversion checks passed: metres, raw normals, invalid refusal.");
+
 // Terrain: the signature table is what the adapter resolves in the game, so a
 // typo or a mangled wildcard here would silently disable terrain queries on
 // the next run. Parse every pattern the way the loader's scanner does.

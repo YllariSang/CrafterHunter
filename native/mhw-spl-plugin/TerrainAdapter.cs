@@ -578,15 +578,10 @@ public sealed class TerrainAdapter : IDisposable
             Marshal.Copy(_triangle + TrianglePositionOffset, _hitPosition, 0, 3);
             Marshal.Copy(_triangle + TriangleNormalOffset, _hitNormal, 0, 3);
             attribute = _triangleAttribute.Invoke(_triangle, 0);
-            hitPosition = new Vector3(
-                _hitPosition[0] / TerrainRay.UnitsPerMetre,
-                _hitPosition[1] / TerrainRay.UnitsPerMetre,
-                _hitPosition[2] / TerrainRay.UnitsPerMetre);
-            hitNormal = new Vector3(
-                _hitNormal[0] / TerrainRay.UnitsPerMetre,
-                _hitNormal[1] / TerrainRay.UnitsPerMetre,
-                _hitNormal[2] / TerrainRay.UnitsPerMetre);
-            return true;
+            return TerrainRay.TryConvertHit(
+                new Vector3(_hitPosition[0], _hitPosition[1], _hitPosition[2]),
+                new Vector3(_hitNormal[0], _hitNormal[1], _hitNormal[2]),
+                out hitPosition, out hitNormal);
         }
         finally
         {

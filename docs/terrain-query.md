@@ -1,5 +1,9 @@
 # Terrain queries: adapter design and verified ABI
 
+2026-10-12 correction: earlier 0.01-length normals were scaled by the adapter
+itself. Only positions now divide by 100; finite engine normals are preserved.
+See ground-contact-prototype.md for verification and remaining runtime gates.
+
 Milestone 3's terrain half. `docs/host-queries.md` records what the loader does
 and does not expose and the six rules the adapter must obey; this file records
 the routine that was chosen, the exact calling contract recovered for it, and

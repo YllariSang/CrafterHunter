@@ -73,3 +73,16 @@ tasks.register('compileBodyCaptureTest', JavaCompile) {
     classpath = sourceSets.client.compileClasspath + sourceSets.client.output
     destinationDirectory = layout.buildDirectory.dir('body-test')
 }
+
+// Uses the user's installed game solver; no copied game implementation.
+tasks.register('compileGroundContactTest', JavaCompile) {
+    source = files('tests/GroundContactTest.java')
+    dependsOn tasks.named('compileClientJava')
+    classpath = sourceSets.client.compileClasspath + sourceSets.client.output
+    destinationDirectory = layout.buildDirectory.dir('ground-test')
+}
+tasks.register('testGroundContact', JavaExec) {
+    dependsOn tasks.named('compileGroundContactTest')
+    classpath = sourceSets.client.compileClasspath + sourceSets.client.output + files(layout.buildDirectory.dir('ground-test'))
+    mainClass = 'GroundContactTest'
+}

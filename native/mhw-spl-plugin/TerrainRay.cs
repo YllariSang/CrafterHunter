@@ -42,6 +42,21 @@ public static class TerrainRay
     /// </summary>
     public const float UnitsPerMetre = 100.0f;
 
+    /// <summary>Only positions have length units; surface normals are dimensionless.
+    /// Preserve the engine vector instead of inventing a direction for zero data.</summary>
+    public static bool TryConvertHit(Vector3 position, Vector3 normal,
+        out Vector3 positionMetres, out Vector3 surfaceNormal)
+    {
+        positionMetres = Vector3.Zero;
+        surfaceNormal = Vector3.Zero;
+        if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) ||
+            !float.IsFinite(position.Z) || !float.IsFinite(normal.X) ||
+            !float.IsFinite(normal.Y) || !float.IsFinite(normal.Z)) return false;
+        positionMetres = position / UnitsPerMetre;
+        surfaceNormal = normal;
+        return true;
+    }
+
     /// <summary>
     /// Byte signatures for build 421810 (Ver. 15.23.00), published by the
     /// MIT-licensed justbustin/minecraft-crossover-bridge and credited in

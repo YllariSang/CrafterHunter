@@ -21,8 +21,13 @@ physics/save edits yet. Verified guest installed (backup rollback.guest-terrain.
 all3 cmp-clean, native/managed/flags preserved, control OFF and games closed.
 Live query evidence now passes: eight requests, six hits/two misses, floor agrees
 with hunter feet, three horizontal hits. Evidence captures/guest-terrain/runtime-20261012-124613Z/.
-Control OFF, games open. Next correct TerrainAdapter normal scaling (it divides
-dimensionless normals by 100) before slope use; no Steve physics acceptance. Preserve accepted rendering/F5/input, fixed anchor and
+Control OFF, games open. Normal scaling corrected and managed/guest installed cmp-clean with scoped backup
+rollback.ground-normal.7d2x5xzl; native/flags preserved, games now closed, control OFF.
+GroundContact finite flat-patch prototype passes actual Minecraft Shapes.collide
+landing/jump/edge and lifecycle checks, but has NO runtime movement hook yet.
+Next manual restart to verify unit normals and unchanged hit positions, then
+connect matched patch acquisition and client/server collision with fixed anchor
+and ACTIVE/F6 lifecycle. See docs/ground-contact-prototype.md; no Steve physics acceptance. Preserve accepted rendering/F5/input, fixed anchor and
 F6. Combat remains out of scope.
 
 The goal is real Minecraft gameplay inside MHW on Linux/Proton: Minecraft owns
