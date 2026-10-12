@@ -142,4 +142,3 @@ Original screenshots, logs, samples and release-check.json retained. Games remai
 open, control OFF. No code/installation or freshness relaxation in this follow-up.
 Next bounded work: synchronize a centred landing capture with the active sampler
 and investigate sweep timing if it recurs, before extending floor coverage.
-
