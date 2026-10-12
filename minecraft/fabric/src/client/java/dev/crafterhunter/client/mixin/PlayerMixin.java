@@ -29,6 +29,7 @@ public abstract class PlayerMixin {
     @Inject(method = "tick", at = @At("TAIL"))
     private void crafterhunter$alignToHostPlayer(CallbackInfo callback) {
         dev.crafterhunter.client.GuestCameraControl.poll();
+        dev.crafterhunter.client.GroundRuntime.tick();
         Minecraft minecraft = Minecraft.getInstance();
         LocalPlayer self = (LocalPlayer) (Object) this;
         PlayerLink.Target target = PlayerLink.instance().update(

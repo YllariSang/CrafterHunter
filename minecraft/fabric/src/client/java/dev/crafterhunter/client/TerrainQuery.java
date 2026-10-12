@@ -23,7 +23,7 @@ final class TerrainQuery {
             return null;
         }
         if (now < nextPoll) return null;
-        nextPoll = now + 100_000_000L;
+        nextPoll = now + 50_000_000L;
         Path request = directory.resolve("terrain.request");
         Path claim = directory.resolve("terrain.claim-" + UUID.randomUUID());
         try { Files.move(request, claim, StandardCopyOption.ATOMIC_MOVE); }

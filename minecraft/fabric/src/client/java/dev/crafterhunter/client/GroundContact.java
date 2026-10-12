@@ -1,6 +1,6 @@
 package dev.crafterhunter.client;
 
-/** Headless flat-ground prototype. No runtime hook or world mutation yet.
+/** Flat-ground geometry used by the opt-in runtime and headless solver tests.
  * A finite sampled patch is an approximation, never an infinite floor. */
 public final class GroundContact {
     private GroundContact() { }

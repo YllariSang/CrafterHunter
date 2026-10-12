@@ -1,4 +1,5 @@
 import dev.crafterhunter.client.GroundContact;
+import dev.crafterhunter.client.GroundPatchChannel;
 import dev.crafterhunter.client.GroundContact.*;
 import net.minecraft.core.Direction;
 import net.minecraft.world.phys.AABB;
@@ -34,6 +35,19 @@ public class GroundContactTest {
         hits[0]=new Hit(-5,-6,0,0,1,0,now+1);
         check(GroundContact.flatPatch(a,hits,1,2,3,now)==null,"future receipt accepted");
         hits[0]=null;check(GroundContact.flatPatch(a,hits,1,2,3,now)==null,"missing ground fabricated");
+        GroundPatchChannel channel=new GroundPatchChannel();
+        StringBuilder message=new StringBuilder("1 10 1000 3 1 2 80 -60 230 -5 -6 0");
+        double[][] points={{-5,0},{-5.25,-.25},{-5.25,.25},{-4.75,-.25},{-4.75,.25}};
+        for(double[] point:points) message.append(" ").append(point[0]).append(" -6 ").append(point[1]).append(" 0 1 0 100");
+        String text=message.toString();
+        var frame=channel.decode(text,3,1,2,now,1050);
+        check(frame!=null && frame.expiresNanos()==now+350_000_000L,"receipt/sampler ages not bounded");
+        check(channel.decode(text,3,1,2,now+10,1050)==null,"duplicate renewed lease");
+        check(new GroundPatchChannel().decode(text,3,1,2,now,1500)==null,"stale initial publication accepted");
+        check(new GroundPatchChannel().decode(text,3,1,2,now,999)==null,"future wall publication accepted");
+        check(new GroundPatchChannel().decode(text,4,1,2,now,1050)==null,"wrong ownership accepted");
+        check(new GroundPatchChannel().decode(text+" 0",3,1,2,now,1050)==null,"extra fields accepted");
+        System.out.println("Ground patch channel duplicate, age, ownership and malformed refusal passed");
         System.out.println("Flat patch mapping, lifecycle and actual Minecraft landing/jump/edge collision passed");
     }
 }

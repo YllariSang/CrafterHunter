@@ -24,7 +24,7 @@ not raw centimetres or Minecraft coordinates. It writes an atomic
 `positive-nonce expiry-unix-ms start.x start.y start.z end.x end.y end.z`
 
 The guest UDP worker claims by same-directory atomic rename before reading. It
-polls at most 10 Hz, allows one outstanding request, limits input to 512 bytes,
+polls at most 20 Hz (ground-contact follow-up), allows one outstanding request, limits input to 512 bytes,
 finite endpoints within 100000 metres and a segment length in (0,64] metres.
 Expiry is at most five seconds ahead on the same Linux wall clock; request
 round-trip timeout uses the guest's monotonic clock (one second). No cross-game

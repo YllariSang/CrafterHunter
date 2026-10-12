@@ -54,6 +54,8 @@ public abstract class HudMixin {
             8, 44, player.live() && playerEnabled ? 0xFF80FF80 : 0xFFFFCC80);
         graphics.fill(4, 54, 460, 66, 0xB0000000);
         graphics.text(minecraft.font, FrameCapture.instance().hudLine(), 8, 58, 0xFF80C0FF);
+        graphics.fill(4, 78, 460, 90, 0xB0000000);
+        graphics.text(minecraft.font, dev.crafterhunter.client.GroundRuntime.hudLine(), 8, 82, 0xFF80C0FF);
         graphics.fill(4, 66, 460, 78, 0xB0000000);
         graphics.text(minecraft.font, dev.crafterhunter.client.GuestCameraControl.hudLine(), 8, 70, 0xFF80C0FF);
     }

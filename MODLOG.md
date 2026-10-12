@@ -1,5 +1,26 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Opt-in flat patch wired to vanilla collision
+
+User explicitly authorizes connecting the prototype to movement. Added a bounded
+fixed-anchor five-ray sampler and immutable short-lived guest patch channel.
+Entity collider collection appends the patch only for the bound UUID and exact
+client/integrated-server worlds, Creative single-player, not flying. F6/token
+change clears immediately; data/ack/tick expiry, pause and world changes refuse.
+No player teleport, velocity rewrite, save/block edits, native renderer or host
+query-budget changes. Query poll/UDP wait now bound sweep scheduling. Headless
+vanilla landing/jump/edge, message age/duplicate/identity tests, Fabric build and
+existing terrain/camera/controller checks pass. Live hook counts, actual landing
+and release remain pending; see docs/ground-contact-prototype.md.
+
+Verified guest runtime build installed after control release and PID-verified
+closure of MHW 572057 and MC 571596. Scoped backup/manifest:
+`native/mhw-renderer/build/rollback.ground-runtime.2_fyymao/`. All three artifacts
+cmp-clean; native/managed and seven enabled flags preserved. Games closed,
+control OFF, no launches; ground sampler has not run. Next manual restart and
+centred Creative landing/jump/F6 with client/server counters and screenshots.
+
+
 ## 2026-10-12 — Terrain normal correction accepted live
 
 Same eight segments after restart: six hits/two misses, identical hit positions

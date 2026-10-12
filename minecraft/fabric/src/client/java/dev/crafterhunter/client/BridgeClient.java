@@ -59,7 +59,8 @@ final class BridgeClient implements AutoCloseable {
         try (DatagramSocket activeSocket = new DatagramSocket()) {
             socket = activeSocket;
             activeSocket.connect(BRIDGE);
-            activeSocket.setSoTimeout(100);
+            // Bound command-to-send wait for the opt-in five-ray ground sweep.
+            activeSocket.setSoTimeout(20);
             sendHello(activeSocket);
 
             long nextKeepAlive = System.nanoTime() + HEARTBEAT_INTERVAL.toNanos();

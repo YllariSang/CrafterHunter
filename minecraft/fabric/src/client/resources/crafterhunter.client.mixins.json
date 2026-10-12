@@ -9,6 +9,7 @@
     "HudMixin",
     "KeyboardMixin",
     "PlayerMixin",
+    "GroundCollisionMixin",
     "WorldCaptureMixin",
     "LevelWorldCaptureMixin",
     "ModelPartAccessor",

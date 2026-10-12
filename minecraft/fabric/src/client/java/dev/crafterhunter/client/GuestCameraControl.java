@@ -20,6 +20,7 @@ public final class GuestCameraControl {
     private static final float[] projection = new float[16];
     private GuestCameraControl() { }
 
+    public static long token() { return request; }
     public static boolean requested() { return request != 0; }
     public static void poll() {
         long token = 0;
@@ -28,6 +29,7 @@ public final class GuestCameraControl {
         } catch (IOException | NumberFormatException exception) { /* absent or invalid releases */ }
         if (token < 0) token = 0;
         if (token != request) {
+            GroundRuntime.clear();
             if (request != 0) {
                 if (CameraLink.instance().enabled() != oldCamera) CameraLink.instance().toggle();
                 if (PlayerLink.instance().enabled() != oldPlayer) PlayerLink.instance().toggle();

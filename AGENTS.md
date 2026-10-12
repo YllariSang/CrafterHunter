@@ -24,11 +24,21 @@ with hunter feet, three horizontal hits. Evidence captures/guest-terrain/runtime
 Control OFF, games open. Normal scaling corrected and managed/guest installed cmp-clean with scoped backup
 rollback.ground-normal.7d2x5xzl; native/flags preserved, games now closed, control OFF.
 GroundContact finite flat-patch prototype passes actual Minecraft Shapes.collide
-landing/jump/edge and lifecycle checks, but has NO runtime movement hook yet.
+landing/jump/edge and lifecycle checks. Latest authorized slice now wires an
+opt-in collider through Entity.collectCollidersIgnoringWorldBorder for the bound
+local/integrated-server player only (Creative, not flying). GroundRuntime immutable
+binding expires on data/ack/tick freshness and clears on F6. Bounded controller
+reads our native fixed anchor and sends rolling five-ray samples; see docs/ground-contact-prototype.md.
+Live hook counts/landing remain unaccepted. Guest runtime installed with all3
+cmp-clean; backup rollback.ground-runtime.2_fyymao, native/managed/flags preserved.
+Games closed, control OFF, sampler not yet run.
 Normal correction now accepted live: same 8 rays (6 hits/2 misses), positions and
 attributes unchanged, normals unit length; captures/guest-terrain/runtime-20261012-125913Z/.
-Games open, control OFF. Next connect matched patch acquisition and client/server collision with fixed anchor
-and ACTIVE/F6 lifecycle. See docs/ground-contact-prototype.md; no Steve physics acceptance. Preserve accepted rendering/F5/input, fixed anchor and
+Next after verified guest installation: reopen Creative offline scenes, fly MC
+vertically ~3 blocks above clear ground, first-person/F7/F9 OFF, one calibration
+there; arm control, sample fixed patch, fly up another block then stop flying
+without horizontal motion. Collect both collider counters, landing/jump/F6
+evidence. No automatic F5 re-anchor or terrain edits. See docs/ground-contact-prototype.md; no Steve physics acceptance. Preserve accepted rendering/F5/input, fixed anchor and
 F6. Combat remains out of scope.
 
 The goal is real Minecraft gameplay inside MHW on Linux/Proton: Minecraft owns

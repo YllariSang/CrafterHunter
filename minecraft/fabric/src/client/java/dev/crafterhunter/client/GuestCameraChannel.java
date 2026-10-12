@@ -43,6 +43,7 @@ public final class GuestCameraChannel {
                 }
             } catch (NumberFormatException exception) { /* malformed is never live */ }
         }
+        public long expiresNanos() { return advancedAt + 500_000_000L; }
         public boolean active(long expectedRequest, long expectedGeneration, long now) {
             return active && request == expectedRequest && generation == expectedGeneration
                 && now >= advancedAt && now - advancedAt < 500_000_000L;
