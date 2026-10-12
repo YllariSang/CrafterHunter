@@ -13,6 +13,15 @@ are bash on purpose - do not rewrite them in fish.
 
 ## Goal and current checkpoint
 
+Latest acceptance (2026-10-13): two-cell flat-strip crossing and F6 removal PASS.
+User confirms all steps including jump; recording independently shows final seam
+crossing and support beyond old cell reach at X99.304/Y-56.71138, then F6 fall to-60.
+Generation1532881589413/epoch1523;1052 batches, max161.97ms, cells=2 and both collider
+counters advance. Evidence captures/ground-contact/runtime-20261012-171142Z/acceptance.json.
+Jump at final far position is user-reported, not measured; earlier excursions/falls
+remain unclassified. No general terrain acceptance. Games OPEN/control OFF after
+F6 and explicit cleanup. This supersedes the closed-game/pending-strip states below.
+
 Latest installed slice (2026-10-12): adjacent flat-floor strip, two0.5m cells along
 fixed anchor+X, eight shared-boundary samples, --strip explicit opt-in. Bounded
 local batch1..8 over existing wire packets removes serial waiting, single command,

@@ -267,3 +267,28 @@ Verified guest-only strip build installed after both games exited. Backup:
 native/managed/seven flags preserved. Games closed/control OFF. Next manual
 restart and batch timing/centred landing/+X seam crossing/jump/F6 evidence;
 no live strip acceptance yet.
+
+## 2026-10-13 — Two-cell strip crossing accepted after restart
+
+User confirms all steps passed. Evidence in
+captures/ground-contact/runtime-20261012-171142Z/acceptance.json (UTC path), original
+ground-115/120 screenshots,1199 pose/ack samples and guest logs. New generation
+1532881589413, epoch1523, token1656793164288025362 after reboot; bridge restarted,
+installed/loaded builds verified and one calibration.1052 complete batches,
+median108.08ms/max161.97ms; sampler stopped when F6 removed control flag.
+
+Final crossing at t112.9–114.1 moved X98.364→99.304 while feet remained exactly
+at mapped top -56.71138374531929, Z227.746→227.783. Far support exceeds original
+cell reach (anchor X98.4763 +0.25 face +0.3 player radius). Support continues to
+t116.83, then matching release sequence14663 and fall to Y=-60. Logs cells=2,
+client1046/server1057; screenshots confirm ACTIVE/patch then preview/OFF at ground.
+User confirms jump; earlier vertical motion exists, but no jump is measured at
+that final far-cell position. Earlier excursions/falls are not classified by
+cause; do not infer flawless collision outside the measured crossing interval.
+
+Accept bounded flat two-cell crossing and release with user-reported jumping.
+No broad terrain, continuous floor coverage, stairs, slopes, walls or survival
+acceptance. Explicit controller cleanup issued after release, games remain open.
+Next bounded development may extend fixed flat coverage while preserving sample
+age, fixed alignment, client/server binding and F6; no implementation in this
+acceptance-recording turn.
