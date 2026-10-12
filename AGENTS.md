@@ -59,6 +59,22 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Latest user video (2026-10-12): reactivated at same generation 152840515317/epoch
+1378, fresh token 8860886702079709933. Recording 192926: 43.00s/1920x1080/1287
+decoded frames shows all views, walking/forward/vertical flight. Reviewed strips
+support body/cape/held-block alignment; foreground/hunter cover Steve, striped
+fragments remain. Not blanket stable occlusion, responsiveness, Present fps or
+latency acceptance. Concrete residual F5 first-to-rear flash: huge Steve close-up
+only in MHW at PTS 10.185744/10.205322 (normal 10.222678) and 26.908567
+(normal 26.932811), Minecraft already normally framed. Evidence/video-review.json:
+captures/player-camera-occlusion/runtime-20261012-111306Z/video-192926/.
+Next bounded goal: identify actual host draw camera versus selected capture/body
+at transitions, then eliminate flash. Render-phase mismatch is a hypothesis.
+No detailed synchronous GPU trace ACTIVE; preserve depth/freshness/lease/F5 anchor.
+F6 not shown; review-end control remains advancing ACTIVE/filter armed, left as
+requested. No new implementation or live diagnostics authorized merely by a
+question about the next goal.
+
 Post-install runtime (2026-10-12): user manually reopened games/bridge. Loaded
 native and all installed artifacts cmp-match. New generation 152840515317,
 one epoch 1378/token 5759468977933993933; 2313 samples over 254.90s, 2300 ACTIVE,

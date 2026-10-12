@@ -1,5 +1,29 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — User video supports attachment timing; exposes F5 flash
+
+Reactivated on request using fresh input resolution, same generation
+152840515317/epoch 1378, token 8860886702079709933, no recalibration. User supplies
+/home/yllaris/Videos/recording_2026-10-12_19.29.26.mp4: 43.00s, 1920x1080,
+1287 decoded frames. Reviewed all views, walking and forward/vertical flight.
+Steve/cape/held block remain associated in examined consecutive strips, supporting
+the relative timing correction. Host foreground/hunter cover Steve during
+crossings; striped fragments remain, not blanket stable occlusion acceptance.
+
+Concrete residual: first-to-rear F5 changes briefly render a huge close-up Steve
+only in MHW while Minecraft already has normal rear framing. PTS 10.185744 and
+10.205322, normal at 10.222678; PTS 26.908567, normal at 26.932811. Full-size
+frames, consecutive strips, source identity and reactivation camera/capture logs
+are ignored under captures/player-camera-occlusion/runtime-20261012-111306Z/
+video-192926/, including video-review.json. Timestamp-derived log window is
+approximate; not exact GPU frame correspondence, Present fps or E2E latency.
+
+Next bounded goal: diagnose actual host draw camera versus capture/body selection
+at F5 transitions, then eliminate the flash. Render-phase mismatch remains a
+hypothesis. No new code/runtime diagnostic or guard/shader/settings change during
+review. F6 not shown; fresh review-end acknowledgement advances ACTIVE, guest
+flag present/filter armed. Control left ACTIVE for user, channels/anchor preserved.
+
 ## 2026-10-12 — Installed camera/body fix observed; visual report pending
 
 User manually reopened games and bridge. Loaded native shadow and all installed

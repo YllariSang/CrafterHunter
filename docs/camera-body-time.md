@@ -7,6 +7,32 @@ the unchanged 500ms lease. World capture receipt freshness remains 1000ms.
 Snapshot and acknowledgement formats, source mesh, skin, shaders and depth tests
 are unchanged. Standalone model/camera rendering still uses the fast feed.
 
+User video `recording_2026-10-12_19.29.26.mp4` follows reactivation with token
+8860886702079709933 at the same generation 152840515317/epoch 1378, without
+recalibration. The 43.00s 1920x1080 recording has 1287 decoded frames. Reviewed
+walking and forward/vertical flying in first/rear/front views; examined consecutive
+frames support Steve/cape/held-block alignment. Foreground beams, railings and
+the hunter cover Steve; striped/checkered fragments still occur. This does not
+accept pixel-perfect dynamic depth, input responsiveness or all flicker removed.
+
+Two first-to-rear transitions show a host-only extreme Steve close-up. It occupies
+recorded frames at PTS 10.185744 and 10.205322, with normal framing at 10.222678,
+then PTS 26.908567, normal again at 26.932811. Minecraft already has ordinary rear
+framing. Original full-size frames and consecutive strips are saved under ignored
+`captures/player-camera-occlusion/runtime-20261012-111306Z/video-192926/`, with
+`video-review.json`, video identity and matching reactivation logs. The log window
+derived from filename/activation UTC timestamps is approximate, not an exact
+GPU/video frame correspondence. Recording cadence is not game Present fps.
+
+Next bounded goal is the F5 transition flash: identify the camera actually used
+for the host draw versus the capture/body selected at the transition, then choose
+a fix. Host render-phase mismatch is a hypothesis, not a measured cause. Preserve
+same-capture body/attachments, existing host/private guest depth, first-person
+hiding, fixed anchor and independent lease; no synchronous detailed trace ACTIVE.
+No F6 event is visible in this clip. Review-end replies remain advancing ACTIVE,
+guest request present and filter armed; control was left as requested. No game
+mutation or implementation change occurred during video review.
+
 Fresh post-install observation is saved under ignored
 `captures/player-camera-occlusion/runtime-20261012-111306Z/`. Installed guest,
 managed and native artifacts and the loaded native shadow cmp-match the tested
