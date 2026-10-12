@@ -6,6 +6,13 @@ struct Requests {
     bool full{}, preview{}, player{};
 };
 
+enum class Fallback { None, Preview, Overlay };
+inline Fallback fallback(bool full,bool preview) {
+    // A refused paired draw (including an F5 transition) must not turn into
+    // an unrelated screen-space overlay just because preview is disabled.
+    return preview ? Fallback::Preview : full ? Fallback::None : Fallback::Overlay;
+}
+
 // Draw hooks can observe many eligible UI calls in one frame. A disabled or
 // refused compositor never trips its success latch, so querying flag files at
 // those calls makes "off" pay repeated filesystem costs. Sample at CH_Frame;

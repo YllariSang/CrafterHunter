@@ -59,6 +59,23 @@ single-hit scan does not return.
 
 ### Still-open composition line
 
+Current authorized change (2026-10-12): user proceeds and reports completed F5
+cycle. Read-only own-renderer CPU frame matrix probe has 6081 coherent samples,
+nine refused; nine at three transitions match old mode while capture/plan is new.
+First/rear W translation differs about 400cm. Latest getter appliedCapture can
+already be new; it is not the supplied frame camera. See docs/f5-frame-transition.md
+and captures/player-camera-occlusion/runtime-20261012-111306Z/f5-camera-frame-report.json.
+Native FrameModeGate retains 32 CPU plans, holds paired world/body across F5 mode
+changes until supplied camera X/Y/W matches that mode, then permits same-mode
+motion without exact latest-camera matching. Full refusal cannot fall back to
+sky overlay unless neither paired mode requested; explicit preview still works.
+All shaders/depth/anchor/freshness/lease/capture lifetime/guest/managed unchanged.
+Near-eye numerical regression rejects both original mutants; nine actual mismatch
+replays and relevant tests/native build pass. Scoped native installation follows
+authorized exact-game closure. No visible F5 improvement or GPU-frame pairing
+claim yet; next manual restart, one first-person calibration, still/moving/flying
+F5/cape/item/foreground/F6 evidence. Do not run detailed trace ACTIVE.
+
 Latest user video (2026-10-12): reactivated at same generation 152840515317/epoch
 1378, fresh token 8860886702079709933. Recording 192926: 43.00s/1920x1080/1287
 decoded frames shows all views, walking/forward/vertical flight. Reviewed strips

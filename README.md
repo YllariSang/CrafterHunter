@@ -62,6 +62,12 @@ uses their capture's actual camera for paired rendering while retaining the fast
 ownership lease. Build/regressions and fourteen real capture replays pass; the
 verified native fix is installed. Visible improvement and camera responsiveness
 remain to be checked after reopening.
+The subsequent user video supports body/cape/item alignment through walking and
+flight, but exposes a brief huge Steve close-up during F5 changes. The
+[F5 frame-camera guard](docs/f5-frame-transition.md) holds guest drawing while the
+selected mode differs from MHW's supplied frame camera, with steady motion cadence
+preserved. Regression/mutant checks and native build pass; visible flash removal
+still needs a fresh runtime check after installation.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link
 work, and the native DX11 renderer displays Minecraft geometry with fixed world

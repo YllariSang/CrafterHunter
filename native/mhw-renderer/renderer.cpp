@@ -34,6 +34,7 @@
 #include "player_uv_debug.hpp"
 #include "exclusive_input.hpp"
 #include "guest_camera.hpp"
+#include "guest_camera_frame.hpp"
 #include "stage_timing.hpp"
 
 using Microsoft::WRL::ComPtr;
@@ -816,6 +817,9 @@ namespace gc=crafterhunter::guest_camera;
 std::mutex mutex;
 gc::Lease lease;
 gc::Plan plan;
+gc::FrameModeGate frameModeGate;
+bool pairedFrameAllowed=false;
+std::uint64_t pairedReadyFrame=0;
 void* mainCamera=nullptr;
 void* mainPlayer=nullptr;
 bool hooksReady=false,hooksEnabled=false,hookFailure=false,ownsFilter=false,reportedReleased=false;
@@ -844,6 +848,29 @@ bool hideFirstPersonBody() {
     std::lock_guard lock(mutex);
     const auto now=GetTickCount64();
     return lease.live(now) && now<plan.expires && plan.mode==0;
+}
+void sampleFrameCamera(const float* scene,float aspect) {
+    std::lock_guard lock(mutex);
+    const auto now=GetTickCount64();
+    const auto priorMode=frameModeGate.mode();
+    const bool priorAllowed=pairedFrameAllowed;
+    const bool paired=compositionRequests.value().full || compositionRequests.value().preview;
+    pairedReadyFrame=frame;
+    if(!paired || !lease.live(now)) {
+        frameModeGate.reset();pairedFrameAllowed=false;return;
+    }
+    pairedFrameAllowed=frameModeGate.observe(plan,aspect,scene,now);
+    if(priorAllowed!=pairedFrameAllowed || priorMode!=frameModeGate.mode())
+        log("guest camera frame gate: frame=%llu request=%llu generation=%llu epoch=%llu capture=%llu mode=%u accepted-mode=%u ready=%d",
+            frame,static_cast<unsigned long long>(plan.request),static_cast<unsigned long long>(plan.generation),
+            static_cast<unsigned long long>(plan.epoch),static_cast<unsigned long long>(plan.captureIdentity),
+            plan.mode,frameModeGate.mode(),pairedFrameAllowed);
+}
+bool pairedFrameReady() {
+    std::lock_guard lock(mutex);
+    const auto now=GetTickCount64();
+    if(!(compositionRequests.value().full || compositionRequests.value().preview) || !lease.live(now)) return true;
+    return now<plan.expires && pairedReadyFrame==frame && pairedFrameAllowed;
 }
 float* STDMETHODCALLTYPE viewHook(void* camera,float* output) {
     float* result=originalView(camera,output);
@@ -1241,8 +1268,13 @@ void traceDraw(ID3D11DeviceContext* ctx, const char* kind, UINT count) {
             const bool fullRequested=compositionRequests.value().full;
             if(fullRequested) composedFrame=drawPairedFull(back.Get(),camera.Get(),ui.Get());
             // Never silently fall back to the sky overlay when paired drawing refuses.
-            if(!composedFrame) composedFrame=pairedRequested ? drawPaired(back.Get(),camera.Get(),ui.Get())
-                : drawFrameComposite(back.Get());
+            if(!composedFrame) {
+                const auto fallback=crafterhunter::composition::fallback(fullRequested,pairedRequested);
+                if(fallback==crafterhunter::composition::Fallback::Preview)
+                    composedFrame=drawPaired(back.Get(),camera.Get(),ui.Get());
+                else if(fallback==crafterhunter::composition::Fallback::Overlay)
+                    composedFrame=drawFrameComposite(back.Get());
+            }
         }
         if(!composedPlayer && stride==32 && cameraDesc.ByteWidth==1072 && uiDesc.ByteWidth==400)
             composedPlayer=drawPlayer(back.Get(),camera.Get(),ui.Get());
@@ -2109,6 +2141,7 @@ bool selectedDepthMapping(float* mapping) {
 }
 
 bool preparePaired(PairedConstants& pair, ComPtr<ID3D11ShaderResourceView>& scene) {
+    if(!guestCamera::pairedFrameReady()) return false;
     if(pairedFailed || !worldTextures.colour || !worldTextures.depth || !worldMetadata.playerKnown
             || !alignmentPlayerKnown || worldMetadata.clipOrigin!=1
             || !worldFreshness.live(GetTickCount64()) || !alignmentSession.anchor.armed) return false;
@@ -2266,7 +2299,7 @@ bool drawPairedFull(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui)
 }
 
 bool drawPlayer(ID3D11Texture2D* back,ID3D11Buffer* camera,ID3D11Buffer* ui) {
-    if(guestCamera::hideFirstPersonBody()) return false;
+    if(!guestCamera::pairedFrameReady() || guestCamera::hideFirstPersonBody()) return false;
     using namespace crafterhunter;
     static player::Asset asset;
     static player::Pose pose;
@@ -2684,6 +2717,7 @@ extern "C" __declspec(dllexport) int CH_Frame(void* singleton, const float* view
         contentPending = -1; lastSelected = sel::NotFound;
         log("backbuffer %ux%u format=%u", width, height, d.Format);
     }
+    guestCamera::sampleFrameCamera(viewProjection,height ? float(width)/height : 0);
     std::memcpy(parameters.projection, viewProjection, sizeof(parameters.projection));
     composed = false;
     composedFrame = false;

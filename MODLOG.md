@@ -1,5 +1,31 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Frame-camera F5 guard built and checked
+
+User authorizes the next changes and completes the requested still F5 cycle.
+Read-only own-symbol probe: 6081 coherent observations/nine refused reads; nine
+samples at three mode transitions have a supplied CPU VP matching the older
+F5 plan while selected capture/plan is newer. First-to-rear W translation differs
+by about 400cm; old-plan X/Y/W comparison is within about 0.000002. Latest getter
+applied capture can already be newer, so that counter is not the frame's supplied
+camera identity. Evidence: captures/player-camera-occlusion/runtime-20261012-111306Z/
+f5-camera-frame-{samples,report}.json. Not simultaneous GPU camera/depth evidence.
+
+Bounded correction holds guest paired/body drawing across mode changes until the
+supplied frame camera matches a plan of the selected F5 mode. Bounded 32-plan CPU
+history admits moving captures without requiring the newest camera matrix; steady
+same-mode motion keeps its cadence. Scope reset on token/generation/epoch, existing
+first-person hiding and all lease/freshness/depth/anchor rules preserved. Refused
+full paired draws no longer become a sky overlay when preview is disabled. No
+shader, wire format, guest/managed, GPU wait/resource-lifetime or gameplay change.
+
+Numerical near-eye flash regression rejects original premature-mode and overlay
+fallback mutants; nine real mismatches replay. Expanded float/effect/aspect/native-Z,
+F5/history/ownership/expiry checks, camera/body, depth viewport/coverage, preview,
+controller/request tests and native Release build pass. All five HLSL literals
+unchanged. See docs/f5-frame-transition.md. Scoped installation follows verified
+closure; visible F5 flash removal remains pending restart/runtime evidence.
+
 ## 2026-10-12 — User video supports attachment timing; exposes F5 flash
 
 Reactivated on request using fresh input resolution, same generation
