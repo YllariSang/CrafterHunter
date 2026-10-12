@@ -54,8 +54,15 @@ replay. Restoring premature mode admission or the old sky fallback fails the
 regression. Native Release build and relevant camera/body, viewport, coverage,
 preview/controller and composition-request checks pass.
 
-Installation follows verified game closure, a scoped backup and cmp checks.
-Visible flash removal remains pending a fresh manual restart, one first-person
+Verified native implementation 28c19e5 is installed after exact game closure and
+fresh process/window checks. Scoped backup/manifest:
+`native/mhw-renderer/build/rollback.f5-frame.zbap48nt/`; pinned installer also
+saved `rollback.ffR6lo/`. All three installed artifacts cmp-match tested builds;
+guest/managed preserved. Normal window closure was unavailable (legacy Hyprland
+dispatcher rejected, xdotool absent); PID-pinned SIGTERM closed only MHW 4803 and
+Minecraft 4710 without SIGKILL. Control OFF; composition/body separation and zero
+floors preserved, channels retained, no game launches. Visible flash removal
+remains pending a fresh manual restart, one first-person
 calibration and repeated F5 transitions while still/walking/flying, including
 cape/held item and F6. The CPU guard does not itself prove exact GPU frame pairing
 or solve every dynamic occlusion artefact. Do not run synchronous detailed GPU

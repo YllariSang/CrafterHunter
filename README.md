@@ -66,8 +66,9 @@ The subsequent user video supports body/cape/item alignment through walking and
 flight, but exposes a brief huge Steve close-up during F5 changes. The
 [F5 frame-camera guard](docs/f5-frame-transition.md) holds guest drawing while the
 selected mode differs from MHW's supplied frame camera, with steady motion cadence
-preserved. Regression/mutant checks and native build pass; visible flash removal
-still needs a fresh runtime check after installation.
+preserved. Regression/mutant checks and native build pass; the verified native
+guard is installed with guest/managed builds preserved. Visible flash removal
+still needs a fresh runtime check after manual restart.
 
 Milestones 1 and 2 are accepted in the real games: the transport and camera link
 work, and the native DX11 renderer displays Minecraft geometry with fixed world

@@ -1,5 +1,23 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Verified F5 frame guard installed
+
+Native implementation 28c19e5 installed after fresh process/window closure checks.
+The legacy Hyprland window-close interface rejected the request and xdotool is
+absent; PID-pinned SIGTERM closed only verified MHW 4803 and Minecraft 4710 under
+standing user permission, no SIGKILL or other-app closure. Camera/input stop
+preceded closure. Record: captures/player-camera-occlusion/runtime-20261012-111306Z/
+closure-f5-frame.json.
+
+Scoped backup/manifest: native/mhw-renderer/build/rollback.f5-frame.zbap48nt/;
+pinned installer also rollback.ffR6lo/. Native replaced, guest and managed
+preserved; all three installed artifacts cmp-match tested builds. Every existing
+render/guest enabled flag remains byte-identical, including zero capture/upload/
+pose floors and body separation. Control OFF; live channels retained, no launch.
+Next manual loaded offline scenes, grounded MC first person/F7/F9 OFF, one
+calibration; repeat F5 while still/walking/flying, cape/item/foreground and F6.
+Visible F5 flash removal and exact GPU frame pairing remain unaccepted.
+
 ## 2026-10-12 — Frame-camera F5 guard built and checked
 
 User authorizes the next changes and completes the requested still F5 cycle.

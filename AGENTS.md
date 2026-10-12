@@ -71,8 +71,13 @@ motion without exact latest-camera matching. Full refusal cannot fall back to
 sky overlay unless neither paired mode requested; explicit preview still works.
 All shaders/depth/anchor/freshness/lease/capture lifetime/guest/managed unchanged.
 Near-eye numerical regression rejects both original mutants; nine actual mismatch
-replays and relevant tests/native build pass. Scoped native installation follows
-authorized exact-game closure. No visible F5 improvement or GPU-frame pairing
+replays and relevant tests/native build pass. Native implementation 28c19e5 is
+installed after PID-pinned SIGTERM closure of only MHW 4803/MC 4710, no SIGKILL;
+normal window-close interfaces were unavailable. Fresh process/window checks,
+scoped backup native/mhw-renderer/build/rollback.f5-frame.zbap48nt/ (pinned installer
+also rollback.ffR6lo/), all three installed artifacts cmp-clean, guest/managed
+preserved. Control OFF, composition/body separation and zero floors preserved;
+live channels retained, no launches. No visible F5 improvement or GPU-frame pairing
 claim yet; next manual restart, one first-person calibration, still/moving/flying
 F5/cape/item/foreground/F6 evidence. Do not run detailed trace ACTIVE.
 
