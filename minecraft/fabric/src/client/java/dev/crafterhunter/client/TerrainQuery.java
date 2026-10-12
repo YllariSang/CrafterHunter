@@ -10,8 +10,11 @@ import java.util.UUID;
  * No physics, world edits, cached surfaces or render-thread work. */
 final class TerrainQuery {
     private static final long TIMEOUT = 1_000_000_000L;
+    private static final long IDLE_POLL = 50_000_000L;
+    private static final long ACTIVE_POLL = 5_000_000L;
+    private static final long ACTIVE_WINDOW = 2_000_000_000L;
     private final Path directory;
-    private long nonce, sentAt, nextPoll;
+    private long nonce, sentAt, nextPoll, responsiveUntil;
     private int wireId = new java.security.SecureRandom().nextInt();
     private boolean pending;
 
@@ -23,7 +26,10 @@ final class TerrainQuery {
             return null;
         }
         if (now < nextPoll) return null;
-        nextPoll = now + 50_000_000L;
+        // Sequential ground rays arrive just after the preceding reply. Do not
+        // charge each one the idle scan delay, including an empty scan between
+        // the reply publication and the writer's next atomic request.
+        nextPoll = now + (now < responsiveUntil ? ACTIVE_POLL : IDLE_POLL);
         Path request = directory.resolve("terrain.request");
         Path claim = directory.resolve("terrain.claim-" + UUID.randomUUID());
         try { Files.move(request, claim, StandardCopyOption.ATOMIC_MOVE); }
@@ -40,6 +46,7 @@ final class TerrainQuery {
             float[] segment = new float[6];
             for (int i = 0; i < 6; i++) segment[i] = Float.parseFloat(fields[i + 2]);
             byte[] payload = encode(++wireId, segment);
+            responsiveUntil = now + ACTIVE_WINDOW;
             sentAt = now;
             pending = true;
             return payload;
@@ -86,10 +93,14 @@ final class TerrainQuery {
         finish(result);
     }
 
-    void disconnect() throws IOException { if (pending) finish("disconnected"); }
+    void disconnect() throws IOException {
+        responsiveUntil = 0;
+        if (pending) finish("disconnected");
+    }
 
     private void finish(String result) throws IOException {
         pending = false;
+        nextPoll = 0;
         Path temporary = Files.createTempFile(directory, "terrain-reply-", ".tmp");
         try {
             Files.writeString(temporary, nonce + " " + result + "\n");

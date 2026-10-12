@@ -13,6 +13,19 @@ are bash on purpose - do not rewrite them in fish.
 
 ## Goal and current checkpoint
 
+Latest installed slice (2026-10-12): measured60 queries with control OFF, median
+pickup38.47ms / total78.15ms (file observation, not host stage attribution).
+Guest TerrainQuery now uses5ms polling for2s after valid query activity, otherwise
+50ms; completion resets poll deadline, disconnect clears burst. One pending query,
+wire/timeouts/500ms collision freshness and host unchanged. Sequential-writer
+regression rejects original idle-delay mutant; terrain, actual Minecraft ground,
+camera/controller tests and Fabric build pass. Installed guest-only after verified
+closure; backup rollback.ground-query-polling.h2co2q0j, all3 cmp-clean and seven
+flags preserved. Games CLOSED/control OFF. Next MANUAL reopen offline Creative,
+hover ~3 blocks above clear ground, first-person/F7/F9 OFF. Then live pickup timing,
+one new-session calibration and synchronized landing/jump/F6. No speed/landing
+acceptance yet. This supersedes older open-game and timing-investigation states.
+
 Latest retries (2026-10-12): centred landing-02 and mouse-active landing-03 both
 refused within 1.51/2.35s on five-ray age >=500ms, before landing instructions.
 Same anchor1806; agent released token7370988025598103233 afterward. Next measure
@@ -538,6 +551,10 @@ coverage remain limitations. Next [MANUAL] after installation: player visibility
 fixed feet alignment and occlusion with F7/F9 OFF; no playable-MVP claim yet.
 
 ## Work discipline
+
+- User standing instruction (2026-10-12): continue authorized development and
+  auditing autonomously until a manual test is needed; do not stop at plans or
+  repeated readiness requests when independent code/audit work remains.
 
 Latest player-only slice: baked complete PlayerModel triangles + resident skin
 and lightweight per-part matrices are implemented/headless-tested. Read

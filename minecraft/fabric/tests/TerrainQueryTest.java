@@ -43,6 +43,35 @@ public class TerrainQueryTest {
         Files.writeString(p.resolve("terrain.request"),"12 500 1 2 3 1 1 3\n");
         check(q.poll(7_000_000_000L,1000)==null,"expired request sent");
         check(Files.readString(p.resolve("terrain.reply")).equals("12 invalid\n"),"expired request not refused");
+        // Reproduce the live sequential-writer gap: the receive loop polls
+        // before the writer has observed the reply and published its next ray.
+        long now=10_000_000_000L;
+        id=request(q,p,now,20);
+        for(int ray=0;ray<5;ray++) {
+            now+=60_000_000L;
+            q.receive(result(id,1),now);
+            check(q.poll(now,1000)==null,"empty post-reply poll produced a request");
+            Files.writeString(p.resolve("terrain.request"),(21+ray)+" 4000 1 2 3.5 -4 5 6.5\n");
+            check(q.poll(now+1_000_000L,1000)==null,"active poll is unbounded");
+            now+=6_000_000L;
+            byte[] next=q.poll(now,1000);
+            check(next!=null,"sequential ray charged idle delay after reply");
+            id=ByteBuffer.wrap(next).order(ByteOrder.LITTLE_ENDIAN).getInt();
+            check(q.poll(now+6_000_000L,1000)==null,"burst allowed concurrent requests");
+        }
+        q.receive(result(id,1),now+60_000_000L);
+        now+=3_000_000_000L;
+        check(q.poll(now,1000)==null,"idle poll produced a request");
+        Files.writeString(p.resolve("terrain.request"),"30 4000 1 2 3.5 -4 5 6.5\n");
+        check(q.poll(now+6_000_000L,1000)==null,"burst did not return to idle polling");
+        check(q.poll(now+50_000_000L,1000)!=null,"idle request not serviced");
+        q.disconnect();
+        now+=60_000_000L;
+        check(q.poll(now,1000)==null,"disconnect poll produced a request");
+        Files.writeString(p.resolve("terrain.request"),"31 4000 1 2 3.5 -4 5 6.5\n");
+        check(q.poll(now+6_000_000L,1000)==null,"disconnect retained burst polling");
+        check(q.poll(now+50_000_000L,1000)!=null,"post-disconnect idle query not serviced");
+        q.disconnect();
         try(var paths=Files.list(p)) { for(Path f:paths.toList()) Files.delete(f); } Files.delete(p);
         System.out.println("Terrain golden bytes, bounded request, claim, stale/foreign replies and lifecycle passed");
     }

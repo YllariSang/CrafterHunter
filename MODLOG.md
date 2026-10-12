@@ -1,5 +1,41 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Reduce repeated guest request-pickup delay
+
+Verified guest-only installation complete after PID-verified SIGTERM of MHW720643
+and Minecraft720188, both exited. Backup/manifest:
+`native/mhw-renderer/build/rollback.ground-query-polling.h2co2q0j/`. All three
+artifacts cmp-clean; native/managed and seven flags preserved. Games closed,
+control OFF, no launches. Next manual reopen into loaded offline scenes, Creative
+hover about3 blocks above clear ground, first person/F7/F9 OFF. Then compare
+pickup timing, calibrate once for the new session and collect centred landing,
+jump, both collision counters and F6 with a fresh sampler. No runtime speed or
+landing acceptance claim yet.
+
+Control-OFF file observation of 60 existing endpoint queries measured median
+78.15ms issue-to-reply, 38.47ms issue-to-request-disappearance, and 44.51ms from
+observed disappearance to reply (medians are separate, not additive). Maximum
+observer polling gaps ranged1.60–4.57ms. Evidence and exact probe:
+`captures/ground-contact/query-timing-20261012-141309Z/`. Request disappearance
+approximates guest claim, not exact UDP send or host execution. These observations
+do not attribute the remaining round trip to a particular process.
+
+TerrainQuery previously charged a50ms idle poll interval even when a new request
+followed the previous reply. Its immediate empty poll could impose that delay
+before the writer published its next ray. Now a valid request opens a bounded
+2s responsive window, using5ms poll intervals; reply completion resets nextPoll,
+and disconnect clears the window. Idle returns to50ms. No worker spin, parallel
+requests, timeout/expiry change, host query-budget change, collider/render/lease
+change or wire-format change. The existing20ms UDP receive timeout still bounds
+worker opportunities, so5ms is a poll floor, not a claimed live service rate.
+
+Headless sequential-writer tests reproduce empty post-reply polls, exercise five
+consecutive rays, enforce one pending query and active poll floor, and verify
+idle fallback/disconnect. Original fixed-idle mutant fails this regression.
+Terrain protocol/lifecycle tests, actual Minecraft ground/channel regressions,
+Fabric build and camera/controller checks pass. Live faster pickup, sweep
+reliability and host-floor landing remain pending restart; preserve500ms expiry.
+
 ## 2026-10-12 — Centred landing retries refused on sample age
 
 Player position verified exactly (98.38,-55.5,229.58), above the existing patch;
