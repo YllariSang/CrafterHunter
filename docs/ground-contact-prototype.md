@@ -122,3 +122,24 @@ closure of MHW 572057 and MC 571596. Scoped backup/manifest:
 cmp-clean; native/managed and seven enabled flags preserved. Games closed,
 control OFF, no launches; ground sampler has not run. Next manual restart and
 centred Creative landing/jump/F6 with client/server counters and screenshots.
+
+## 2026-10-12 — First ground runtime report; landing evidence incomplete
+
+User reports “yes everything works” for centred landing above grass, jump and
+F6 drop. Preserve this as a user report, not independently measured collision.
+Fresh generation 9007844689815, fixed epoch 1806, token 3075147716335039891;
+matching installed artifacts and loaded native checked. Evidence:
+`captures/ground-contact/runtime-20261012-133412Z/` and `landing-01/`.
+Initial stationary 120s sampler published 1967 patches. Landing window published
+1603 before refusing a five-ray sweep over its freshness bound; 870 samples over
+101.58s end while control is still ACTIVE. Recorded client/server collider counts
+remain zero; feet Y spans only -56.88006..-56.63884 (patch top -56.71139).
+Thus this recording does not establish host-floor landing or jump. The sampler
+stopped before the later observed release; do not attribute patch removal to F6.
+Subsequent reply matches released token/generation/epoch at sequence 11237,
+guest control flag and ground.patch absent; explicit cleanup acknowledges armed=0.
+Original screenshots, logs, samples and release-check.json retained. Games remain
+open, control OFF. No code/installation or freshness relaxation in this follow-up.
+Next bounded work: synchronize a centred landing capture with the active sampler
+and investigate sweep timing if it recurs, before extending floor coverage.
+

@@ -13,6 +13,17 @@ are bash on purpose - do not rewrite them in fish.
 
 ## Goal and current checkpoint
 
+Latest ground runtime follow-up (2026-10-12): user reports landing/jump/F6 all
+work, but measured acceptance remains incomplete. See docs/ground-contact-prototype.md
+and captures/ground-contact/runtime-20261012-133412Z/landing-01/. Fixed epoch1806,
+generation9007844689815; sampler published1603 patches then refused a slow five-ray
+sweep before recorded release. All recorded client/server collider counters zero;
+landing/jump not captured. Later matching F6 release11237, actual guest flag absent,
+patch absent and explicit cleanup armed=0 confirmed. Games open/control OFF.
+Do not mark live host collision accepted or broaden terrain coverage yet. Next:
+synchronized centred landing evidence; diagnose sweep timing without weakening
+freshness if it recurs. This supersedes the restart/pending-sampler state below.
+
 Latest authorization (2026-10-12): user accepts the installed F5 guard (“Everything
 is good now”) and authorizes the next terrain-collision work. This supersedes
 older no-collision-expansion scope for this bounded line. First slice connects
