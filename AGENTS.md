@@ -13,6 +13,12 @@ are bash on purpose - do not rewrite them in fish.
 
 ## Goal and current checkpoint
 
+Latest retries (2026-10-12): centred landing-02 and mouse-active landing-03 both
+refused within 1.51/2.35s on five-ray age >=500ms, before landing instructions.
+Same anchor1806; agent released token7370988025598103233 afterward. Next measure
+sequential query stages and reduce avoidable waiting; do not repeat readiness
+requests or relax freshness. See latest MODLOG and ground-contact-prototype notes.
+
 Latest ground runtime follow-up (2026-10-12): user reports landing/jump/F6 all
 work, but measured acceptance remains incomplete. See docs/ground-contact-prototype.md
 and captures/ground-contact/runtime-20261012-133412Z/landing-01/. Fixed epoch1806,

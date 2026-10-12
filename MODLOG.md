@@ -1,5 +1,21 @@
 # CrafterHunter mod journal
 
+## 2026-10-12 — Centred landing retries refused on sample age
+
+Player position verified exactly (98.38,-55.5,229.58), above the existing patch;
+no recalibration. Fresh control token 7370988025598103233, same generation
+9007844689815/epoch1806. landing-02 published11 patches then refused at1.507s;
+landing-03, after requested mouse activity, published19 then refused at2.348s.
+Evidence under captures/ground-contact/runtime-20261012-133412Z/landing-02 and
+landing-03. Final five observed reply spacings were about89–128ms in the latter,
+so rolling five-ray ages exceeded500ms. These are end-to-end query observations,
+not attribution to guest polling, host scheduling or a proven idle-cap cause.
+Neither attempt reached landing instructions; no new collision acceptance.
+Sampler failed closed; agent released control explicitly afterward. Games remain
+open. Next bounded goal: measure the sequential query stages and reduce avoidable
+waiting before another landing run; preserve500ms expiry, host ray budget, fixed
+anchor and collision guards. Do not ask for another identical readiness retry.
+
 ## 2026-10-12 — First ground runtime report; landing evidence incomplete
 
 User reports “yes everything works” for centred landing above grass, jump and
